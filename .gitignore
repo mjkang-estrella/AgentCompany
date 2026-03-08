@@ -1,0 +1,41 @@
+.DS_Store
+
+# Local environment
+.env
+.env.*
+!.env.example
+
+# Editors and shells
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs and runtime output
+*.log
+codex/logs/
+
+# Node / TypeScript
+node_modules/
+.npm/
+.pnpm-store/
+.yarn/
+.next/
+.turbo/
+coverage/
+dist/
+build/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+htmlcov/
+.coverage*
+*.egg-info/

@@ -1,0 +1,5 @@
+model = "gpt-5.4"
+sandbox_mode = "workspace-write"
+developer_instructions = """
+Make narrow, reversible changes and explain exactly what changed.
+"""
