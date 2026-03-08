@@ -14,6 +14,7 @@
 
 # Logs and runtime output
 *.log
+reference/
 codex/logs/
 
 # Node / TypeScript

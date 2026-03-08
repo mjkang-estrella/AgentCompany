@@ -1,0 +1,570 @@
+<html lang="en" vid="0"><head vid="1">
+    <meta charset="UTF-8" vid="2">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" vid="3">
+    <title vid="4">Clarification AI Specs</title>
+    <style vid="5">
+        
+
+        :root {
+            --bg-color: #000000;
+            --surface-color: #050505;
+            --surface-hover: #0a0a0a;
+            --text-primary: #ffffff;
+            --text-secondary: #888888;
+            --text-tertiary: #555555;
+            --accent: #d3691c;
+            --border-color: #222222;
+            --border-light: #333333;
+            
+            --font-main: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            --spacing-xs: 4px;
+            --spacing-sm: 8px;
+            --spacing-md: 16px;
+            --spacing-lg: 24px;
+            --spacing-xl: 48px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: var(--font-main);
+            font-size: 13px;
+            line-height: 1.5;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            display: flex;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        
+        h1, h2, h3, .heading-caps {
+            text-transform: uppercase;
+            font-weight: 500;
+            letter-spacing: 0.5px;
+        }
+
+        h1 { font-size: 24px; margin-bottom: var(--spacing-xl); }
+        h2 { font-size: 16px; margin-bottom: var(--spacing-md); color: var(--text-primary); }
+        h3 { font-size: 11px; margin-bottom: var(--spacing-sm); color: var(--text-secondary); letter-spacing: 1px; }
+
+        .accent-text { color: var(--accent); }
+        .muted-text { color: var(--text-secondary); }
+        .micro-text { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+        
+        .panel {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        .panel-header {
+            padding: var(--spacing-md);
+            border-bottom: 1px solid var(--border-color);
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .panel-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: var(--spacing-lg);
+        }
+
+        
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: var(--bg-color); }
+        ::-webkit-scrollbar-thumb { background: var(--border-color); }
+        ::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
+
+        
+        .panel-left {
+            width: 260px;
+            border-right: 1px solid var(--border-color);
+            background-color: var(--surface-color);
+        }
+
+        .session-list {
+            list-style: none;
+        }
+
+        .session-item {
+            padding: var(--spacing-md) 0;
+            border-bottom: 1px solid var(--border-color);
+            cursor: pointer;
+            transition: color 0.2s ease;
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-xs);
+        }
+
+        .session-item:hover .session-title {
+            color: var(--accent);
+        }
+
+        .session-item.active .session-title {
+            color: var(--accent);
+        }
+
+        .session-date {
+            font-size: 10px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+        }
+
+        .session-title {
+            font-size: 13px;
+            color: var(--text-primary);
+        }
+
+        
+        .panel-mid {
+            flex: 1;
+            border-right: 1px solid var(--border-color);
+            position: relative;
+        }
+
+        .metrics-bar {
+            display: flex;
+            gap: var(--spacing-lg);
+            padding: var(--spacing-sm) var(--spacing-lg);
+            border-bottom: 1px solid var(--border-color);
+            background: var(--bg-color);
+        }
+
+        
+        .metric-readout {
+            display: flex;
+            flex-direction: column;
+            min-width: 80px;
+        }
+
+        .metric-label {
+            font-size: 9px;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 2px;
+            margin-bottom: 4px;
+        }
+
+        .metric-value {
+            font-size: 13px;
+            color: var(--text-primary);
+        }
+        
+        .metric-value.warning { color: var(--accent); }
+
+        .spec-document {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: var(--spacing-xl) var(--spacing-lg);
+        }
+
+        .spec-block {
+            margin-bottom: var(--spacing-xl);
+        }
+
+        .spec-block p {
+            color: var(--text-secondary);
+            margin-bottom: var(--spacing-md);
+            line-height: 1.6;
+        }
+
+        .spec-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: var(--spacing-md);
+        }
+
+        
+        .spec-table tr {
+            border-bottom: 1px solid var(--border-light);
+        }
+
+        .spec-table tr:first-child {
+            border-top: 1px solid var(--border-light);
+        }
+
+        .spec-table td {
+            padding: var(--spacing-sm) 0;
+            vertical-align: top;
+        }
+
+        .spec-table td:first-child {
+            width: 30%;
+            color: var(--text-secondary);
+            font-size: 11px;
+            text-transform: uppercase;
+        }
+
+        .spec-table td:last-child {
+            text-align: right;
+            color: var(--text-primary);
+        }
+
+        
+        .panel-right {
+            width: 400px;
+            background-color: var(--bg-color);
+        }
+
+        .chat-history {
+            flex: 1;
+            overflow-y: auto;
+            padding: var(--spacing-lg);
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-lg);
+        }
+
+        .message {
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-xs);
+        }
+
+        .message-sender {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+        }
+
+        .sender-ai { color: var(--accent); }
+        .sender-user { color: var(--text-secondary); }
+
+        .message-content {
+            color: var(--text-primary);
+            line-height: 1.5;
+        }
+
+        
+        .mc-container {
+            margin-top: var(--spacing-sm);
+            display: flex;
+            flex-direction: column;
+            gap: 1px; 
+            background-color: var(--border-color);
+            border: 1px solid var(--border-color);
+        }
+
+        .mc-option {
+            background-color: var(--bg-color);
+            padding: var(--spacing-md);
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.2s ease;
+        }
+
+        .mc-option-text {
+            color: var(--text-secondary);
+            transition: color 0.2s ease;
+        }
+
+        .mc-option-indicator {
+            font-size: 10px;
+            color: var(--bg-color); 
+            text-transform: uppercase;
+        }
+
+        .mc-option:hover {
+            background-color: var(--surface-hover);
+        }
+
+        .mc-option:hover .mc-option-text {
+            color: var(--text-primary);
+        }
+
+        .mc-option.selected {
+            background-color: var(--surface-color);
+        }
+        
+        .mc-option.selected .mc-option-text {
+            color: var(--accent);
+        }
+
+        .mc-option.selected .mc-option-indicator {
+            color: var(--accent);
+        }
+
+        .chat-input-area {
+            border-top: 1px solid var(--border-color);
+            padding: var(--spacing-md);
+            background-color: var(--surface-color);
+        }
+
+        .input-wrapper {
+            display: flex;
+            border: 1px solid var(--border-light);
+            transition: border-color 0.2s ease;
+        }
+
+        .input-wrapper:focus-within {
+            border-color: var(--text-secondary);
+        }
+
+        input[type="text"] {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: var(--text-primary);
+            padding: var(--spacing-md);
+            font-family: inherit;
+            font-size: 13px;
+            outline: none;
+        }
+
+        input[type="text"]::placeholder {
+            color: var(--text-tertiary);
+        }
+
+        button.send-btn {
+            background: transparent;
+            border: none;
+            color: var(--accent);
+            padding: 0 var(--spacing-md);
+            font-family: inherit;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            transition: color 0.2s ease;
+        }
+
+        button.send-btn:hover {
+            color: var(--text-primary);
+        }
+
+        
+        .flex-row { display: flex; align-items: center; }
+        .justify-between { justify-content: space-between; }
+        .mt-md { margin-top: var(--spacing-md); }
+
+    </style>
+</head>
+<body vid="6">
+
+    
+    <div class="panel panel-left" vid="7">
+        <div class="panel-header" vid="8">
+            <h3 class="heading-caps" style="margin:0;" vid="9">Sessions</h3>
+            <span class="micro-text muted-text" vid="10">[ NEW ]</span>
+        </div>
+        <div class="panel-content" style="padding: 0 var(--spacing-md);" vid="11">
+            <ul class="session-list" vid="12">
+                <li class="session-item active" vid="13">
+                    <span class="session-date" vid="14">Today, 14:32</span>
+                    <span class="session-title" vid="15">E-commerce Auth Flow Architecture</span>
+                </li>
+                <li class="session-item" vid="16">
+                    <span class="session-date" vid="17">Yesterday, 09:15</span>
+                    <span class="session-title" vid="18">Data Pipeline Migration Spec</span>
+                </li>
+                <li class="session-item" vid="19">
+                    <span class="session-date" vid="20">Oct 12, 11:00</span>
+                    <span class="session-title" vid="21">Mobile Onboarding Logic</span>
+                </li>
+                <li class="session-item" vid="22">
+                    <span class="session-date" vid="23">Oct 10, 16:45</span>
+                    <span class="session-title" vid="24">Payment Gateway Integration</span>
+                </li>
+                <li class="session-item" vid="25">
+                    <span class="session-date" vid="26">Oct 05, 13:20</span>
+                    <span class="session-title" vid="27">Notification System Ruleset</span>
+                </li>
+            </ul>
+        </div>
+    </div>
+
+    
+    <div class="panel panel-mid" vid="28">
+        <div class="panel-header" vid="29">
+            <h3 class="heading-caps" style="margin:0;" vid="30">Live Specification</h3>
+            <span class="micro-text accent-text" vid="31">GENERATING...</span>
+        </div>
+        
+        
+        <div class="metrics-bar" vid="32">
+            <div class="metric-readout" vid="33">
+                <span class="metric-label" vid="34">Readiness</span>
+                <span class="metric-value" vid="35">65%</span>
+            </div>
+            <div class="metric-readout" vid="36">
+                <span class="metric-label" vid="37">Structure</span>
+                <span class="metric-value" vid="38">82%</span>
+            </div>
+            <div class="metric-readout" vid="39">
+                <span class="metric-label" vid="40">Ambiguity</span>
+                <span class="metric-value warning" vid="41">High</span>
+            </div>
+            <div class="metric-readout" vid="42">
+                <span class="metric-label" vid="43">Warnings</span>
+                <span class="metric-value warning" vid="44">3</span>
+            </div>
+            <div class="metric-readout" vid="45">
+                <span class="metric-label" vid="46">Open Qs</span>
+                <span class="metric-value" vid="47">2</span>
+            </div>
+        </div>
+
+        <div class="panel-content" vid="48">
+            <div class="spec-document" vid="49">
+                <h1 vid="50">E-commerce Auth Flow Architecture</h1>
+                
+                <div class="spec-block" vid="51">
+                    <h2 vid="52">1. Overview</h2>
+                    <p vid="53">The authentication system handles user registration, login, and session management for the customer-facing e-commerce platform. It requires integration with existing legacy user databases while supporting modern OAuth providers.</p>
+                </div>
+
+                <div class="spec-block" vid="54">
+                    <h2 vid="55">2. Core Requirements</h2>
+                    
+                    <table class="spec-table" vid="56">
+                        <tbody vid="57"><tr vid="58">
+                            <td vid="59">Primary Auth</td>
+                            <td vid="60">Email &amp; Password (Bcrypt)</td>
+                        </tr>
+                        <tr vid="61">
+                            <td vid="62">OAuth Providers</td>
+                            <td vid="63">Google, Apple</td>
+                        </tr>
+                        <tr vid="64">
+                            <td vid="65">Session Strategy</td>
+                            <td vid="66">JWT with HttpOnly Cookies</td>
+                        </tr>
+                        <tr vid="67">
+                            <td vid="68">MFA Supported</td>
+                            <td class="accent-text" vid="69">Pending definition</td>
+                        </tr>
+                        <tr vid="70">
+                            <td vid="71">Password Reset</td>
+                            <td vid="72">Time-limited token via Email</td>
+                        </tr>
+                    </tbody></table>
+                </div>
+
+                <div class="spec-block" vid="73">
+                    <h2 vid="74">3. Edge Cases &amp; Constraints</h2>
+                    <p vid="75">Handling account merging when a user signs up via email, then later attempts to use Google SSO with the same email address. The system must prompt for credential linking.</p>
+                    <table class="spec-table" vid="76">
+                        <tbody vid="77"><tr vid="78">
+                            <td vid="79">Legacy DB Migration</td>
+                            <td vid="80">Read-through caching strategy</td>
+                        </tr>
+                        <tr vid="81">
+                            <td vid="82">Rate Limiting</td>
+                            <td vid="83">5 attempts / 15 mins per IP</td>
+                        </tr>
+                        <tr vid="84">
+                            <td vid="85">Lockout Duration</td>
+                            <td class="accent-text" vid="86">Pending definition</td>
+                        </tr>
+                    </tbody></table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    
+    <div class="panel panel-right" vid="87">
+        <div class="panel-header" vid="88">
+            <h3 class="heading-caps" style="margin:0;" vid="89">Clarification System</h3>
+            <span class="micro-text muted-text" vid="90">ROUND 3/5</span>
+        </div>
+        
+        <div class="chat-history" vid="91">
+            
+            <div class="message" vid="92">
+                <div class="message-sender sender-user" vid="93">
+                    <span vid="94">User</span>
+                </div>
+                <div class="message-content" vid="95">
+                    We need to build the auth flow for the new e-commerce site. Standard email/password, but also Google and Apple login.
+                </div>
+            </div>
+
+            <div class="message" vid="96">
+                <div class="message-sender sender-ai" vid="97">
+                    <span vid="98">System</span>
+                </div>
+                <div class="message-content" vid="99">
+                    Understood. Initializing auth flow specification. How should we handle session management across the web and upcoming mobile app?
+                </div>
+                <div class="mc-container" vid="100">
+                    <div class="mc-option selected" vid="101">
+                        <span class="mc-option-text" vid="102">JWT with HttpOnly cookies</span>
+                        <span class="mc-option-indicator" vid="103">[ SELECTED ]</span>
+                    </div>
+                    <div class="mc-option" vid="104">
+                        <span class="mc-option-text" vid="105">Server-side sessions (Redis)</span>
+                        <span class="mc-option-indicator" vid="106">[ SELECT ]</span>
+                    </div>
+                    <div class="mc-option" vid="107">
+                        <span class="mc-option-text" vid="108">I'm not sure, suggest best practice</span>
+                        <span class="mc-option-indicator" vid="109">[ SELECT ]</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="message" vid="110">
+                <div class="message-sender sender-user" vid="111">
+                    <span vid="112">User</span>
+                </div>
+                <div class="message-content" vid="113">
+                    Let's go with JWT.
+                </div>
+            </div>
+
+            <div class="message mt-md" vid="114">
+                <div class="message-sender sender-ai" vid="115">
+                    <span vid="116">System</span>
+                </div>
+                <div class="message-content" vid="117">
+                    Noted. Spec updated. <br vid="118"><br vid="119">Regarding account security, there is an ambiguity regarding Multi-Factor Authentication (MFA) and account lockout policies. Which lockout policy should we enforce after repeated failed attempts?
+                </div>
+                <div class="mc-container" vid="120">
+                    <div class="mc-option" vid="121">
+                        <span class="mc-option-text" vid="122">Strict: 5 attempts, locked until manual reset</span>
+                        <span class="mc-option-indicator" vid="123">[ SELECT ]</span>
+                    </div>
+                    <div class="mc-option" vid="124">
+                        <span class="mc-option-text" vid="125">Time-based: 5 attempts, 15-minute cooldown</span>
+                        <span class="mc-option-indicator" vid="126">[ SELECT ]</span>
+                    </div>
+                    <div class="mc-option" vid="127">
+                        <span class="mc-option-text" vid="128">Progressive: Delays increase after each failure</span>
+                        <span class="mc-option-indicator" vid="129">[ SELECT ]</span>
+                    </div>
+                    <div class="mc-option" vid="130">
+                        <span class="mc-option-text" vid="131">None required for MVP</span>
+                        <span class="mc-option-indicator" vid="132">[ SELECT ]</span>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <div class="chat-input-area" vid="133">
+            <div class="input-wrapper" vid="134">
+                <input type="text" placeholder="Type response or select an option above..." vid="135">
+                <button class="send-btn" vid="136">Submit</button>
+            </div>
+        </div>
+    </div>
+
+
+</body></html>
