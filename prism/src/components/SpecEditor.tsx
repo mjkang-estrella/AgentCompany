@@ -252,7 +252,7 @@ export default function SpecEditor({ workspace, isSaving, isLocked, onSaveDraft,
             onClick={() => void onExport()}
             disabled={!workspace?.session.is_ready || isLocked}
           >
-            Export Markdown
+            Export Bundle
           </button>
         </div>
       </div>

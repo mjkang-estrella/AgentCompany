@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSessionWorkspace } from "@/lib/clarification";
+import { buildExportBundle } from "@/lib/export";
 
 interface Params {
   params: {
@@ -18,7 +19,7 @@ export async function GET(_: Request, { params }: Params) {
     return NextResponse.json({ error: "Session is not ready for export yet." }, { status: 409 });
   }
 
-  return new NextResponse(workspace.session.spec_content, {
+  return new NextResponse(buildExportBundle(workspace), {
     status: 200,
     headers: {
       "Content-Type": "text/markdown; charset=utf-8",

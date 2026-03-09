@@ -11,6 +11,7 @@ import {
   waitForSessionReconciliation,
 } from "@/lib/clarification";
 import { resetDbForTests } from "@/lib/db";
+import { saveSessionSnapshot } from "@/lib/store";
 import { GET as exportRoute } from "@/app/api/sessions/[id]/export/route";
 
 describe("clarification service", () => {
@@ -82,5 +83,82 @@ describe("clarification service", () => {
     });
 
     expect(response.status).toBe(409);
+  });
+
+  it("exports the source spec, agent handoff, and execution prompt in one markdown bundle", async () => {
+    const workspace = await createSessionWorkspace({
+      title: "Export pack",
+      initialIdea: "A planning assistant for engineering teams.",
+    });
+
+    saveSessionSnapshot(workspace.session.id, {
+      specContent: `# Export pack
+
+## Overview
+
+A planning assistant for engineering teams.
+
+## Problem
+
+Teams lose momentum when project requirements stay vague.
+
+## Users
+
+Engineering managers and ICs.
+
+## Goals
+
+- Turn vague requests into implementation-ready tasks
+- Keep the handoff short and actionable
+
+## Non-Goals
+
+- Full project management
+
+## Constraints
+
+- Keep the workflow lightweight
+- Preserve existing team processes
+
+## Success Criteria
+
+- A team can export a task brief that is implementation-ready
+- The output is clear enough for engineering handoff
+
+## Open Questions
+
+- None.
+
+## Decisions
+
+- Export should include both a human-readable handoff and an execution prompt
+`,
+      clarificationRound: 3,
+      metrics: {
+        ...workspace.metrics,
+        readiness: 93,
+        structure: 100,
+        ambiguity: "Low",
+        warnings: 0,
+        open_questions: 0,
+        overall_score: 93,
+        ambiguity_score: 0.07,
+      },
+      pendingQuestion: null,
+    });
+
+    const response = await exportRoute(new Request("http://localhost"), {
+      params: { id: workspace.session.id },
+    });
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-disposition")).toContain('filename="export-pack.md"');
+    expect(body).toContain("# Export pack");
+    expect(body).toContain("# Agent Handoff");
+    expect(body).toContain("## Acceptance Criteria");
+    expect(body).toContain("# Codex / Claude Code Prompt");
+    expect(body).toContain("Implement the project described below.");
+    expect(body).toContain("Execution requirements:");
   });
 });
