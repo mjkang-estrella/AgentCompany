@@ -111,6 +111,11 @@
             color: var(--accent);
         }
 
+        .session-item.active {
+            border-left: 2px solid var(--accent);
+            padding-left: var(--spacing-sm);
+        }
+
         .session-item.active .session-title {
             color: var(--accent);
         }
@@ -567,4 +572,63 @@
     </div>
 
 
+
+<script>
+    (function () {
+        // Session selection state management
+        const sessionList = document.querySelector('.session-list');
+
+        if (!sessionList) return;
+
+        function selectSession(item) {
+            // Deactivate all sessions
+            sessionList.querySelectorAll('.session-item').forEach(function (el) {
+                el.classList.remove('active');
+                el.setAttribute('aria-selected', 'false');
+            });
+
+            // Activate the clicked session
+            item.classList.add('active');
+            item.setAttribute('aria-selected', 'true');
+        }
+
+        // Attach click listeners to all existing session items
+        sessionList.querySelectorAll('.session-item').forEach(function (item) {
+            // Mark initially-active item for accessibility
+            if (item.classList.contains('active')) {
+                item.setAttribute('aria-selected', 'true');
+            } else {
+                item.setAttribute('aria-selected', 'false');
+            }
+
+            item.addEventListener('click', function () {
+                selectSession(item);
+            });
+
+            // Allow keyboard navigation (Enter / Space)
+            item.setAttribute('tabindex', '0');
+            item.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    selectSession(item);
+                }
+            });
+        });
+
+        // Expose helper so dynamically-added sessions can also register
+        window.prism = window.prism || {};
+        window.prism.selectSession = selectSession;
+        window.prism.registerSessionItem = function (item) {
+            item.setAttribute('tabindex', '0');
+            item.setAttribute('aria-selected', 'false');
+            item.addEventListener('click', function () { selectSession(item); });
+            item.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    selectSession(item);
+                }
+            });
+        };
+    })();
+</script>
 </body></html>
