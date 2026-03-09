@@ -19,6 +19,7 @@ interface ProviderStep {
 }
 
 const OUROBOROS_PRIMARY_MODEL = "claude-opus-4-6";
+const OUROBOROS_SCORING_MODEL = "claude-sonnet-4-6";
 const GPT_FALLBACK_MODEL = "gpt-5.4";
 const OUROBOROS_MAX_TOKENS = 2048;
 
@@ -39,7 +40,7 @@ const TASK_PROVIDER_SETTINGS: Record<StructuredJsonTask, { primary: ProviderStep
   ambiguity_scoring: {
     primary: {
       provider: "anthropic",
-      model: OUROBOROS_PRIMARY_MODEL,
+      model: OUROBOROS_SCORING_MODEL,
       temperature: 0.1,
       maxTokens: OUROBOROS_MAX_TOKENS,
     },
@@ -52,7 +53,7 @@ const TASK_PROVIDER_SETTINGS: Record<StructuredJsonTask, { primary: ProviderStep
   spec_rewrite: {
     primary: {
       provider: "anthropic",
-      model: OUROBOROS_PRIMARY_MODEL,
+      model: OUROBOROS_SCORING_MODEL,
       temperature: 0.2,
       maxTokens: OUROBOROS_MAX_TOKENS,
     },

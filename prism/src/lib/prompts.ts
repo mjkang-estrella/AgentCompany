@@ -51,6 +51,22 @@ Initial context: ${initialContext}
 ${ADAPTED_SOCRATIC_BASE_PROMPT}`;
 }
 
+export function buildChoiceSystemPrompt(): string {
+  return `You generate suggested answer choices for a single clarification question.
+
+Rules:
+- Generate 2-4 concise answer choices for the exact question you are given.
+- Every choice must read like a plausible user answer to that exact question.
+- Do NOT output generic product constraints, timelines, or stack preferences unless the question explicitly asks about constraints.
+- Prefer concrete options over abstract labels.
+- Keep each choice short, but specific.
+
+Return strict JSON with:
+- suggested_choices: array of 2-4 objects, each with:
+  - key: string
+  - label: string`;
+}
+
 export function buildQuestionUserPrompt(input: {
   supportingSpecContext: string;
   transcript: TranscriptEntry[];
@@ -109,8 +125,38 @@ Current score breakdown:
 
 Target the single biggest remaining ambiguity. Do not restate or lightly rephrase any recent assistant question unless the latest answer is still clearly insufficient and you can ask a narrower follow-up. Return strict JSON with:
 - question: string
-- suggested_choices: 2-4 concise options
+- suggested_choices: 2-4 concise options that directly answer the exact question
 - target_dimension: one of "goal", "constraints", "success_criteria", "context"`;
+}
+
+export function buildChoiceUserPrompt(input: {
+  question: string;
+  targetDimension: PendingQuestionDimension;
+  transcript: TranscriptEntry[];
+  supportingSpecContext: string;
+}): string {
+  const transcriptSummary = input.transcript
+    .slice(-8)
+    .map((entry) => `${entry.role === "assistant" ? "Q" : "A"}: ${entry.content}`)
+    .join("\n");
+
+  return `Clarification question:
+${input.question}
+
+Target dimension:
+${input.targetDimension}
+
+Latest conversation context:
+---
+${transcriptSummary || "(no prior rounds)"}
+---
+
+Supporting spec context:
+---
+${input.supportingSpecContext}
+---
+
+Generate answer choices that directly answer the question above.`;
 }
 
 export function buildInterviewContext(initialContext: string, transcript: TranscriptEntry[]): string {
@@ -265,6 +311,28 @@ export const scoringSchema = {
     constraint_clarity_justification: { type: "string" },
     success_criteria_clarity_score: { type: "number", minimum: 0, maximum: 1 },
     success_criteria_clarity_justification: { type: "string" },
+  },
+} as const;
+
+export const choiceSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["suggested_choices"],
+  properties: {
+    suggested_choices: {
+      type: "array",
+      minItems: 2,
+      maxItems: 4,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["key", "label"],
+        properties: {
+          key: { type: "string", minLength: 1 },
+          label: { type: "string", minLength: 1 },
+        },
+      },
+    },
   },
 } as const;
 

@@ -184,7 +184,7 @@ export default function SpecEditor({ workspace, isSaving, isLocked, onSaveDraft,
           <span className={`micro-text ${isSaving ? "accent-text" : "muted-text"}`}>
             {isSaving
               ? "Saving"
-              : workspace?.session.reconciliation_status !== "idle"
+              : workspace && workspace.session.reconciliation_status !== "idle"
                 ? "Updating spec"
                 : workspace
                   ? `Round ${workspace.session.clarification_round}`

@@ -4,12 +4,15 @@ import { hasStructuredJsonProvider, requestStructuredJson } from "@/lib/openai";
 import { buildSupportingSpecContext, isQuestionTooSimilar } from "@/lib/questioning";
 import {
   buildInterviewContext,
+  buildChoiceSystemPrompt,
+  buildChoiceUserPrompt,
   buildQuestionSystemPrompt,
   buildQuestionUserPrompt,
   buildScoringSystemPrompt,
   buildScoringUserPrompt,
   buildSpecUpdateSystemPrompt,
   buildSpecUpdateUserPrompt,
+  choiceSchema,
   questionSchema,
   scoringSchema,
   specUpdateSchema,
@@ -56,6 +59,10 @@ interface QuestionResponse {
   question: string;
   suggested_choices: Array<{ key: string; label: string }>;
   target_dimension: PendingQuestionDimension;
+}
+
+interface ChoiceResponse {
+  suggested_choices: Array<{ key: string; label: string }>;
 }
 
 export async function createSessionWorkspace(payload: CreateSessionPayload): Promise<WorkspacePayload> {
@@ -464,6 +471,13 @@ async function generateNextQuestion(
         });
 
         const candidate = normalizeQuestion(response, metrics, roundNumber);
+        candidate.suggested_choices = await generateSuggestedChoices(
+          candidate,
+          transcript,
+          supportingSpecContext,
+          metrics,
+          session.spec_content
+        );
         if (!isQuestionTooSimilar(candidate.question, recentAssistantQuestions)) {
           return candidate;
         }
@@ -479,6 +493,48 @@ async function generateNextQuestion(
   }
 
   return fallbackQuestion(metrics, session.spec_content, roundNumber, recentAssistantQuestions);
+}
+
+async function generateSuggestedChoices(
+  question: PendingQuestion,
+  transcript: TranscriptEntry[],
+  supportingSpecContext: string,
+  metrics: ClarificationMetrics,
+  specContent: string
+): Promise<PendingQuestion["suggested_choices"]> {
+  const fallbackChoices = question.suggested_choices.length >= 2
+    ? question.suggested_choices
+    : fallbackQuestion(metrics, specContent, question.round_number).suggested_choices;
+
+  if (!hasStructuredJsonProvider()) {
+    return fallbackChoices;
+  }
+
+  try {
+    const response = await requestStructuredJson<ChoiceResponse>({
+      task: "question_generation",
+      schemaName: "clarification_choices",
+      schema: choiceSchema as Record<string, unknown>,
+      systemPrompt: buildChoiceSystemPrompt(),
+      messages: [
+        {
+          role: "user",
+          content: buildChoiceUserPrompt({
+            question: question.question,
+            targetDimension: question.target_dimension,
+            transcript,
+            supportingSpecContext,
+          }),
+        },
+      ],
+    });
+
+    const choices = normalizeChoices(response.suggested_choices);
+    return choices.length >= 2 ? choices : fallbackChoices;
+  } catch (error) {
+    console.error("[Prism] choice generation failed, using fallback choices.", error);
+    return fallbackChoices;
+  }
 }
 
 async function rewriteSpecification(input: {
@@ -765,20 +821,23 @@ function normalizeQuestion(
   roundNumber: number
 ): PendingQuestion {
   const fallback = fallbackQuestion(metrics, "", roundNumber);
-  const choices = (Array.isArray(response.suggested_choices) ? response.suggested_choices : [])
-    .map((choice, index) => ({
-      key: sanitizeChoiceKey(choice.key || `choice-${index + 1}`),
-      label: choice.label?.trim() || "",
-    }))
-    .filter((choice, index, array) => choice.label && array.findIndex((item) => item.label === choice.label) === index)
-    .slice(0, 4);
 
   return {
     question: normalizeQuestionText(response.question || fallback.question),
     target_dimension: response.target_dimension || fallback.target_dimension,
     round_number: roundNumber,
-    suggested_choices: choices.length >= 2 ? choices : fallback.suggested_choices,
+    suggested_choices: normalizeChoices(response.suggested_choices),
   };
+}
+
+function normalizeChoices(rawChoices: Array<{ key: string; label: string }> | undefined): PendingQuestion["suggested_choices"] {
+  return (Array.isArray(rawChoices) ? rawChoices : [])
+    .map((choice, index) => ({
+      key: sanitizeChoiceKey(choice?.key || `choice-${index + 1}`),
+      label: choice?.label?.trim() || "",
+    }))
+    .filter((choice, index, array) => choice.label && array.findIndex((item) => item.label === choice.label) === index)
+    .slice(0, 4);
 }
 
 function targetDimensionToSection(target: PendingQuestionDimension): keyof ReturnType<typeof extractSections> {

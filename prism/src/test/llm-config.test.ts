@@ -30,6 +30,28 @@ describe("llm provider plan", () => {
     ]);
   });
 
+  it("uses Claude Sonnet for scoring and spec rewrite when Anthropic is available", () => {
+    process.env.ANTHROPIC_API_KEY = "anthropic-test-key";
+    process.env.OPENAI_API_KEY = "openai-test-key";
+
+    const scoringPlan = getStructuredJsonProviderPlan("ambiguity_scoring");
+    const rewritePlan = getStructuredJsonProviderPlan("spec_rewrite");
+
+    expect(scoringPlan[0]).toEqual({
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      temperature: 0.1,
+      maxTokens: 2048,
+    });
+
+    expect(rewritePlan[0]).toEqual({
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      temperature: 0.2,
+      maxTokens: 2048,
+    });
+  });
+
   it("uses GPT-5.4 only as fallback when Claude is unavailable", () => {
     delete process.env.ANTHROPIC_API_KEY;
     process.env.OPENAI_API_KEY = "openai-test-key";

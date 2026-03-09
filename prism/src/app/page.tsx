@@ -141,13 +141,13 @@ export default function HomePage() {
       return;
     }
 
-    const timeout = window.setTimeout(() => {
+    const interval = window.setInterval(() => {
       void refreshWorkspace(activeSessionId).catch((error) => {
         setErrorMessage(error instanceof Error ? error.message : "Failed to refresh session.");
       });
     }, 1200);
 
-    return () => window.clearTimeout(timeout);
+    return () => window.clearInterval(interval);
   }, [activeSessionId, reconciliationStatus, refreshWorkspace]);
 
   async function saveDraft(specContent: string) {
