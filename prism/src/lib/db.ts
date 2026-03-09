@@ -85,8 +85,21 @@ function runMigrations(db: Database.Database): void {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS market_reports (
+      session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+      status TEXT NOT NULL DEFAULT 'idle',
+      markdown_content TEXT NOT NULL DEFAULT '',
+      citations_json TEXT,
+      query_plan_json TEXT,
+      spec_snapshot TEXT NOT NULL DEFAULT '',
+      generated_at TEXT,
+      updated_at TEXT NOT NULL,
+      error_message TEXT
+    );
+
     CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON sessions(updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_transcript_session_created_at ON transcript_entries(session_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_market_reports_updated_at ON market_reports(updated_at DESC);
   `);
 
   ensureColumn(db, "sessions", "reconciliation_status", "TEXT NOT NULL DEFAULT 'idle'");

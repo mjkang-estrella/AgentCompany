@@ -8,6 +8,7 @@ export type PendingQuestionDimension =
 
 export type AmbiguityLabel = "Low" | "Medium" | "High";
 export type ReconciliationStatus = "idle" | "pending" | "running";
+export type MarketReportStatus = "idle" | "pending" | "running" | "completed" | "failed";
 
 export interface SuggestedChoice {
   key: string;
@@ -50,6 +51,29 @@ export interface ClarificationMetrics {
   success_criteria_justification: string;
 }
 
+export interface MarketReportCitation {
+  title: string;
+  url: string;
+  domain: string;
+  published_date: string | null;
+}
+
+export interface MarketResearchQuery {
+  label: string;
+  query: string;
+}
+
+export interface MarketReportPayload {
+  status: MarketReportStatus;
+  markdown_content: string;
+  citations: MarketReportCitation[];
+  query_plan: MarketResearchQuery[];
+  spec_snapshot: string;
+  generated_at: string | null;
+  updated_at: string | null;
+  error_message: string | null;
+}
+
 export interface SessionRecord {
   id: string;
   title: string;
@@ -81,6 +105,8 @@ export interface WorkspacePayload {
   transcript: TranscriptEntry[];
   pendingQuestion: PendingQuestion | null;
   metrics: ClarificationMetrics;
+  marketReport: MarketReportPayload | null;
+  researchConfigured: boolean;
 }
 
 export interface CreateSessionPayload {
@@ -136,4 +162,16 @@ export interface TranscriptRow {
   target_dimension: PendingQuestionDimension | null;
   round_number: number;
   created_at: string;
+}
+
+export interface MarketReportRow {
+  session_id: string;
+  status: MarketReportStatus;
+  markdown_content: string;
+  citations_json: string | null;
+  query_plan_json: string | null;
+  spec_snapshot: string;
+  generated_at: string | null;
+  updated_at: string;
+  error_message: string | null;
 }

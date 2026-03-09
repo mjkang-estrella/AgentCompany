@@ -1,6 +1,7 @@
 import os from "os";
 import path from "path";
 import { randomUUID } from "crypto";
+import { vi } from "vitest";
 import {
   createSessionWorkspace,
   getSessionSummaries,
@@ -10,9 +11,12 @@ import {
   updateSessionDraft,
   waitForSessionReconciliation,
 } from "@/lib/clarification";
-import { resetDbForTests } from "@/lib/db";
-import { saveSessionSnapshot } from "@/lib/store";
+import { getDb, resetDbForTests } from "@/lib/db";
+import { saveMarketReport, saveSessionSnapshot } from "@/lib/store";
+import { DELETE as sessionDeleteRoute } from "@/app/api/sessions/[id]/route";
 import { GET as exportRoute } from "@/app/api/sessions/[id]/export/route";
+import { POST as researchRoute } from "@/app/api/sessions/[id]/research-market/route";
+import { waitForSessionMarketResearch } from "@/lib/research";
 
 describe("clarification service", () => {
   beforeEach(() => {
@@ -25,7 +29,9 @@ describe("clarification service", () => {
   afterEach(() => {
     resetDbForTests();
     delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.EXA_API_KEY;
     delete process.env.PRISM_CODEX_DB_PATH;
+    vi.restoreAllMocks();
   });
 
   it("creates a persisted session with a pending question", async () => {
@@ -72,6 +78,43 @@ describe("clarification service", () => {
     expect(getSessionWorkspace(workspace.session.id)?.session.spec_content).toContain("Edited by user");
   });
 
+  it("deletes a session and cascades related records", async () => {
+    const workspace = await createSessionWorkspace({
+      title: "Delete me",
+      initialIdea: "A planning assistant.",
+    });
+
+    saveMarketReport(workspace.session.id, {
+      status: "completed",
+      markdownContent: "# Market Research",
+      citations: [],
+      queryPlan: [],
+      specSnapshot: workspace.session.spec_content,
+      generatedAt: new Date().toISOString(),
+    });
+
+    const response = await sessionDeleteRoute(new Request("http://localhost", { method: "DELETE" }), {
+      params: { id: workspace.session.id },
+    });
+    const db = getDb();
+    const transcriptCount = (
+      db.prepare("SELECT COUNT(*) AS count FROM transcript_entries WHERE session_id = ?").get(workspace.session.id) as {
+        count: number;
+      }
+    ).count;
+    const marketReportCount = (
+      db.prepare("SELECT COUNT(*) AS count FROM market_reports WHERE session_id = ?").get(workspace.session.id) as {
+        count: number;
+      }
+    ).count;
+
+    expect(response.status).toBe(200);
+    expect(getSessionWorkspace(workspace.session.id)).toBeNull();
+    expect(getSessionSummaries()).toHaveLength(0);
+    expect(transcriptCount).toBe(0);
+    expect(marketReportCount).toBe(0);
+  });
+
   it("keeps export disabled until the session is ready", async () => {
     const workspace = await createSessionWorkspace({
       title: "Export gate",
@@ -83,6 +126,44 @@ describe("clarification service", () => {
     });
 
     expect(response.status).toBe(409);
+  });
+
+  it("rejects market research below the clarity threshold", async () => {
+    const workspace = await createSessionWorkspace({
+      title: "Research gate",
+      initialIdea: "A planning assistant.",
+    });
+
+    const response = await researchRoute(new Request("http://localhost"), {
+      params: { id: workspace.session.id },
+    });
+
+    expect(response.status).toBe(409);
+  });
+
+  it("rejects market research when EXA is not configured", async () => {
+    const workspace = await createSessionWorkspace({
+      title: "Research missing key",
+      initialIdea: "A planning assistant.",
+    });
+
+    saveSessionSnapshot(workspace.session.id, {
+      specContent: workspace.session.spec_content,
+      clarificationRound: workspace.session.clarification_round,
+      metrics: {
+        ...workspace.metrics,
+        readiness: 82,
+        structure: 80,
+        overall_score: 82,
+      },
+      pendingQuestion: workspace.pendingQuestion,
+    });
+
+    const response = await researchRoute(new Request("http://localhost"), {
+      params: { id: workspace.session.id },
+    });
+
+    expect(response.status).toBe(503);
   });
 
   it("exports the source spec, agent handoff, and execution prompt in one markdown bundle", async () => {
@@ -160,5 +241,65 @@ Engineering managers and ICs.
     expect(body).toContain("# Codex / Claude Code Prompt");
     expect(body).toContain("Implement the project described below.");
     expect(body).toContain("Execution requirements:");
+  });
+
+  it("stores a single latest market research report without mutating the spec", async () => {
+    process.env.EXA_API_KEY = "exa-test-key";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(async () =>
+        new Response(
+          JSON.stringify({
+            results: [
+              {
+                title: "Reflective voice journaling startups",
+                url: "https://example.com/voice-journaling",
+                publishedDate: "2026-02-01",
+                text: "Founders use voice journaling tools to capture reflections, extract actions, and build accountability loops.",
+              },
+              {
+                title: "Audio note apps for founders",
+                url: "https://example.com/audio-notes-founders",
+                publishedDate: "2026-01-15",
+                text: "Competing products emphasize searchable transcripts, action extraction, and lightweight mobile capture.",
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }
+        )
+      )
+    );
+
+    const workspace = await createSessionWorkspace({
+      title: "Voice research",
+      initialIdea: "Voice journaling app for founders.",
+    });
+
+    saveSessionSnapshot(workspace.session.id, {
+      specContent: workspace.session.spec_content,
+      clarificationRound: workspace.session.clarification_round,
+      metrics: {
+        ...workspace.metrics,
+        readiness: 84,
+        structure: 80,
+        overall_score: 84,
+      },
+      pendingQuestion: workspace.pendingQuestion,
+    });
+
+    const response = await researchRoute(new Request("http://localhost"), {
+      params: { id: workspace.session.id },
+    });
+    await waitForSessionMarketResearch(workspace.session.id);
+    const updated = getSessionWorkspace(workspace.session.id);
+
+    expect(response.status).toBe(200);
+    expect(updated?.marketReport?.status).toBe("completed");
+    expect(updated?.marketReport?.markdown_content).toContain("# Market Research");
+    expect(updated?.marketReport?.markdown_content).toContain("## Sources");
+    expect(updated?.session.spec_content).toBe(workspace.session.spec_content);
   });
 });

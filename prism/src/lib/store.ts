@@ -1,8 +1,11 @@
 import { randomUUID } from "crypto";
 import type Database from "better-sqlite3";
 import { getDb } from "@/lib/db";
+import { hasExaKey } from "@/lib/exa";
 import type {
   ClarificationMetrics,
+  MarketReportPayload,
+  MarketReportRow,
   PendingQuestion,
   ReconciliationStatus,
   SessionRecord,
@@ -11,6 +14,9 @@ import type {
   TranscriptEntry,
   TranscriptRow,
   WorkspacePayload,
+  MarketReportCitation,
+  MarketResearchQuery,
+  MarketReportStatus,
 } from "@/types/workspace";
 
 interface SessionSnapshotInput {
@@ -33,6 +39,17 @@ interface InsertTranscriptInput {
   selectedChoiceLabel?: string | null;
   targetDimension?: TranscriptEntry["target_dimension"];
   roundNumber: number;
+}
+
+interface MarketReportSnapshotInput {
+  status: MarketReportStatus;
+  markdownContent: string;
+  citations: MarketReportCitation[];
+  queryPlan: MarketResearchQuery[];
+  specSnapshot: string;
+  generatedAt?: string | null;
+  updatedAt?: string;
+  errorMessage?: string | null;
 }
 
 export function listSessionSummaries(): SessionSummary[] {
@@ -84,6 +101,9 @@ export function getWorkspace(sessionId: string): WorkspacePayload | null {
        ORDER BY created_at ASC, rowid ASC`
     )
     .all(sessionId) as TranscriptRow[];
+  const marketReportRow = db
+    .prepare("SELECT * FROM market_reports WHERE session_id = ?")
+    .get(sessionId) as MarketReportRow | undefined;
 
   const transcript = transcriptRows.map(mapTranscriptRow);
   const session = mapSessionRow(sessionRow);
@@ -93,6 +113,8 @@ export function getWorkspace(sessionId: string): WorkspacePayload | null {
     transcript,
     pendingQuestion: session.pending_question,
     metrics: session.metrics,
+    marketReport: marketReportRow ? mapMarketReportRow(marketReportRow) : null,
+    researchConfigured: hasExaKey(),
   };
 }
 
@@ -225,6 +247,52 @@ export function insertTranscriptEntry(input: InsertTranscriptInput, db: Database
   };
 }
 
+export function saveMarketReport(
+  sessionId: string,
+  snapshot: MarketReportSnapshotInput,
+  db: Database.Database = getDb()
+): void {
+  const now = snapshot.updatedAt ?? new Date().toISOString();
+
+  db.prepare(
+    `INSERT INTO market_reports (
+      session_id,
+      status,
+      markdown_content,
+      citations_json,
+      query_plan_json,
+      spec_snapshot,
+      generated_at,
+      updated_at,
+      error_message
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(session_id) DO UPDATE SET
+      status = excluded.status,
+      markdown_content = excluded.markdown_content,
+      citations_json = excluded.citations_json,
+      query_plan_json = excluded.query_plan_json,
+      spec_snapshot = excluded.spec_snapshot,
+      generated_at = excluded.generated_at,
+      updated_at = excluded.updated_at,
+      error_message = excluded.error_message`
+  ).run(
+    sessionId,
+    snapshot.status,
+    snapshot.markdownContent,
+    JSON.stringify(snapshot.citations ?? []),
+    JSON.stringify(snapshot.queryPlan ?? []),
+    snapshot.specSnapshot,
+    snapshot.generatedAt ?? null,
+    now,
+    snapshot.errorMessage ?? null
+  );
+}
+
+export function deleteSessionRecord(sessionId: string, db: Database.Database = getDb()): boolean {
+  const result = db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
+  return result.changes > 0;
+}
+
 export function runInTransaction<T>(callback: (db: Database.Database) => T): T {
   const db = getDb();
   const transaction = db.transaction(() => callback(db));
@@ -286,7 +354,33 @@ function mapTranscriptRow(row: TranscriptRow): TranscriptEntry {
   };
 }
 
+function mapMarketReportRow(row: MarketReportRow): MarketReportPayload {
+  return {
+    status: row.status,
+    markdown_content: row.markdown_content,
+    citations: parseArray<MarketReportCitation>(row.citations_json),
+    query_plan: parseArray<MarketResearchQuery>(row.query_plan_json),
+    spec_snapshot: row.spec_snapshot,
+    generated_at: row.generated_at,
+    updated_at: row.updated_at,
+    error_message: row.error_message,
+  };
+}
+
 function parseChoices(raw: string | null): TranscriptEntry["choices"] {
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseArray<T>(raw: string | null): T[] {
   if (!raw) {
     return [];
   }

@@ -83,6 +83,8 @@ function buildWorkspace(): WorkspacePayload {
       constraint_justification: "",
       success_criteria_justification: "",
     },
+    marketReport: null,
+    researchConfigured: false,
   };
 }
 

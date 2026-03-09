@@ -266,6 +266,104 @@ Answer: ${input.answer}
 Rewrite the full markdown spec now.`;
 }
 
+export function buildResearchQueryPlanSystemPrompt(): string {
+  return `You are a market research strategist creating web search queries for a product idea.
+
+Rules:
+- Create exactly 4 search queries.
+- Each query should target a different angle:
+  1. category / problem space
+  2. user pain / workflow
+  3. competitors / substitutes
+  4. solution patterns / positioning
+- Queries should be concise and web-search friendly.
+- Do not include quotation marks unless necessary.
+
+Return strict JSON with:
+- queries: array of 4 objects
+  - label: string
+  - query: string`;
+}
+
+export function buildResearchQueryPlanUserPrompt(input: {
+  title: string;
+  specContent: string;
+  transcriptSummary: string;
+}): string {
+  return `Project title: ${input.title}
+
+Current specification:
+---
+${input.specContent}
+---
+
+Recent clarification context:
+---
+${input.transcriptSummary || "(no transcript yet)"}
+---
+
+Generate 4 search queries that will help produce a market research report for this product idea.`;
+}
+
+export function buildResearchSynthesisSystemPrompt(): string {
+  return `You synthesize market research into a markdown report for a product team.
+
+Rules:
+- Base every claim on the provided source excerpts.
+- Separate observed evidence from speculative suggestions.
+- Do not present synthesis as confirmed fact.
+- Keep the report concise and decision-useful.
+- Do not include a Sources section; it will be appended separately.
+
+Return strict JSON with:
+- report_markdown: string`;
+}
+
+export function buildResearchSynthesisUserPrompt(input: {
+  title: string;
+  specContent: string;
+  queryPlan: Array<{ label: string; query: string }>;
+  searchResults: Array<{ title: string; url: string; domain: string; published_date: string | null; excerpt: string }>;
+}): string {
+  const queryPlan = input.queryPlan.map((item) => `- ${item.label}: ${item.query}`).join("\n");
+  const results = input.searchResults
+    .map(
+      (item, index) => `Result ${index + 1}
+Title: ${item.title}
+Domain: ${item.domain}
+URL: ${item.url}
+Published: ${item.published_date ?? "Unknown"}
+Excerpt: ${item.excerpt || "No excerpt available."}`
+    )
+    .join("\n\n");
+
+  return `Project title: ${input.title}
+
+Current specification snapshot:
+---
+${input.specContent}
+---
+
+Search plan:
+${queryPlan}
+
+Research source excerpts:
+---
+${results}
+---
+
+Write markdown with these sections in order:
+- # Market Research
+- ## Session Snapshot
+- ## Market Thesis
+- ## User Pain Patterns
+- ## Competitor Landscape
+- ## Common Product Patterns
+- ## Positioning Opportunities
+- ## Product Suggestions For This Idea
+- ## Risks / Unknowns`;
+}
+
 export const questionSchema = {
   type: "object",
   additionalProperties: false,
@@ -350,5 +448,36 @@ export const specUpdateSchema = {
       type: "array",
       items: { type: "string" },
     },
+  },
+} as const;
+
+export const researchQueryPlanSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["queries"],
+  properties: {
+    queries: {
+      type: "array",
+      minItems: 4,
+      maxItems: 4,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["label", "query"],
+        properties: {
+          label: { type: "string", minLength: 1 },
+          query: { type: "string", minLength: 3 },
+        },
+      },
+    },
+  },
+} as const;
+
+export const marketResearchSynthesisSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["report_markdown"],
+  properties: {
+    report_markdown: { type: "string", minLength: 1 },
   },
 } as const;

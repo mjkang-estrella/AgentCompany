@@ -14,15 +14,19 @@ export default function HomePage() {
   const [isCreating, setIsCreating] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [isSubmittingAnswer, setIsSubmittingAnswer] = useState(false);
+  const [isStartingResearch, setIsStartingResearch] = useState(false);
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [optimisticAnswer, setOptimisticAnswer] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
   const activeSessionId = workspace?.session.id ?? null;
   const reconciliationStatus = workspace?.session.reconciliation_status ?? "idle";
+  const marketReportStatus = workspace?.marketReport?.status ?? "idle";
   const isReconciling = workspace ? workspace.session.reconciliation_status !== "idle" : false;
+  const isMarketResearchRunning = marketReportStatus === "pending" || marketReportStatus === "running";
   const isAiBusy = isCreating || isSavingDraft || isSubmittingAnswer;
-  const isInteractionLocked = isAiBusy || isSelectingSession;
-  const isQuestionLocked = isCreating || isSubmittingAnswer || isSelectingSession;
-  const isSpecLocked = isAiBusy || isSelectingSession || isReconciling;
+  const isInteractionLocked = isAiBusy || isSelectingSession || deletingSessionId !== null;
+  const isQuestionLocked = isCreating || isSubmittingAnswer || isSelectingSession || deletingSessionId !== null;
+  const isSpecLocked = isAiBusy || isSelectingSession || isReconciling || deletingSessionId !== null;
 
   async function loadSessions(selectFirst = true) {
     setIsLoadingSessions(true);
@@ -137,7 +141,7 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    if (!activeSessionId || reconciliationStatus === "idle") {
+    if (!activeSessionId || (!isReconciling && !isMarketResearchRunning)) {
       return;
     }
 
@@ -148,7 +152,7 @@ export default function HomePage() {
     }, 1200);
 
     return () => window.clearInterval(interval);
-  }, [activeSessionId, reconciliationStatus, refreshWorkspace]);
+  }, [activeSessionId, isMarketResearchRunning, isReconciling, refreshWorkspace]);
 
   async function saveDraft(specContent: string) {
     if (!workspace) {
@@ -212,6 +216,38 @@ export default function HomePage() {
     }
   }
 
+  async function deleteSession(summary: SessionSummary) {
+    setDeletingSessionId(summary.id);
+    setErrorMessage("");
+
+    try {
+      const response = await fetch(`/api/sessions/${summary.id}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => null);
+        throw new Error(error?.error || `Failed to delete session (${response.status})`);
+      }
+
+      const remainingSessions = sessions.filter((session) => session.id !== summary.id);
+      setSessions(remainingSessions);
+
+      if (activeSessionId === summary.id) {
+        setWorkspace(null);
+        setOptimisticAnswer(null);
+
+        if (remainingSessions[0]) {
+          await selectSession(remainingSessions[0]);
+        }
+      }
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to delete session.");
+    } finally {
+      setDeletingSessionId(null);
+    }
+  }
+
   async function exportMarkdown() {
     if (!workspace?.session.is_ready) {
       return;
@@ -239,6 +275,54 @@ export default function HomePage() {
     window.URL.revokeObjectURL(url);
   }
 
+  async function runMarketResearch() {
+    if (!workspace) {
+      return;
+    }
+
+    setIsStartingResearch(true);
+    setErrorMessage("");
+
+    try {
+      const response = await fetch(`/api/sessions/${workspace.session.id}/research-market`, {
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => null);
+        throw new Error(error?.error || `Failed to start market research (${response.status})`);
+      }
+
+      const nextWorkspace = (await response.json()) as WorkspacePayload;
+      setWorkspace(nextWorkspace);
+      upsertSummary(nextWorkspace, false);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to start market research.");
+    } finally {
+      setIsStartingResearch(false);
+    }
+  }
+
+  function downloadMarketResearch() {
+    if (!workspace?.marketReport?.markdown_content) {
+      return;
+    }
+
+    const blob = new Blob([workspace.marketReport.markdown_content], { type: "text/markdown;charset=utf-8" });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${workspace.session.title
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "prism-spec"}-market-research.md`;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    window.URL.revokeObjectURL(url);
+  }
+
   return (
     <main className="workspace-root">
       <SessionList
@@ -246,15 +330,20 @@ export default function HomePage() {
         activeSessionId={workspace?.session.id ?? null}
         isCreating={isCreating}
         isInteractionLocked={isInteractionLocked}
+        deletingSessionId={deletingSessionId}
         onCreateSession={createSession}
         onSelectSession={selectSession}
+        onDeleteSession={deleteSession}
       />
       <SpecEditor
         workspace={workspace}
         isSaving={isSavingDraft}
         isLocked={isSpecLocked}
+        isResearchStarting={isStartingResearch}
         onSaveDraft={saveDraft}
         onExport={exportMarkdown}
+        onRunResearch={runMarketResearch}
+        onDownloadResearch={downloadMarketResearch}
       />
       <ClarificationPanel
         workspace={workspace}

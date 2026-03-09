@@ -251,14 +251,13 @@ a {
 
 .session-item {
   width: 100%;
-  text-align: left;
   background: transparent;
-  border: none;
   padding: var(--spacing-md);
   border-bottom: 1px solid var(--border-color);
-  cursor: pointer;
   display: grid;
-  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
 }
 
 .session-item:hover {
@@ -277,6 +276,23 @@ a {
   letter-spacing: 0.7px;
 }
 
+.session-select {
+  min-width: 0;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: grid;
+  gap: 6px;
+}
+
+.session-select:disabled,
+.session-delete:disabled {
+  cursor: not-allowed;
+}
+
 .session-title {
   color: var(--text-primary);
 }
@@ -291,6 +307,27 @@ a {
   color: var(--text-secondary);
   font-size: 10px;
   text-transform: uppercase;
+}
+
+.session-delete {
+  align-self: start;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 9px;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  padding: 6px 8px;
+  transition:
+    border-color 0.18s ease,
+    color 0.18s ease,
+    background 0.18s ease;
+}
+
+.session-delete:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: rgba(211, 105, 28, 0.45);
+  background: rgba(211, 105, 28, 0.08);
 }
 
 .empty-state {

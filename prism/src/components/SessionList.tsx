@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import type { CreateSessionPayload, SessionSummary } from "@/types/workspace";
 
 interface SessionListProps {
@@ -8,8 +8,10 @@ interface SessionListProps {
   activeSessionId: string | null;
   isCreating: boolean;
   isInteractionLocked: boolean;
+  deletingSessionId: string | null;
   onCreateSession: (payload: CreateSessionPayload) => Promise<void>;
   onSelectSession: (summary: SessionSummary) => Promise<void>;
+  onDeleteSession: (summary: SessionSummary) => Promise<void>;
 }
 
 export default function SessionList({
@@ -17,8 +19,10 @@ export default function SessionList({
   activeSessionId,
   isCreating,
   isInteractionLocked,
+  deletingSessionId,
   onCreateSession,
   onSelectSession,
+  onDeleteSession,
 }: SessionListProps) {
   const [title, setTitle] = useState("");
   const [initialIdea, setInitialIdea] = useState("");
@@ -94,29 +98,51 @@ export default function SessionList({
         ) : null}
 
         {sessions.map((session) => (
-          <button
+          <div
             key={session.id}
             className={`session-item${session.id === activeSessionId ? " active" : ""}`}
-            type="button"
-            onClick={() => {
-              void onSelectSession(session).catch((selectionError) => {
-                setError(
-                  selectionError instanceof Error
-                    ? selectionError.message
-                    : "Unable to load session."
-                );
-              });
-            }}
-            disabled={isInteractionLocked}
           >
-            <span className="session-date">{new Date(session.created_at).toLocaleDateString()}</span>
-            <span className="session-title">{session.title}</span>
-            <div className="session-score-row">
-              <span>{session.overall_score}%</span>
-              <span>{session.ambiguity}</span>
-              <span>{session.is_ready ? "Ready" : "Active"}</span>
-            </div>
-          </button>
+            <button
+              className="session-select"
+              type="button"
+              aria-label={`Open ${session.title}`}
+              onClick={() => {
+                void onSelectSession(session).catch((selectionError) => {
+                  setError(
+                    selectionError instanceof Error
+                      ? selectionError.message
+                      : "Unable to load session."
+                  );
+                });
+              }}
+              disabled={isInteractionLocked}
+            >
+              <span className="session-date">{new Date(session.created_at).toLocaleDateString()}</span>
+              <span className="session-title">{session.title}</span>
+              <div className="session-score-row">
+                <span>{session.overall_score}%</span>
+                <span>{session.ambiguity}</span>
+                <span>{session.is_ready ? "Ready" : "Active"}</span>
+              </div>
+            </button>
+            <button
+              className="session-delete"
+              type="button"
+              aria-label={`Delete ${session.title}`}
+              onClick={() => {
+                void onDeleteSession(session).catch((deleteError) => {
+                  setError(
+                    deleteError instanceof Error
+                      ? deleteError.message
+                      : "Unable to delete session."
+                  );
+                });
+              }}
+              disabled={isInteractionLocked || deletingSessionId === session.id}
+            >
+              {deletingSessionId === session.id ? "Deleting" : "Delete"}
+            </button>
+          </div>
         ))}
       </div>
     </aside>

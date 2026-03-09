@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getSessionWorkspace, kickSessionReconciliation, updateSessionDraft } from "@/lib/clarification";
+import { deleteSessionWorkspace, getSessionWorkspace, kickSessionReconciliation, updateSessionDraft } from "@/lib/clarification";
+import { kickSessionMarketResearch } from "@/lib/research";
 
 interface Params {
   params: {
@@ -16,6 +17,10 @@ export async function GET(_: Request, { params }: Params) {
 
   if (workspace.session.reconciliation_status !== "idle") {
     kickSessionReconciliation(params.id);
+  }
+
+  if (workspace.marketReport && ["pending", "running"].includes(workspace.marketReport.status)) {
+    kickSessionMarketResearch(params.id);
   }
 
   return NextResponse.json(workspace);
@@ -38,6 +43,23 @@ export async function PATCH(request: Request, { params }: Params) {
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to update session." },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(_: Request, { params }: Params) {
+  try {
+    const deleted = deleteSessionWorkspace(params.id);
+
+    if (!deleted) {
+      return NextResponse.json({ error: "Session not found." }, { status: 404 });
+    }
+
+    return NextResponse.json({ ok: true, deletedId: params.id });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Failed to delete session." },
       { status: 500 }
     );
   }

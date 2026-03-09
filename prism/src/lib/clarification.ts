@@ -19,6 +19,7 @@ import {
 } from "@/lib/prompts";
 import {
   createSessionSeed,
+  deleteSessionRecord,
   getWorkspace,
   insertTranscriptEntry,
   listSessionSummaries,
@@ -155,6 +156,10 @@ export async function waitForSessionReconciliation(sessionId: string): Promise<v
 
 export function getSessionSummaries() {
   return listSessionSummaries();
+}
+
+export function deleteSessionWorkspace(sessionId: string): boolean {
+  return deleteSessionRecord(sessionId);
 }
 
 export function updateSessionDraft(sessionId: string, specContent: string): WorkspacePayload | null {
