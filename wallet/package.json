@@ -1,0 +1,9 @@
+{
+  "name": "agentcompany-wallet",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "status": "node ./bin/wallet.mjs status",
+    "test": "node --test"
+  }
+}
