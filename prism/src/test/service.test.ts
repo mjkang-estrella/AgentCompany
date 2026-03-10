@@ -115,7 +115,7 @@ describe("clarification service", () => {
     expect(marketReportCount).toBe(0);
   });
 
-  it("keeps export disabled until the session is ready", async () => {
+  it("keeps export disabled until score and ambiguity meet the readiness threshold", async () => {
     const workspace = await createSessionWorkspace({
       title: "Export gate",
       initialIdea: "A planning assistant.",
@@ -217,13 +217,13 @@ Engineering managers and ICs.
       clarificationRound: 3,
       metrics: {
         ...workspace.metrics,
-        readiness: 93,
+        readiness: 84,
         structure: 100,
         ambiguity: "Low",
-        warnings: 0,
-        open_questions: 0,
-        overall_score: 93,
-        ambiguity_score: 0.07,
+        warnings: 2,
+        open_questions: 4,
+        overall_score: 84,
+        ambiguity_score: 0.16,
       },
       pendingQuestion: null,
     });

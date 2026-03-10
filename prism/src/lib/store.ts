@@ -143,9 +143,8 @@ export function createSessionSeed(input: {
 
 export function saveSessionSnapshot(sessionId: string, snapshot: SessionSnapshotInput, db: Database.Database = getDb()): void {
   const isReady =
-    snapshot.metrics.overall_score >= 90 &&
-    snapshot.metrics.ambiguity === "Low" &&
-    snapshot.metrics.open_questions === 0;
+    snapshot.metrics.overall_score >= 80 &&
+    snapshot.metrics.ambiguity === "Low";
 
   db.prepare(
     `UPDATE sessions
