@@ -1,0 +1,37 @@
+{
+  "rules": {
+    "no-restricted-imports": [
+      "error",
+      {
+        "paths": [
+          {
+            "name": "prism-codex",
+            "message": "Do not import code from another app. Move shared code into packages/* or use an integration boundary."
+          },
+          {
+            "name": "reader-clone",
+            "message": "Do not import code from another app. Move shared code into packages/* or use an integration boundary."
+          },
+          {
+            "name": "agentcompany-inbox",
+            "message": "Do not import code from another app. Move shared code into packages/* or use an integration boundary."
+          },
+          {
+            "name": "agentcompany-wallet",
+            "message": "Do not import code from another app. Move shared code into packages/* or use an integration boundary."
+          }
+        ],
+        "patterns": [
+          {
+            "group": [
+              "../../*",
+              "../../../*",
+              "../../../../*"
+            ],
+            "message": "Do not import outside the current app boundary. Use app-local aliases or packages/*."
+          }
+        ]
+      }
+    ]
+  }
+}

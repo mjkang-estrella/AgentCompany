@@ -1,0 +1,1176 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AgentMail Inbox</title>
+  <style>
+    :root {
+      --bg-color: #1a1a1a;
+      --grid-line: rgba(255, 255, 255, 0.12);
+      --text-main: #ffffff;
+      --text-muted: #9ca3af;
+      --text-dark: #a3a3a3;
+      --accent-yellow: #e7f059;
+      --radius-lg: 20px;
+      --radius-pill: 999px;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      height: 100vh;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 10px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
+
+    .app-layout {
+      display: grid;
+      grid-template-columns: 220px 400px 1fr;
+      grid-template-rows: auto auto 1fr;
+      height: 100vh;
+      border: 1px solid var(--grid-line);
+      background-image:
+        linear-gradient(to right, rgba(255,255,255,0.02) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255,255,255,0.02) 1px, transparent 1px);
+      background-size: 100px 100px;
+    }
+
+    .border-b { border-bottom: 1px solid var(--grid-line); }
+    .border-r { border-right: 1px solid var(--grid-line); }
+    .col-span-2 { grid-column: span 2; }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid currentColor;
+      border-radius: var(--radius-pill);
+      padding: 3px 10px;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+      font-weight: 500;
+    }
+    .pill.dark { border-color: #000; color: #000; }
+    .pill.faded { border-color: var(--text-muted); color: var(--text-muted); }
+    .pill.alert { border-color: #ff8a65; color: #ff8a65; }
+    .pill.yellow { background: var(--accent-yellow); border-color: var(--accent-yellow); color: #000; }
+    .pill.active-tab { background: var(--text-main); border-color: var(--text-main); color: #000; cursor: default; }
+
+    .tab-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--grid-line);
+      border-radius: var(--radius-pill);
+      padding: 3px 12px;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+      font-weight: 500;
+      cursor: pointer;
+      color: var(--text-muted);
+      background: transparent;
+      transition: all 0.2s;
+    }
+    .tab-btn:hover { color: var(--text-main); border-color: var(--text-main); }
+    .tab-btn.active { background: var(--text-main); border-color: var(--text-main); color: #000; }
+
+    .circle-btn {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      border: 1px solid currentColor;
+      display: flex; align-items: center; justify-content: center;
+      background: transparent;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      color: inherit;
+    }
+    .circle-btn:hover { background: rgba(0,0,0,0.05); }
+    .circle-btn.dark { border-color: #000; color: #000; }
+
+    .huge-number {
+      font-size: 6rem; line-height: 1; font-weight: 400; letter-spacing: -0.05em;
+    }
+
+    .meta-label {
+      font-size: 9px; text-transform: uppercase;
+      color: var(--text-muted); letter-spacing: 0.05em;
+    }
+
+    .hidden { display: none !important; }
+
+    .app-branding {
+      padding: 1rem 1.25rem;
+      font-size: 10px; text-transform: uppercase;
+      line-height: 1.3; letter-spacing: 0.02em; color: var(--text-dark);
+    }
+    .app-branding strong { color: var(--text-main); font-weight: normal; }
+
+    .top-nav {
+      padding: 1rem 1.25rem;
+      display: flex; justify-content: flex-end;
+      align-items: center; gap: 0.5rem;
+    }
+
+    .hero-title-area {
+      padding: 2.5rem 1.25rem;
+      display: flex; flex-direction: column; justify-content: center;
+    }
+    .hero-title {
+      font-size: 3rem; font-weight: 500; letter-spacing: -0.03em;
+      margin-bottom: 0.25rem;
+      display: flex; align-items: flex-start;
+    }
+    .hero-title sup { font-size: 1.5rem; line-height: 1; margin-top: 0.5rem; }
+
+    .hero-subtext {
+      padding: 2.5rem 1.25rem;
+      display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    }
+    .hero-subtext p { font-size: 15px; line-height: 1.5; max-width: 420px; }
+    .hero-subtext-number {
+      font-size: 2.5rem; font-weight: 400; min-width: 2ch; text-align: right;
+    }
+
+    .sidebar {
+      padding: 1.5rem 1.25rem;
+      display: flex; flex-direction: column; gap: 1.5rem;
+      overflow-y: auto;
+    }
+
+    .filter-group { display: flex; flex-direction: column; gap: 0.75rem; }
+
+    .filter-item {
+      display: flex; align-items: center; justify-content: space-between;
+      cursor: pointer; color: var(--text-muted); font-size: 13px;
+      transition: color 0.2s; border: none; background: transparent;
+      text-align: left; width: 100%;
+    }
+    .filter-item:hover, .filter-item.active { color: var(--text-main); }
+    .filter-item .count { font-family: var(--font-mono); font-size: 11px; }
+
+    .status-badges { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+    .feed-column { display: flex; flex-direction: column; overflow-y: auto; }
+
+    .feed-header {
+      padding: 0.75rem 1.25rem;
+      display: flex; justify-content: space-between; align-items: center; gap: 0.75rem;
+      background: rgba(26,26,26,0.95); backdrop-filter: blur(10px);
+      position: sticky; top: 0; z-index: 10;
+      border-bottom: 1px solid var(--grid-line);
+    }
+
+    .search-shell {
+      display: flex; align-items: center; gap: 0.5rem;
+      border: 1px solid var(--grid-line);
+      border-radius: var(--radius-pill);
+      padding: 0.4rem 0.75rem;
+      color: var(--text-muted); min-width: 180px;
+    }
+    .search-shell input {
+      background: transparent; border: none;
+      color: var(--text-main); width: 100%; font: inherit; outline: none;
+    }
+    .search-shell input::placeholder { color: var(--text-muted); }
+
+    .feed-list-empty, .sidebar-empty, .loading-note {
+      padding: 1.5rem 1.25rem; color: var(--text-muted); font-size: 13px; line-height: 1.6;
+    }
+
+    .feed-item {
+      padding: 1.5rem 1.25rem;
+      border-bottom: 1px solid var(--grid-line);
+      cursor: pointer; transition: background-color 0.2s; position: relative;
+    }
+    .feed-item:hover { background-color: rgba(255,255,255,0.03); }
+    .feed-item.active { background-color: rgba(231,240,89,0.05); }
+    .feed-item.active::before {
+      content: ""; position: absolute; left: 0; top: 0; bottom: 0;
+      width: 3px; background-color: var(--accent-yellow);
+    }
+
+    .feed-item-top {
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 0.75rem; margin-bottom: 0.75rem;
+    }
+    .feed-item-time { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); text-align: right; }
+    .feed-item h3 { font-size: 1.1rem; font-weight: 500; margin-bottom: 0.5rem; line-height: 1.3; letter-spacing: -0.01em; }
+    .feed-item p { font-size: 13px; color: var(--text-muted); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+    /* note-specific feed item */
+    .feed-item .note-keywords {
+      display: flex; flex-wrap: wrap; gap: 4px; margin-top: 0.6rem;
+    }
+    .kw-tag {
+      font-family: var(--font-mono); font-size: 10px;
+      padding: 2px 7px; border-radius: var(--radius-pill);
+      border: 1px solid rgba(255,255,255,0.15);
+      color: var(--text-muted);
+    }
+
+    .reading-pane { padding: 2rem; overflow-y: auto; position: relative; }
+
+    .article-hero-card {
+      background-color: var(--accent-yellow);
+      border-radius: var(--radius-lg); padding: 1.5rem;
+      display: flex; flex-direction: column; min-height: 280px;
+      color: #000; margin-bottom: 2.5rem; position: relative; overflow: hidden;
+    }
+    .article-hero-top {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      margin-bottom: 3rem; gap: 1rem; z-index: 2;
+    }
+    .article-hero-title {
+      font-size: 1.75rem; font-weight: 500; line-height: 1.2;
+      max-width: 85%; margin-bottom: 2rem; flex-grow: 1;
+      letter-spacing: -0.02em; z-index: 2;
+    }
+    .article-hero-bottom {
+      display: flex; justify-content: space-between;
+      align-items: flex-end; gap: 1rem; z-index: 2;
+    }
+    .article-hero-author {
+      font-size: 10px; text-transform: uppercase; font-weight: 500;
+      letter-spacing: 0.05em; max-width: 75%; line-height: 1.5;
+    }
+    .article-hero-bg-shape {
+      position: absolute; bottom: -20px; right: -20px;
+      width: 60%; height: 60%;
+      background: rgba(0,0,0,0.05);
+      border-radius: 40px 0 0 0; z-index: 1;
+    }
+
+    .article-content { max-width: 720px; margin: 0 auto; padding-bottom: 4rem; }
+    .article-content p { font-size: 1.05rem; line-height: 1.7; color: #d1d5db; margin-bottom: 1.5rem; }
+    .article-content h2 { font-size: 1.5rem; font-weight: 500; margin: 2.5rem 0 1rem 0; letter-spacing: -0.01em; }
+
+    .inline-pullquote {
+      border: 1px solid var(--text-main); border-radius: var(--radius-lg);
+      padding: 2rem; margin: 2.5rem 0; position: relative;
+    }
+    .inline-pullquote .pill { position: absolute; top: 1.5rem; left: 1.5rem; }
+    .inline-pullquote .huge-number { position: absolute; right: 1.5rem; bottom: 0.5rem; opacity: 0.2; }
+    .inline-pullquote blockquote {
+      font-size: 1.25rem; font-weight: 400; line-height: 1.5;
+      margin-top: 2.5rem; position: relative; z-index: 2; white-space: pre-wrap;
+    }
+
+    .message-meta-grid {
+      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 1rem; margin-bottom: 1.5rem;
+    }
+    .message-meta-card {
+      border: 1px solid var(--grid-line); border-radius: 18px;
+      padding: 1rem; background: rgba(255,255,255,0.02);
+    }
+    .message-meta-card .meta-label { margin-bottom: 0.35rem; display: block; }
+    .message-meta-card strong {
+      display: block; font-size: 0.95rem; line-height: 1.5;
+      font-weight: 500; word-break: break-word;
+    }
+
+    .message-text {
+      white-space: pre-wrap; font-family: inherit;
+      font-size: 1rem; line-height: 1.8; color: #d1d5db;
+    }
+    .message-html-shell {
+      margin-top: 2rem; border: 1px solid var(--grid-line);
+      border-radius: 18px; overflow: hidden; background: rgba(255,255,255,0.02);
+    }
+    .message-html-shell summary {
+      cursor: pointer; list-style: none; padding: 1rem 1.25rem;
+      font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .message-html-shell summary::-webkit-details-marker { display: none; }
+    .message-html-frame { width: 100%; min-height: 720px; border: none; background: #fff; }
+
+    /* ── NOTES VIEW SPECIFICS ── */
+    .note-hero-card {
+      background: rgba(231,240,89,0.08);
+      border: 1px solid rgba(231,240,89,0.25);
+      border-radius: var(--radius-lg);
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+      position: relative; overflow: hidden;
+    }
+    .note-hero-header {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      gap: 1rem; margin-bottom: 1.25rem;
+    }
+    .note-hero-type { font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent-yellow); font-weight: 600; }
+    .note-hero-content {
+      font-size: 1.1rem; line-height: 1.65; color: var(--text-main);
+      margin-bottom: 1.25rem;
+    }
+    .note-hero-meta {
+      display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;
+    }
+
+    .confidence-bar-wrap { display: flex; align-items: center; gap: 0.5rem; }
+    .confidence-bar {
+      width: 80px; height: 4px; background: rgba(255,255,255,0.1);
+      border-radius: 2px; overflow: hidden;
+    }
+    .confidence-bar-fill { height: 100%; background: var(--accent-yellow); border-radius: 2px; transition: width 0.4s; }
+    .confidence-value { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+
+    .note-keywords-wrap { display: flex; flex-wrap: wrap; gap: 6px; margin: 1.5rem 0; }
+
+    .related-notes-grid {
+      display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.75rem;
+    }
+    .related-note-card {
+      border: 1px solid var(--grid-line); border-radius: 14px;
+      padding: 1rem 1.25rem; cursor: pointer;
+      transition: background 0.2s, border-color 0.2s;
+    }
+    .related-note-card:hover { background: rgba(255,255,255,0.03); border-color: rgba(255,255,255,0.25); }
+    .related-note-card-top {
+      display: flex; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.4rem;
+    }
+    .related-note-card p { font-size: 13px; color: var(--text-muted); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+    .feedback-form {
+      border: 1px solid var(--grid-line); border-radius: var(--radius-lg);
+      padding: 1.5rem; margin-top: 2rem;
+      background: rgba(255,255,255,0.02);
+    }
+    .feedback-form .meta-label { margin-bottom: 1rem; display: block; }
+    .feedback-btns { display: flex; gap: 0.75rem; margin-bottom: 1rem; }
+    .feedback-btn {
+      padding: 6px 16px; border-radius: var(--radius-pill);
+      border: 1px solid var(--grid-line); background: transparent;
+      color: var(--text-muted); font-size: 12px; cursor: pointer;
+      transition: all 0.2s;
+    }
+    .feedback-btn:hover { color: var(--text-main); border-color: var(--text-main); }
+    .feedback-btn.selected-yes { background: var(--accent-yellow); border-color: var(--accent-yellow); color: #000; }
+    .feedback-btn.selected-no { background: #ff8a65; border-color: #ff8a65; color: #000; }
+    .feedback-comment {
+      width: 100%; background: rgba(255,255,255,0.04);
+      border: 1px solid var(--grid-line); border-radius: 12px;
+      color: var(--text-main); padding: 0.75rem; font: inherit;
+      font-size: 13px; resize: vertical; outline: none;
+      transition: border-color 0.2s;
+    }
+    .feedback-comment:focus { border-color: rgba(255,255,255,0.3); }
+    .feedback-submit {
+      margin-top: 0.75rem; padding: 6px 18px;
+      background: var(--text-main); color: #000;
+      border: none; border-radius: var(--radius-pill);
+      font-size: 12px; font-weight: 600; letter-spacing: 0.03em;
+      cursor: pointer; transition: opacity 0.2s;
+    }
+    .feedback-submit:hover { opacity: 0.85; }
+    .feedback-sent { font-size: 13px; color: var(--accent-yellow); margin-top: 0.5rem; }
+
+    /* stats bar */
+    .stats-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .stat-card {
+      border: 1px solid var(--grid-line); border-radius: 14px;
+      padding: 1rem; background: rgba(255,255,255,0.02);
+      display: flex; flex-direction: column; gap: 0.25rem;
+    }
+    .stat-value { font-size: 2rem; font-weight: 400; letter-spacing: -0.03em; }
+    .stat-label { font-size: 9px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em; }
+
+    /* type-color map */
+    .type-fact    { color: #60a5fa; }
+    .type-claim   { color: #a78bfa; }
+    .type-idea    { color: #34d399; }
+    .type-opinion { color: #f472b6; }
+    .type-task    { color: #fb923c; }
+    .type-question{ color: #fbbf24; }
+    .type-opportunity { color: var(--accent-yellow); }
+    .type-warning { color: #f87171; }
+    .type-tool    { color: #38bdf8; }
+    .type-pattern { color: #c084fc; }
+    .type-contradiction { color: #f97316; }
+    .type-playbook { color: #4ade80; }
+    .type-preference { color: #e879f9; }
+    .type-misc    { color: var(--text-muted); }
+
+    @media (max-width: 1100px) {
+      body { height: auto; overflow: auto; }
+      .app-layout { grid-template-columns: 1fr; grid-template-rows: auto; height: auto; }
+      .border-r { border-right: none; }
+      .col-span-2 { grid-column: span 1; }
+      .message-meta-grid, .stats-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Row 1: branding + nav -->
+    <div class="app-branding border-b border-r">
+      AGENT COMPANY<br><strong>AGENTMAIL INBOX</strong>
+    </div>
+    <div class="top-nav border-b col-span-2">
+      <button class="tab-btn active" id="tab-inbox" type="button">INBOX</button>
+      <button class="tab-btn" id="tab-notes" type="button">NOTES</button>
+      <span class="pill faded" id="connection-pill">LOADING</span>
+      <span class="pill faded" id="active-inbox-pill">NO INBOX</span>
+    </div>
+
+    <!-- Row 2: hero -->
+    <div class="hero-title-area border-b border-r col-span-2">
+      <h1 class="hero-title" id="app-title">AGENTMAIL<sup>°</sup></h1>
+    </div>
+    <div class="hero-subtext border-b">
+      <p id="hero-copy">Connecting to AgentMail inboxes and loading recent messages through a local proxy.</p>
+      <div class="hero-subtext-number" id="inbox-total">0</div>
+    </div>
+
+    <!-- Row 3: sidebar -->
+    <aside class="sidebar border-r" id="sidebar">
+      <!-- inbox sidebar (default) -->
+      <div id="inbox-sidebar">
+        <div class="meta-label">SOURCES</div>
+        <div class="filter-group" id="inbox-list">
+          <div class="sidebar-empty">Loading inboxes…</div>
+        </div>
+        <div class="meta-label" style="margin-top:2rem;">STATUS</div>
+        <div class="status-badges">
+          <span class="pill" id="message-count-pill">0 MESSAGES</span>
+          <span class="pill faded" id="search-state-pill">SEARCH OFF</span>
+          <span class="pill faded" id="detail-state-pill">DETAIL IDLE</span>
+        </div>
+      </div>
+      <!-- notes sidebar -->
+      <div id="notes-sidebar" class="hidden">
+        <div class="meta-label">BY TYPE</div>
+        <div class="filter-group" id="notes-type-list">
+          <div class="sidebar-empty">Loading…</div>
+        </div>
+        <div class="meta-label" style="margin-top:2rem;">SOURCES</div>
+        <div class="filter-group" id="notes-source-list">
+          <div class="sidebar-empty">Loading…</div>
+        </div>
+        <div class="meta-label" style="margin-top:2rem;">STATUS</div>
+        <div class="status-badges">
+          <span class="pill" id="notes-count-pill">0 NOTES</span>
+          <span class="pill faded" id="notes-filter-pill">ALL TYPES</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Row 3: feed -->
+    <section class="feed-column border-r" id="feed-column">
+      <div class="feed-header">
+        <span class="meta-label" id="feed-label">LATEST ARRIVALS</span>
+        <label class="search-shell" for="search-input">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+          </svg>
+          <input id="search-input" type="search" placeholder="Search…">
+        </label>
+      </div>
+      <div id="feed-list">
+        <div class="loading-note">Choose an inbox to load messages.</div>
+      </div>
+    </section>
+
+    <!-- Row 3: reading pane -->
+    <main class="reading-pane" id="reading-pane">
+      <!-- ── INBOX DETAIL ── -->
+      <div id="inbox-detail">
+        <div class="article-hero-card">
+          <div class="article-hero-bg-shape"></div>
+          <div class="article-hero-top">
+            <span class="pill dark" id="hero-inbox-pill">AGENTMAIL</span>
+            <button class="circle-btn dark" id="refresh-button" type="button" title="Refresh">&#8635;</button>
+          </div>
+          <h2 class="article-hero-title" id="message-subject">Select an inbox and a message.</h2>
+          <div class="article-hero-bottom">
+            <span class="article-hero-author" id="message-from">The live message body will appear here after you pick something from the middle column.</span>
+            <button class="circle-btn dark" id="focus-search-button" type="button" title="Focus search">⌕</button>
+          </div>
+        </div>
+        <div class="article-content">
+          <div class="message-meta-grid">
+            <div class="message-meta-card"><span class="meta-label">From</span><strong id="message-from-meta">—</strong></div>
+            <div class="message-meta-card"><span class="meta-label">To</span><strong id="message-to-meta">—</strong></div>
+            <div class="message-meta-card"><span class="meta-label">Received</span><strong id="message-date-meta">—</strong></div>
+          </div>
+          <div class="inline-pullquote">
+            <span class="pill">PREVIEW</span>
+            <div class="huge-number" id="preview-count">0</div>
+            <blockquote id="message-preview">Loading live AgentMail data…</blockquote>
+          </div>
+          <h2>Message Body</h2>
+          <p id="message-body-empty">No message selected yet.</p>
+          <pre id="message-text" class="message-text hidden"></pre>
+          <details id="message-html-shell" class="message-html-shell hidden">
+            <summary>Original HTML</summary>
+            <iframe id="message-html-frame" class="message-html-frame" sandbox=""></iframe>
+          </details>
+        </div>
+      </div>
+
+      <!-- ── NOTES DETAIL ── -->
+      <div id="notes-detail" class="hidden">
+        <!-- stats overview (shown when no note selected) -->
+        <div id="notes-overview">
+          <div class="stats-grid" id="stats-grid">
+            <div class="stat-card"><div class="stat-value" id="stat-total">—</div><div class="stat-label">TOTAL NOTES</div></div>
+            <div class="stat-card"><div class="stat-value" id="stat-emails">—</div><div class="stat-label">EMAILS PROCESSED</div></div>
+            <div class="stat-card"><div class="stat-value" id="stat-skipped">—</div><div class="stat-label">SKIPPED (IRRELEVANT)</div></div>
+          </div>
+          <h2 style="font-size:1rem;font-weight:500;letter-spacing:-0.01em;margin-bottom:1rem;">MOST CONNECTED</h2>
+          <div id="top-connected-list" class="related-notes-grid"></div>
+        </div>
+
+        <!-- individual note view (shown when a note is selected) -->
+        <div id="note-view" class="hidden">
+          <div class="note-hero-card" id="note-hero">
+            <div class="note-hero-header">
+              <span class="note-hero-type" id="note-type-label">—</span>
+              <button class="circle-btn" id="note-back-btn" title="Back to overview" style="color:rgba(255,255,255,0.5);border-color:rgba(255,255,255,0.2)">←</button>
+            </div>
+            <div class="note-hero-content" id="note-content">—</div>
+            <div class="note-hero-meta">
+              <div class="confidence-bar-wrap">
+                <div class="confidence-bar"><div class="confidence-bar-fill" id="confidence-fill" style="width:0%"></div></div>
+                <span class="confidence-value" id="confidence-value">—</span>
+              </div>
+              <span class="meta-label" id="note-date">—</span>
+              <span class="meta-label" id="note-source">—</span>
+            </div>
+          </div>
+
+          <div class="note-keywords-wrap" id="note-keywords"></div>
+
+          <h2 style="font-size:0.85rem;font-weight:500;letter-spacing:0.05em;text-transform:uppercase;color:var(--text-muted);margin-bottom:0.75rem;">RELATED NOTES</h2>
+          <div id="note-related" class="related-notes-grid">
+            <p class="loading-note" style="padding:0.5rem 0;">No related notes yet.</p>
+          </div>
+
+          <div class="feedback-form" id="feedback-form">
+            <span class="meta-label">WAS THIS NOTE USEFUL?</span>
+            <div class="feedback-btns">
+              <button class="feedback-btn" id="fb-yes" type="button">👍 YES</button>
+              <button class="feedback-btn" id="fb-no" type="button">👎 NO</button>
+            </div>
+            <textarea class="feedback-comment" id="fb-comment" rows="2" placeholder="Optional comment…"></textarea>
+            <br>
+            <button class="feedback-submit" id="fb-submit" type="button">SUBMIT FEEDBACK</button>
+            <div class="feedback-sent hidden" id="fb-sent">Feedback recorded ✓</div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    // ─────────────────────────── SHARED UTILS ───────────────────────────
+    function escapeHtml(v) {
+      return String(v)
+        .replaceAll("&","&amp;").replaceAll("<","&lt;")
+        .replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;");
+    }
+
+    function formatDate(v) {
+      if (!v) return "Unknown";
+      const d = new Date(v);
+      if (isNaN(d)) return String(v);
+      return new Intl.DateTimeFormat(undefined, { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" }).format(d);
+    }
+
+    async function fetchJson(url) {
+      const r = await fetch(url, { cache:"no-store" });
+      const p = await r.json();
+      if (!r.ok) throw new Error(p.error || `HTTP ${r.status}`);
+      return p;
+    }
+
+    // type → css class
+    const TYPE_CLASS = {
+      fact:"type-fact", claim:"type-claim", idea:"type-idea",
+      opinion:"type-opinion", task:"type-task", question:"type-question",
+      opportunity:"type-opportunity", "warning/risk":"type-warning", warning:"type-warning",
+      "tool update":"type-tool", tool_update:"type-tool",
+      "pattern/trend":"type-pattern", pattern:"type-pattern",
+      contradiction:"type-contradiction",
+      "playbook candidate":"type-playbook", playbook_candidate:"type-playbook",
+      "preference candidate":"type-preference", preference_candidate:"type-preference",
+    };
+    function typeClass(t) {
+      return TYPE_CLASS[(t||"").toLowerCase()] || "type-misc";
+    }
+
+    // ─────────────────────────── STATE ───────────────────────────
+    const mode = { current: "inbox" }; // "inbox" | "notes"
+
+    const inboxState = {
+      inboxes: [], activeInboxId: null,
+      messagesByInbox: new Map(), activeMessageId: null,
+      activeMessageDetail: null, searchQuery: "", isConnected: false, error: null
+    };
+
+    const notesState = {
+      notes: [], filtered: [], page: 1, total: 0,
+      activeNoteId: null, activeNote: null,
+      typeFilter: null, searchQuery: "",
+      stats: null, sources: [], typeCounts: []
+    };
+
+    // ─────────────────────────── DOM REFS ───────────────────────────
+    const el = {
+      // tabs
+      tabInbox: document.getElementById("tab-inbox"),
+      tabNotes: document.getElementById("tab-notes"),
+      // shared
+      appTitle: document.getElementById("app-title"),
+      heroCopy: document.getElementById("hero-copy"),
+      inboxTotal: document.getElementById("inbox-total"),
+      connectionPill: document.getElementById("connection-pill"),
+      activeInboxPill: document.getElementById("active-inbox-pill"),
+      feedLabel: document.getElementById("feed-label"),
+      searchInput: document.getElementById("search-input"),
+      feedList: document.getElementById("feed-list"),
+      // sidebars
+      inboxSidebar: document.getElementById("inbox-sidebar"),
+      notesSidebar: document.getElementById("notes-sidebar"),
+      // inbox sidebar
+      inboxList: document.getElementById("inbox-list"),
+      messageCountPill: document.getElementById("message-count-pill"),
+      searchStatePill: document.getElementById("search-state-pill"),
+      detailStatePill: document.getElementById("detail-state-pill"),
+      // notes sidebar
+      notesTypeList: document.getElementById("notes-type-list"),
+      notesSourceList: document.getElementById("notes-source-list"),
+      notesCountPill: document.getElementById("notes-count-pill"),
+      notesFilterPill: document.getElementById("notes-filter-pill"),
+      // detail panels
+      inboxDetail: document.getElementById("inbox-detail"),
+      notesDetail: document.getElementById("notes-detail"),
+      notesOverview: document.getElementById("notes-overview"),
+      noteView: document.getElementById("note-view"),
+      // inbox detail
+      heroInboxPill: document.getElementById("hero-inbox-pill"),
+      refreshButton: document.getElementById("refresh-button"),
+      focusSearchButton: document.getElementById("focus-search-button"),
+      messageSubject: document.getElementById("message-subject"),
+      messageFrom: document.getElementById("message-from"),
+      messageFromMeta: document.getElementById("message-from-meta"),
+      messageToMeta: document.getElementById("message-to-meta"),
+      messageDateMeta: document.getElementById("message-date-meta"),
+      messagePreview: document.getElementById("message-preview"),
+      previewCount: document.getElementById("preview-count"),
+      messageBodyEmpty: document.getElementById("message-body-empty"),
+      messageText: document.getElementById("message-text"),
+      messageHtmlShell: document.getElementById("message-html-shell"),
+      messageHtmlFrame: document.getElementById("message-html-frame"),
+      // stats
+      statTotal: document.getElementById("stat-total"),
+      statEmails: document.getElementById("stat-emails"),
+      statSkipped: document.getElementById("stat-skipped"),
+      topConnectedList: document.getElementById("top-connected-list"),
+      // note detail
+      noteTypelabel: document.getElementById("note-type-label"),
+      noteContent: document.getElementById("note-content"),
+      confidenceFill: document.getElementById("confidence-fill"),
+      confidenceValue: document.getElementById("confidence-value"),
+      noteDate: document.getElementById("note-date"),
+      noteSource: document.getElementById("note-source"),
+      noteKeywords: document.getElementById("note-keywords"),
+      noteRelated: document.getElementById("note-related"),
+      noteBackBtn: document.getElementById("note-back-btn"),
+      // feedback
+      fbYes: document.getElementById("fb-yes"),
+      fbNo: document.getElementById("fb-no"),
+      fbComment: document.getElementById("fb-comment"),
+      fbSubmit: document.getElementById("fb-submit"),
+      fbSent: document.getElementById("fb-sent"),
+    };
+
+    // ─────────────────────────── TAB SWITCHING ───────────────────────────
+    function switchMode(m) {
+      mode.current = m;
+      el.tabInbox.classList.toggle("active", m === "inbox");
+      el.tabNotes.classList.toggle("active", m === "notes");
+      el.inboxSidebar.classList.toggle("hidden", m !== "inbox");
+      el.notesSidebar.classList.toggle("hidden", m !== "notes");
+      el.inboxDetail.classList.toggle("hidden", m !== "inbox");
+      el.notesDetail.classList.toggle("hidden", m !== "notes");
+
+      if (m === "inbox") {
+        el.appTitle.textContent = "AGENTMAIL°";
+        el.searchInput.placeholder = "Search subject or sender";
+        renderInboxFeed();
+        renderInboxDetail();
+      } else {
+        el.appTitle.textContent = "INTELLIGENCE°";
+        el.searchInput.placeholder = "Search notes…";
+        loadNotesView();
+      }
+    }
+
+    el.tabInbox.addEventListener("click", () => switchMode("inbox"));
+    el.tabNotes.addEventListener("click", () => switchMode("notes"));
+
+    // ═══════════════════════════════════════════════════════════
+    //  INBOX MODE
+    // ═══════════════════════════════════════════════════════════
+    function getActiveInbox() {
+      return inboxState.inboxes.find(i => i.inbox_id === inboxState.activeInboxId) || null;
+    }
+    function getActiveMessages() {
+      return inboxState.messagesByInbox.get(inboxState.activeInboxId) || [];
+    }
+    function getFilteredMessages() {
+      const q = inboxState.searchQuery.trim().toLowerCase();
+      const msgs = getActiveMessages();
+      if (!q) return msgs;
+      return msgs.filter(m => [m.subject, m.from, m.preview_text].filter(Boolean).join(" ").toLowerCase().includes(q));
+    }
+
+    function setConnectionState(status, kind="faded") {
+      el.connectionPill.textContent = status;
+      el.connectionPill.className = `pill ${kind}`.trim();
+    }
+
+    function renderInboxSidebar() {
+      if (!inboxState.inboxes.length) {
+        el.inboxList.innerHTML = `<div class="sidebar-empty">${inboxState.error || "No inboxes found."}</div>`;
+        return;
+      }
+      el.inboxList.innerHTML = inboxState.inboxes.map(inbox => {
+        const info = inboxState.messagesByInbox.get(inbox.inbox_id);
+        const count = info ? String(info.length).padStart(2,"0") : "--";
+        const active = inbox.inbox_id === inboxState.activeInboxId;
+        return `<button class="filter-item${active?" active":""}" data-inbox-id="${encodeURIComponent(inbox.inbox_id)}" type="button">
+          <span>${escapeHtml(inbox.display_name || inbox.inbox_id)}</span>
+          <span class="count">${count}</span>
+        </button>`;
+      }).join("");
+    }
+
+    function renderInboxFeed() {
+      if (mode.current !== "inbox") return;
+      const inbox = getActiveInbox();
+      const filtered = getFilteredMessages();
+      const all = getActiveMessages();
+      el.feedLabel.textContent = inbox ? `${(inbox.display_name || inbox.inbox_id).toUpperCase()} MESSAGES` : "LATEST ARRIVALS";
+      el.messageCountPill.textContent = `${all.length} MESSAGES`;
+      el.searchStatePill.textContent = inboxState.searchQuery.trim() ? "SEARCH ON" : "SEARCH OFF";
+      if (!inbox) { el.feedList.innerHTML = '<div class="loading-note">Choose an inbox to load messages.</div>'; return; }
+      if (!filtered.length) { el.feedList.innerHTML = '<div class="feed-list-empty">No messages matched.</div>'; return; }
+      el.feedList.innerHTML = filtered.map((msg, i) => {
+        const active = msg.message_id === inboxState.activeMessageId;
+        const preview = (msg.preview_text || msg.text || msg.subject || "").trim() || "No preview.";
+        return `<article class="feed-item${active?" active":""}" data-message-id="${encodeURIComponent(msg.message_id)}">
+          <div class="feed-item-top">
+            <span class="pill${i===0?"":" faded"}">${escapeHtml((inbox.display_name||"inbox").slice(0,12))}</span>
+            <span class="feed-item-time">${formatDate(msg.received_at)}</span>
+          </div>
+          <h3>${escapeHtml(msg.subject || "(No subject)")}</h3>
+          <p>${escapeHtml(preview)}</p>
+        </article>`;
+      }).join("");
+    }
+
+    function renderInboxDetail() {
+      if (mode.current !== "inbox") return;
+      const inbox = getActiveInbox();
+      const detail = inboxState.activeMessageDetail;
+      const all = getActiveMessages();
+      el.inboxTotal.textContent = String(inboxState.inboxes.length);
+      el.heroInboxPill.textContent = inbox ? (inbox.display_name || inbox.inbox_id).toUpperCase() : "AGENTMAIL";
+      el.activeInboxPill.textContent = inbox ? (inbox.display_name || inbox.inbox_id).toUpperCase() : "NO INBOX";
+      el.heroCopy.textContent = inbox
+        ? `Reading ${all.length} live messages from ${inbox.display_name || inbox.inbox_id}.`
+        : "Connecting to AgentMail inboxes and loading recent messages through a local proxy.";
+      if (!detail) {
+        el.detailStatePill.textContent = inbox ? "DETAIL IDLE" : "DETAIL WAITING";
+        el.messageSubject.textContent = inbox ? "Select a message from the middle column." : "Select an inbox and a message.";
+        el.messageFrom.textContent = "The live message body will appear here after you pick something from the middle column.";
+        el.messageFromMeta.textContent = "—"; el.messageToMeta.textContent = "—"; el.messageDateMeta.textContent = "—";
+        el.messagePreview.textContent = inboxState.error || "Loading live AgentMail data…";
+        el.previewCount.textContent = String(all.length);
+        el.messageBodyEmpty.textContent = inbox ? "No message selected yet." : "No inbox selected yet.";
+        el.messageBodyEmpty.classList.remove("hidden");
+        el.messageText.classList.add("hidden"); el.messageText.textContent = "";
+        el.messageHtmlShell.classList.add("hidden"); el.messageHtmlFrame.removeAttribute("srcdoc");
+        return;
+      }
+      el.detailStatePill.textContent = "DETAIL LIVE";
+      el.messageSubject.textContent = detail.subject || "(No subject)";
+      el.messageFrom.textContent = detail.from || "Unknown sender";
+      el.messageFromMeta.textContent = detail.from || "Unknown sender";
+      el.messageToMeta.textContent = (detail.to||[]).join(", ") || "Unknown recipient";
+      el.messageDateMeta.textContent = formatDate(detail.received_at);
+      el.messagePreview.textContent = (detail.preview_text||detail.text||detail.subject||"").trim() || "No preview.";
+      el.previewCount.textContent = String((detail.to||[]).length||1);
+      if (detail.text?.trim()) {
+        el.messageBodyEmpty.classList.add("hidden");
+        el.messageText.classList.remove("hidden"); el.messageText.textContent = detail.text.trim();
+      } else {
+        el.messageBodyEmpty.classList.remove("hidden");
+        el.messageText.classList.add("hidden"); el.messageBodyEmpty.textContent = "No plain-text body.";
+      }
+      if (detail.html?.trim()) {
+        el.messageHtmlShell.classList.remove("hidden"); el.messageHtmlFrame.srcdoc = detail.html;
+      } else {
+        el.messageHtmlShell.classList.add("hidden"); el.messageHtmlFrame.removeAttribute("srcdoc");
+      }
+    }
+
+    async function loadInboxes() {
+      setConnectionState("LOADING","faded");
+      try {
+        const p = await fetchJson("/api/agentmail/inboxes");
+        inboxState.inboxes = p.inboxes || []; inboxState.isConnected = true; inboxState.error = null;
+        setConnectionState("LIVE","");
+        renderInboxSidebar();
+        if (inboxState.inboxes.length) {
+          const nextId = inboxState.inboxes.some(i=>i.inbox_id===inboxState.activeInboxId)
+            ? inboxState.activeInboxId : inboxState.inboxes[0].inbox_id;
+          await loadMessages(nextId);
+        } else { renderInboxFeed(); renderInboxDetail(); }
+      } catch(e) {
+        inboxState.error = e.message; inboxState.isConnected = false;
+        setConnectionState("ERROR","alert");
+        renderInboxSidebar(); renderInboxFeed(); renderInboxDetail();
+      }
+    }
+
+    async function loadMessages(inboxId) {
+      inboxState.activeInboxId = inboxId;
+      inboxState.activeMessageId = null; inboxState.activeMessageDetail = null;
+      renderInboxSidebar(); renderInboxFeed(); renderInboxDetail();
+      try {
+        const p = await fetchJson(`/api/agentmail/inboxes/${encodeURIComponent(inboxId)}/messages`);
+        inboxState.messagesByInbox.set(inboxId, p.messages||[]);
+        renderInboxSidebar(); renderInboxFeed(); renderInboxDetail();
+        if ((p.messages||[]).length) await loadMessageDetail(inboxId, p.messages[0].message_id);
+      } catch(e) { inboxState.error = e.message; renderInboxFeed(); renderInboxDetail(); }
+    }
+
+    async function loadMessageDetail(inboxId, messageId) {
+      inboxState.activeMessageId = messageId; inboxState.activeMessageDetail = null;
+      el.detailStatePill.textContent = "DETAIL LOADING";
+      renderInboxFeed(); renderInboxDetail();
+      try {
+        inboxState.activeMessageDetail = await fetchJson(
+          `/api/agentmail/inboxes/${encodeURIComponent(inboxId)}/messages/${encodeURIComponent(messageId)}`);
+        inboxState.error = null;
+      } catch(e) { inboxState.error = e.message; inboxState.activeMessageDetail = null; }
+      renderInboxFeed(); renderInboxDetail();
+    }
+
+    el.inboxList.addEventListener("click", e => {
+      const btn = e.target.closest("[data-inbox-id]");
+      if (!btn) return;
+      const id = decodeURIComponent(btn.dataset.inboxId);
+      if (id !== inboxState.activeInboxId) loadMessages(id);
+    });
+
+    el.refreshButton.addEventListener("click", () => {
+      if (inboxState.activeInboxId) loadMessages(inboxState.activeInboxId);
+      else loadInboxes();
+    });
+    el.focusSearchButton.addEventListener("click", () => el.searchInput.focus());
+
+    // ═══════════════════════════════════════════════════════════
+    //  NOTES MODE
+    // ═══════════════════════════════════════════════════════════
+    async function loadNotesView() {
+      el.feedLabel.textContent = "DISTILLED NOTES";
+      el.feedList.innerHTML = '<div class="loading-note">Loading notes…</div>';
+      el.notesTypeList.innerHTML = '<div class="sidebar-empty">Loading…</div>';
+      el.notesSourceList.innerHTML = '<div class="sidebar-empty">Loading…</div>';
+
+      try {
+        const [notesResp, statsResp, sourcesResp] = await Promise.all([
+          fetchJson("/notes?limit=200"),
+          fetchJson("/stats").catch(()=>null),
+          fetchJson("/sources").catch(()=>null),
+        ]);
+
+        notesState.notes = (notesResp.notes || notesResp || []).map(n => ({
+          ...n,
+          type: n.taxonomy_key || n.type || "misc",
+          content: n.body || n.content || n.summary || "",
+          confidence: n.classification_confidence ?? n.confidence ?? null,
+          keywords: n.keywords || [],
+        }));
+        notesState.total = notesResp.total || notesState.notes.length;
+        notesState.stats = statsResp;
+        notesState.sources = sourcesResp?.sources || [];
+
+        // Build type counts from stats or locally
+        // always build from local notes (already normalised)
+        const typeMap = {};
+        notesState.notes.forEach(n => { typeMap[n.type] = (typeMap[n.type]||0)+1; });
+        notesState.typeCounts = Object.entries(typeMap).map(([type,count])=>({type,count})).sort((a,b)=>b.count-a.count);
+
+        renderNotesSidebar();
+        renderNotesFeed();
+        renderNotesOverview();
+        setConnectionState("LIVE","");
+      } catch(e) {
+        el.feedList.innerHTML = `<div class="feed-list-empty">Failed to load notes: ${escapeHtml(e.message)}</div>`;
+        setConnectionState("ERROR","alert");
+      }
+    }
+
+    function renderNotesSidebar() {
+      // type list
+      const allActive = !notesState.typeFilter;
+      let typeHtml = `<button class="filter-item${allActive?" active":""}" data-type="" type="button">
+        <span>All types</span>
+        <span class="count">${String(notesState.notes.length).padStart(2,"0")}</span>
+      </button>`;
+      typeHtml += notesState.typeCounts.map(({type, count}) => {
+        const active = notesState.typeFilter === type;
+        return `<button class="filter-item${active?" active":""}" data-type="${escapeHtml(type)}" type="button">
+          <span class="${typeClass(type)}">${escapeHtml(type)}</span>
+          <span class="count">${String(count).padStart(2,"0")}</span>
+        </button>`;
+      }).join("");
+      el.notesTypeList.innerHTML = typeHtml;
+
+      // source list
+      if (!notesState.sources.length) {
+        el.notesSourceList.innerHTML = '<div class="sidebar-empty">No sources yet.</div>';
+      } else {
+        el.notesSourceList.innerHTML = notesState.sources.map(s =>
+          `<button class="filter-item" type="button">
+            <span>${escapeHtml(s.display_name||s.sender||s.email||"Unknown")}</span>
+            <span class="count">${String(s.email_count||s.count||0).padStart(2,"0")}</span>
+          </button>`
+        ).join("");
+      }
+
+      const filtered = getFilteredNotes();
+      el.notesCountPill.textContent = `${filtered.length} NOTES`;
+      el.notesFilterPill.textContent = notesState.typeFilter ? notesState.typeFilter.toUpperCase() : "ALL TYPES";
+    }
+
+    function getFilteredNotes() {
+      let notes = notesState.notes;
+      if (notesState.typeFilter) notes = notes.filter(n => (n.type||"").toLowerCase() === notesState.typeFilter.toLowerCase());
+      const q = notesState.searchQuery.trim().toLowerCase();
+      if (q) notes = notes.filter(n => (n.content||"").toLowerCase().includes(q) || (n.keywords||[]).some(k=>k.toLowerCase().includes(q)));
+      return notes;
+    }
+
+    function renderNotesFeed() {
+      if (mode.current !== "notes") return;
+      const filtered = getFilteredNotes();
+      el.notesCountPill.textContent = `${filtered.length} NOTES`;
+      el.notesFilterPill.textContent = notesState.typeFilter ? notesState.typeFilter.toUpperCase() : "ALL TYPES";
+      el.heroCopy.textContent = `${notesState.total} notes distilled from newsletters. ${notesState.sources.length} sources tracked.`;
+      el.inboxTotal.textContent = String(notesState.total);
+
+      if (!filtered.length) {
+        el.feedList.innerHTML = '<div class="feed-list-empty">No notes match this filter.</div>';
+        return;
+      }
+
+      el.feedList.innerHTML = filtered.map(note => {
+        const active = note.id === notesState.activeNoteId;
+        const kws = (note.keywords||[]).slice(0,4);
+        return `<article class="feed-item${active?" active":""}" data-note-id="${encodeURIComponent(note.id)}">
+          <div class="feed-item-top">
+            <span class="pill faded ${typeClass(note.type)}" style="border-color:currentColor">${escapeHtml(note.type||"misc")}</span>
+            <span class="feed-item-time">${formatDate(note.created_at)}</span>
+          </div>
+          <h3 style="font-size:0.95rem">${escapeHtml((note.content||"").slice(0,100))}${(note.content||"").length>100?"…":""}</h3>
+          ${kws.length ? `<div class="note-keywords">${kws.map(k=>`<span class="kw-tag">${escapeHtml(k)}</span>`).join("")}</div>` : ""}
+        </article>`;
+      }).join("");
+    }
+
+    function renderNotesOverview() {
+      el.notesOverview.classList.remove("hidden");
+      el.noteView.classList.add("hidden");
+
+      const s = notesState.stats;
+      if (s) {
+        el.statTotal.textContent = String(s.total_notes ?? notesState.total ?? "—");
+        el.statEmails.textContent = String(s.total_emails_processed ?? s.emails_processed ?? "—");
+        el.statSkipped.textContent = String(s.total_emails_skipped ?? s.emails_skipped ?? "—");
+        // top connected
+        const top = s.top_connected_notes || [];
+        el.topConnectedList.innerHTML = top.length
+          ? top.map(n => `
+            <div class="related-note-card" data-note-id="${encodeURIComponent(n.id||n.note_id)}">
+              <div class="related-note-card-top">
+                <span class="pill faded ${typeClass(n.type)}" style="border-color:currentColor;font-size:9px">${escapeHtml(n.type||"misc")}</span>
+                <span class="meta-label">${n.relationship_count||n.connections||0} connections</span>
+              </div>
+              <p>${escapeHtml((n.content||"").slice(0,120))}…</p>
+            </div>`).join("")
+          : '<p style="color:var(--text-muted);font-size:13px">No notes yet. Webhook will populate this when emails arrive.</p>';
+      } else {
+        el.statTotal.textContent = String(notesState.total);
+        el.statEmails.textContent = "—"; el.statSkipped.textContent = "—";
+        el.topConnectedList.innerHTML = '<p style="color:var(--text-muted);font-size:13px">Stats endpoint not available.</p>';
+      }
+    }
+
+    async function loadNoteDetail(noteId) {
+      notesState.activeNoteId = noteId;
+      renderNotesFeed();
+      el.notesOverview.classList.add("hidden");
+      el.noteView.classList.remove("hidden");
+
+      // Reset feedback
+      el.fbYes.classList.remove("selected-yes"); el.fbNo.classList.remove("selected-no");
+      el.fbComment.value = ""; el.fbSent.classList.add("hidden");
+      el._fbVote = null;
+
+      try {
+        const rawNote = await fetchJson(`/notes/${encodeURIComponent(noteId)}`);
+        // normalise field names from API
+        const note = {
+          ...rawNote,
+          type: rawNote.taxonomy_key || rawNote.type || "misc",
+          content: rawNote.body || rawNote.content || rawNote.summary || "—",
+          confidence: rawNote.classification_confidence ?? rawNote.confidence ?? null,
+          keywords: rawNote.keywords || [],
+        };
+        notesState.activeNote = note;
+
+        const tc = typeClass(note.type);
+        el.noteTypelabel.textContent = note.type.toUpperCase();
+        el.noteTypelabel.className = `note-hero-type ${tc}`;
+        el.noteContent.textContent = note.content;
+        el.noteDate.textContent = formatDate(note.created_at);
+        el.noteSource.textContent = note.source || (note.email_id ? `email #${note.email_id}` : "");
+
+        const conf = note.confidence;
+        if (conf !== null && conf !== undefined) {
+          el.confidenceFill.style.width = `${Math.round(conf*100)}%`;
+          el.confidenceValue.textContent = `${Math.round(conf*100)}% confidence`;
+          el.confidenceFill.parentElement.parentElement.style.display = "";
+        } else {
+          el.confidenceFill.parentElement.parentElement.style.display = "none";
+        }
+
+        const kws = note.keywords;
+        el.noteKeywords.innerHTML = kws.length
+          ? kws.map(k=>`<span class="kw-tag">${escapeHtml(k)}</span>`).join("")
+          : '<span style="color:var(--text-muted);font-size:12px">No keywords extracted</span>';
+
+        const related = rawNote.relationships || rawNote.related_notes || [];
+        el.noteRelated.innerHTML = related.length
+          ? related.map(r => {
+              const rNote = r.related_note || r.note || r;
+              const rType = rNote.taxonomy_key || rNote.type || "misc";
+              const rContent = rNote.body || rNote.content || rNote.summary || "No content";
+              const shared = r.overlap_terms || r.matched_values || r.shared_keywords || [];
+              const rId = rNote.id || rNote.note_id || r.to_note_id || r.from_note_id;
+              return `<div class="related-note-card" data-note-id="${encodeURIComponent(rId)}">
+                <div class="related-note-card-top">
+                  <span class="pill faded ${typeClass(rType)}" style="border-color:currentColor;font-size:9px">${escapeHtml(rType)}</span>
+                  ${shared.length ? `<span style="display:flex;gap:4px;flex-wrap:wrap">${shared.slice(0,3).map(k=>`<span class="kw-tag">${escapeHtml(k)}</span>`).join("")}</span>` : ""}
+                </div>
+                <p>${escapeHtml(rContent.slice(0,140))}${rContent.length>140?"…":""}</p>
+              </div>`;
+            }).join("")
+          : '<p style="color:var(--text-muted);font-size:13px;padding:0.5rem 0">No related notes yet.</p>';
+
+      } catch(e) {
+        el.noteContent.textContent = `Failed to load note: ${e.message}`;
+      }
+    }
+
+    el.noteBackBtn.addEventListener("click", () => {
+      notesState.activeNoteId = null; notesState.activeNote = null;
+      renderNotesFeed();
+      renderNotesOverview();
+    });
+
+    // feedback
+    el.fbYes.addEventListener("click", () => {
+      el._fbVote = true;
+      el.fbYes.classList.add("selected-yes"); el.fbNo.classList.remove("selected-no");
+    });
+    el.fbNo.addEventListener("click", () => {
+      el._fbVote = false;
+      el.fbNo.classList.add("selected-no"); el.fbYes.classList.remove("selected-yes");
+    });
+    el.fbSubmit.addEventListener("click", async () => {
+      if (el._fbVote === null || !notesState.activeNoteId) return;
+      try {
+        await fetch(`/notes/${encodeURIComponent(notesState.activeNoteId)}/feedback`, {
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({ useful: el._fbVote, comment: el.fbComment.value || undefined })
+        });
+        el.fbSent.classList.remove("hidden");
+        el.fbSubmit.disabled = true; el.fbSubmit.style.opacity = "0.4";
+      } catch(e) { el.fbSent.textContent = `Error: ${e.message}`; el.fbSent.classList.remove("hidden"); }
+    });
+
+    // click note in feed
+    document.getElementById("feed-list").addEventListener("click", e => {
+      if (mode.current !== "notes") {
+        // inbox click
+        const item = e.target.closest("[data-message-id]");
+        if (!item || !inboxState.activeInboxId) return;
+        const id = decodeURIComponent(item.dataset.messageId);
+        if (id !== inboxState.activeMessageId) loadMessageDetail(inboxState.activeInboxId, id);
+        return;
+      }
+      const item = e.target.closest("[data-note-id]");
+      if (!item) return;
+      const id = decodeURIComponent(item.dataset.noteId);
+      if (id !== notesState.activeNoteId) loadNoteDetail(id);
+    });
+
+    // click related note or top connected
+    document.addEventListener("click", e => {
+      if (mode.current !== "notes") return;
+      const card = e.target.closest(".related-note-card[data-note-id]");
+      if (!card) return;
+      const id = decodeURIComponent(card.dataset.noteId);
+      if (id) loadNoteDetail(id);
+    });
+
+    // type filter in notes sidebar
+    el.notesTypeList.addEventListener("click", e => {
+      const btn = e.target.closest("[data-type]");
+      if (!btn) return;
+      notesState.typeFilter = btn.dataset.type || null;
+      notesState.activeNoteId = null; notesState.activeNote = null;
+      renderNotesSidebar(); renderNotesFeed(); renderNotesOverview();
+    });
+
+    // search
+    el.searchInput.addEventListener("input", e => {
+      const q = e.target.value || "";
+      if (mode.current === "inbox") {
+        inboxState.searchQuery = q; renderInboxFeed();
+      } else {
+        notesState.searchQuery = q; renderNotesFeed();
+      }
+    });
+
+    // ─────────────────────────── BOOT ───────────────────────────
+    loadInboxes();
+  </script>
+</body>
+</html>

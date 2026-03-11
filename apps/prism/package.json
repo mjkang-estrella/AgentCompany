@@ -1,0 +1,40 @@
+{
+  "name": "prism-codex",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Prism Codex clarification workspace",
+  "scripts": {
+    "dev": "next dev",
+    "build": "NEXT_IGNORE_INCORRECT_LOCKFILE=1 next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.58.0",
+    "better-sqlite3": "^12.6.2",
+    "highlight.js": "^11.11.1",
+    "next": "^14.2.35",
+    "openai": "^6.27.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.7.0",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.1",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "^14.2.35",
+    "jsdom": "^26.1.0",
+    "typescript": "^5.4.0",
+    "vitest": "^3.2.4"
+  }
+}
