@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="en" vid="0">
+<head vid="1">
+    <meta charset="UTF-8" vid="2">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" vid="3">
+    <title vid="4">RSS Feed Reader</title>
+    <style vid="5">
+        :root {
+            --bg-body: #FFFFFF;
+            --bg-panel: #FAFAFA;
+            --bg-hover: #F3F4F6;
+            --bg-active: #EFF6FF;
+
+            --text-primary: #1F2937;
+            --text-secondary: #6B7280;
+            --text-heading: #1e293b;
+
+            --accent-orange: #EA580C;
+            --accent-orange-light: #FFEDD5;
+            --accent-green: #10B981;
+            --accent-blue: #1E3A8A;
+
+            --border-light: #E5E7EB;
+            --border-medium: #D1D5DB;
+
+            --font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            --font-size-xs: 12px;
+            --font-size-sm: 13px;
+            --font-size-base: 14px;
+            --font-size-lg: 16px;
+            --font-size-xl: 22px;
+
+            --radius-sm: 4px;
+            --radius-md: 6px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--font-family);
+            background-color: var(--bg-body);
+            color: var(--text-primary);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            font-size: var(--font-size-base);
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .app-layout {
+            display: flex;
+            width: 100%;
+            height: 100%;
+        }
+
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #D1D5DB;
+            border-radius: 10px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #9CA3AF;
+        }
+
+        .sidebar {
+            width: 240px;
+            background-color: var(--bg-body);
+            border-right: 1px solid var(--border-light);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+
+        .sidebar-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border-light);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 60px;
+        }
+
+        .sidebar-title {
+            font-size: var(--font-size-sm);
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .icon-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 4px;
+            border-radius: var(--radius-sm);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .icon-btn:hover {
+            background-color: var(--bg-hover);
+            color: var(--text-primary);
+        }
+
+        .sidebar-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px 8px;
+        }
+
+        .nav-group {
+            margin-bottom: 24px;
+        }
+
+        .nav-label {
+            font-size: var(--font-size-xs);
+            color: var(--text-secondary);
+            margin: 0 12px 8px;
+            font-weight: 500;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            padding: 6px 12px;
+            margin-bottom: 2px;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            text-decoration: none;
+            color: var(--text-primary);
+            font-size: var(--font-size-sm);
+        }
+
+        .nav-item:hover {
+            background-color: var(--bg-hover);
+        }
+
+        .nav-item.active {
+            background-color: var(--bg-panel);
+            color: var(--accent-blue);
+            font-weight: 500;
+        }
+
+        .nav-item-icon {
+            width: 16px;
+            height: 16px;
+            margin-right: 12px;
+            color: var(--text-secondary);
+        }
+
+        .nav-item.active .nav-item-icon {
+            color: var(--accent-blue);
+        }
+
+        .nav-item-count {
+            margin-left: auto;
+            font-size: var(--font-size-xs);
+            color: var(--text-secondary);
+        }
+
+        .nav-item.active .nav-item-count {
+            color: var(--accent-blue);
+        }
+
+        .article-list {
+            width: 320px;
+            background-color: var(--bg-panel);
+            border-right: 1px solid var(--border-light);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+
+        .list-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border-light);
+            background-color: var(--bg-body);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 60px;
+        }
+
+        .list-title {
+            font-weight: 500;
+            color: var(--text-heading);
+            font-size: var(--font-size-base);
+        }
+
+        .list-content {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .article-item {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border-light);
+            cursor: pointer;
+            background-color: transparent;
+            position: relative;
+        }
+
+        .article-item:hover {
+            background-color: var(--bg-body);
+        }
+
+        .article-item.active {
+            background-color: var(--bg-body);
+            border-left: 2px solid var(--accent-blue);
+            padding-left: 18px;
+        }
+
+        .item-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+
+        .item-source {
+            font-size: var(--font-size-xs);
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .unread-dot {
+            width: 6px;
+            height: 6px;
+            background-color: var(--accent-blue);
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .item-time {
+            font-size: var(--font-size-xs);
+            color: var(--text-secondary);
+        }
+
+        .item-title {
+            font-size: var(--font-size-base);
+            font-weight: 500;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+            line-height: 1.4;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .item-preview {
+            font-size: var(--font-size-sm);
+            color: var(--text-secondary);
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            line-height: 1.4;
+        }
+
+        .reading-pane {
+            flex: 1;
+            background-color: var(--bg-body);
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+
+        .pane-header {
+            padding: 0 32px;
+            border-bottom: 1px solid var(--border-light);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 60px;
+        }
+
+        .pane-actions-left,
+        .pane-actions-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .btn-outline {
+            background-color: #FFFFFF;
+            border: 1px solid var(--accent-orange-light);
+            color: var(--accent-orange);
+            padding: 6px 12px;
+            font-size: var(--font-size-sm);
+            font-weight: 500;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s;
+        }
+
+        .btn-outline:hover {
+            background-color: #FFF7ED;
+            border-color: var(--accent-orange);
+        }
+
+        .pane-content-scroll {
+            flex: 1;
+            overflow-y: auto;
+            padding: 48px 32px;
+        }
+
+        .article-container {
+            max-width: 680px;
+            margin: 0 auto;
+        }
+
+        .article-header {
+            margin-bottom: 40px;
+        }
+
+        .article-feed-name {
+            font-size: var(--font-size-sm);
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .feed-icon-small {
+            width: 16px;
+            height: 16px;
+            border-radius: 2px;
+        }
+
+        .article-h1 {
+            font-size: var(--font-size-xl);
+            font-weight: 600;
+            color: var(--text-heading);
+            line-height: 1.3;
+            margin-bottom: 16px;
+        }
+
+        .article-meta-row {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            font-size: var(--font-size-sm);
+            color: var(--text-secondary);
+            border-top: 1px solid var(--border-light);
+            border-bottom: 1px solid var(--border-light);
+            padding: 12px 0;
+        }
+
+        .article-author {
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        .article-body {
+            font-size: 15px;
+            line-height: 1.6;
+            color: var(--text-primary);
+        }
+
+        .article-body p {
+            margin-bottom: 20px;
+        }
+
+        .article-body h2 {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-heading);
+            margin: 32px 0 16px;
+        }
+
+        .article-body a {
+            color: var(--accent-orange);
+            text-decoration: none;
+        }
+
+        .article-body a:hover {
+            text-decoration: underline;
+        }
+
+        .article-body blockquote {
+            border-left: 3px solid var(--border-medium);
+            padding-left: 16px;
+            color: var(--text-secondary);
+            margin-bottom: 20px;
+            font-style: italic;
+        }
+
+        .inline-link {
+            color: var(--accent-orange);
+            text-decoration: none;
+            font-size: var(--font-size-sm);
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .inline-link svg {
+            width: 12px;
+            height: 12px;
+        }
+
+    </style>
+</head>
+<body vid="6">
+<div class="app-layout" vid="7">
+    <aside class="sidebar" vid="8">
+        <div class="sidebar-header" vid="9">
+            <span class="sidebar-title" vid="10">Reader</span>
+            <button class="icon-btn" title="Add Feed" vid="11">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="12"><line x1="12" y1="5" x2="12" y2="19" vid="13"></line><line x1="5" y1="12" x2="19" y2="12" vid="14"></line></svg>
+            </button>
+        </div>
+
+        <div class="sidebar-content" vid="15">
+            <div class="nav-group" vid="16">
+                <a href="#" class="nav-item" vid="17">
+                    <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="18"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" vid="19"></rect><line x1="16" y1="2" x2="16" y2="6" vid="20"></line><line x1="8" y1="2" x2="8" y2="6" vid="21"></line><line x1="3" y1="10" x2="21" y2="10" vid="22"></line></svg>
+                    Today
+                    <span class="nav-item-count" vid="23">12</span>
+                </a>
+                <a href="#" class="nav-item active" vid="24">
+                    <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="25"><path d="M4 11a9 9 0 0 1 9 9" vid="26"></path><path d="M4 4a16 16 0 0 1 16 16" vid="27"></path><circle cx="5" cy="19" r="1" vid="28"></circle></svg>
+                    All Articles
+                    <span class="nav-item-count" vid="29">48</span>
+                </a>
+                <a href="#" class="nav-item" vid="30">
+                    <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="31"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" vid="32"></path></svg>
+                    Saved
+                </a>
+            </div>
+
+            <div class="nav-group" vid="33">
+                <div class="nav-label" vid="34">Folders</div>
+                <a href="#" class="nav-item" vid="35">
+                    <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="36"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" vid="37"></path></svg>
+                    Design
+                    <span class="nav-item-count" vid="38">14</span>
+                </a>
+                <a href="#" class="nav-item" vid="39">
+                    <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="40"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" vid="41"></path></svg>
+                    Technology
+                    <span class="nav-item-count" vid="42">31</span>
+                </a>
+                <a href="#" class="nav-item" vid="43">
+                    <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="44"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" vid="45"></path></svg>
+                    Business
+                    <span class="nav-item-count" vid="46">3</span>
+                </a>
+            </div>
+        </div>
+    </aside>
+
+    <section class="article-list" vid="47">
+        <div class="list-header" vid="48">
+            <span class="list-title" vid="49">All Articles</span>
+            <button class="icon-btn" title="Mark all as read" vid="50">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="51"><polyline points="20 6 9 17 4 12" vid="52"></polyline></svg>
+            </button>
+        </div>
+
+        <div class="list-content" vid="53">
+            <div class="article-item active" vid="54">
+                <div class="item-meta" vid="55">
+                    <div class="item-source" vid="56">
+                        <span class="unread-dot" vid="57"></span>
+                        UX Collective
+                    </div>
+                    <span class="item-time" vid="58">10:42 AM</span>
+                </div>
+                <div class="item-title" vid="59">Simplifying onboarding flows for complex enterprise applications</div>
+                <div class="item-preview" vid="60">Start by answering a few simple questions so that we can guide you through the process...</div>
+            </div>
+
+            <div class="article-item" vid="61">
+                <div class="item-meta" vid="62">
+                    <div class="item-source" vid="63">
+                        <span class="unread-dot" vid="64"></span>
+                        Smashing Magazine
+                    </div>
+                    <span class="item-time" vid="65">Yesterday</span>
+                </div>
+                <div class="item-title" vid="66">Designing better tables for data-heavy interfaces</div>
+                <div class="item-preview" vid="67">When designing for data density, typography and subtle borders play a crucial role in readability.</div>
+            </div>
+
+            <div class="article-item" vid="68">
+                <div class="item-meta" vid="69">
+                    <div class="item-source" vid="70">
+                        The Verge
+                    </div>
+                    <span class="item-time" vid="71">Oct 24</span>
+                </div>
+                <div class="item-title" vid="72">Apple announces new M3 chips and MacBook Pros</div>
+                <div class="item-preview" vid="73">The new architecture brings significant performance gains to professional workflows.</div>
+            </div>
+
+            <div class="article-item" vid="74">
+                <div class="item-meta" vid="75">
+                    <div class="item-source" vid="76">
+                        Nielsen Norman Group
+                    </div>
+                    <span class="item-time" vid="77">Oct 22</span>
+                </div>
+                <div class="item-title" vid="78">Breadcrumbs: 11 Design Guidelines for Desktop and Mobile</div>
+                <div class="item-preview" vid="79">Breadcrumbs are an essential secondary navigation scheme that reveal the user's location.</div>
+            </div>
+
+            <div class="article-item" vid="80">
+                <div class="item-meta" vid="81">
+                    <div class="item-source" vid="82">
+                        A List Apart
+                    </div>
+                    <span class="item-time" vid="83">Oct 20</span>
+                </div>
+                <div class="item-title" vid="84">The web's aesthetic vocabulary is changing again</div>
+                <div class="item-preview" vid="85">A look back at how trends shift from expressive visual styles to quiet, functional interfaces.</div>
+            </div>
+        </div>
+    </section>
+
+    <main class="reading-pane" vid="86">
+        <div class="pane-header" vid="87">
+            <div class="pane-actions-left" vid="88">
+                <button class="icon-btn" title="Previous article" vid="89">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="90"><polyline points="15 18 9 12 15 6" vid="91"></polyline></svg>
+                </button>
+                <button class="icon-btn" title="Next article" vid="92">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="93"><polyline points="9 18 15 12 9 6" vid="94"></polyline></svg>
+                </button>
+            </div>
+            <div class="pane-actions-right" vid="95">
+                <button class="icon-btn" title="Save article" vid="96">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="97"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" vid="98"></path></svg>
+                </button>
+                <button class="icon-btn" title="Share" vid="99">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="100"><circle cx="18" cy="5" r="3" vid="101"></circle><circle cx="6" cy="12" r="3" vid="102"></circle><circle cx="18" cy="19" r="3" vid="103"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49" vid="104"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" vid="105"></line></svg>
+                </button>
+                <button class="btn-outline" vid="106">
+                    Go to website
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="107"><line x1="7" y1="17" x2="17" y2="7" vid="108"></line><polyline points="7 7 17 7 17 17" vid="109"></polyline></svg>
+                </button>
+            </div>
+        </div>
+
+        <div class="pane-content-scroll" vid="110">
+            <article class="article-container" vid="111">
+                <header class="article-header" vid="112">
+                    <div class="article-feed-name" vid="113">
+                        <svg class="feed-icon-small" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="114"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" vid="115"></rect><line x1="16" y1="2" x2="16" y2="6" vid="116"></line><line x1="8" y1="2" x2="8" y2="6" vid="117"></line><line x1="3" y1="10" x2="21" y2="10" vid="118"></line></svg>
+                        UX Collective
+                    </div>
+                    <h1 class="article-h1" vid="119">Simplifying onboarding flows for complex enterprise applications</h1>
+
+                    <div class="article-meta-row" vid="120">
+                        <span vid="121">By <span class="article-author" vid="122">Sarah Jenkins</span></span>
+                        <span vid="123">•</span>
+                        <span vid="124">October 26, 2023</span>
+                        <span vid="125">•</span>
+                        <span vid="126">6 min read</span>
+                    </div>
+                </header>
+
+                <div class="article-body" vid="127">
+                    <p vid="128">Start by answering a few simple questions so that we can guide you through the process that's right for you. This is the core philosophy behind progressive disclosure, a technique particularly vital in enterprise software where the sheer volume of fields can paralyze a new user.</p>
+
+                    <p vid="129">When designing forms for complex tasks—like visa applications, tax filing, or system configuration—the cognitive load is already high. The interface should recede, providing a quiet, structured environment that organizes information logically.</p>
+
+                    <h2 vid="130">The anatomy of a clear step</h2>
+
+                    <p vid="131">Notice how information is structured when reviewing details. A label like <span style="color: var(--text-secondary); font-size: var(--font-size-sm);" vid="132">Traveling to</span> sits tightly above the value <strong vid="133">Australia</strong>. This stacked approach creates a clear, scannable block. If an action is needed, such as editing that specific field, placing the action on the far right edge establishes a consistent interaction zone.</p>
+
+                    <blockquote vid="134">
+                        "The goal isn't to hide complexity, but to structure it in a way that aligns with human processing capabilities."
+                    </blockquote>
+
+                    <p vid="135">Consider the use of color. A vibrant green (<span style="color: var(--accent-green)" vid="136">#10B981</span>) immediately signals success or a completed state without requiring the user to read a label. Conversely, using a distinct accent color for interactive elements—like an <a href="#" class="inline-link" vid="137">Edit link <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="138"><line x1="7" y1="17" x2="17" y2="7" vid="139"></line><polyline points="7 7 17 7 17 17" vid="140"></polyline></svg></a>—helps users quickly identify what they can change.</p>
+
+                    <p vid="141">By relying on subtle background shifts (like using `#FAFAFA` for list containers against a `#FFFFFF` page) and delicate borders, we define regions without adding visual noise. The design system acts as the physics engine for the layout, ensuring that whether a user is viewing a list of steps or a list of articles, the visual logic remains familiar and dependable.</p>
+                </div>
+            </article>
+        </div>
+    </main>
+</div>
+</body>
+</html>
