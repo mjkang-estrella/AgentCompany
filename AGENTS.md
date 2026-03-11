@@ -26,3 +26,8 @@
 - Keep README files current for every app and ops tool.
 - Preserve local app ownership: build, test, runtime config, and fixtures stay with the app.
 - When changing structure, update [docs/repository-map.md](docs/repository-map.md) and the affected app README in the same change.
+
+## Defaults
+
+- Store third-party and product login credentials in 1Password. When creating or rotating logins, prefer saving the final credential in 1Password instead of leaving it in local files or ad hoc notes.
+- When a product needs a backend and Supabase is a reasonable fit, prefer Supabase by default. Only choose a different backend when the task or existing architecture clearly requires it.
