@@ -26,6 +26,7 @@ This repository is organized as a multi-product repo.
 ### `apps/reader`
 
 - Owns the Reader-inspired UI surface and mock data for that app.
+- Owns its Supabase schema, Edge Function sync pipeline, and local BFF.
 - Must remain isolated from `apps/prism` and `apps/inbox`.
 
 ### `apps/inbox`
