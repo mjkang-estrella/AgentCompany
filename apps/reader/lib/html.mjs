@@ -1,0 +1,150 @@
+import sanitizeHtml from "sanitize-html";
+import { parse } from "node-html-parser";
+
+const SANITIZE_OPTIONS = {
+  allowedTags: [
+    "a",
+    "b",
+    "blockquote",
+    "br",
+    "code",
+    "em",
+    "figcaption",
+    "figure",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "hr",
+    "img",
+    "li",
+    "ol",
+    "p",
+    "pre",
+    "strong",
+    "ul"
+  ],
+  allowedAttributes: {
+    a: ["href", "name", "target", "rel"],
+    img: ["src", "alt", "title"]
+  },
+  allowedSchemes: ["http", "https", "mailto"],
+  transformTags: {
+    a: sanitizeHtml.simpleTransform("a", {
+      rel: "noopener noreferrer",
+      target: "_blank"
+    })
+  }
+};
+
+export const sanitizeFragment = (html) => {
+  if (!html) {
+    return "";
+  }
+
+  return sanitizeHtml(html, SANITIZE_OPTIONS);
+};
+
+export const decodeHtmlEntities = (value) => {
+  if (value == null || value === "") {
+    return "";
+  }
+
+  return parse(`<span>${String(value)}</span>`).textContent.trim();
+};
+
+export const stripHtml = (html) => {
+  if (!html) {
+    return "";
+  }
+
+  return decodeHtmlEntities(sanitizeHtml(html, {
+    allowedTags: [],
+    allowedAttributes: {}
+  }).replace(/\s+/gu, " ").trim());
+};
+
+export const estimateReadTime = (html) => {
+  const words = stripHtml(html).split(/\s+/u).filter(Boolean).length;
+  return Math.max(1, Math.round(words / 200));
+};
+
+const PREFERRED_CONTENT_SELECTORS = [
+  "article",
+  "main",
+  "[role='main']",
+  ".post-content",
+  ".entry-content",
+  ".article-content",
+  ".story-body",
+  ".content",
+  ".post",
+  ".article"
+];
+
+const scoreNode = (node) => {
+  const textLength = node.textContent.replace(/\s+/gu, " ").trim().length;
+  const paragraphCount = node.querySelectorAll("p").length;
+  return textLength + paragraphCount * 200;
+};
+
+export const discoverFeedLinks = (html, pageUrl) => {
+  const root = parse(html);
+  const links = root.querySelectorAll("link[rel]");
+  const candidates = [];
+
+  for (const link of links) {
+    const rel = (link.getAttribute("rel") || "").toLowerCase();
+    const type = (link.getAttribute("type") || "").toLowerCase();
+    const href = link.getAttribute("href");
+
+    if (!href || !rel.includes("alternate")) {
+      continue;
+    }
+
+    if (
+      type.includes("rss") ||
+      type.includes("atom") ||
+      type.includes("xml")
+    ) {
+      candidates.push({
+        href: new URL(href, pageUrl).toString(),
+        title: link.getAttribute("title") || ""
+      });
+    }
+  }
+
+  const favicon =
+    root.querySelector("link[rel='icon']")?.getAttribute("href") ||
+    root.querySelector("link[rel='shortcut icon']")?.getAttribute("href");
+
+  return {
+    feedLinks: candidates,
+    title:
+      root.querySelector("meta[property='og:site_name']")?.getAttribute("content") ||
+      root.querySelector("title")?.textContent?.trim() ||
+      "",
+    faviconUrl: favicon ? new URL(favicon, pageUrl).toString() : ""
+  };
+};
+
+export const extractReadableContent = (html) => {
+  const root = parse(html);
+  for (const selector of ["script", "style", "noscript", "template", "iframe"]) {
+    root.querySelectorAll(selector).forEach((node) => node.remove());
+  }
+
+  const preferred = PREFERRED_CONTENT_SELECTORS
+    .map((selector) => root.querySelector(selector))
+    .filter(Boolean);
+
+  const fallback = root.querySelectorAll("article, main, section, div");
+  const candidates = [...preferred, ...fallback].filter(Boolean);
+
+  if (candidates.length === 0) {
+    return "";
+  }
+
+  const bestNode = candidates.sort((left, right) => scoreNode(right) - scoreNode(left))[0];
+  return sanitizeFragment(bestNode.innerHTML || "");
+};

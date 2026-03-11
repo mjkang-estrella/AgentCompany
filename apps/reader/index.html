@@ -119,6 +119,17 @@
             color: var(--text-primary);
         }
 
+        .icon-btn.is-active {
+            background-color: var(--accent-orange-light);
+            color: var(--accent-orange);
+        }
+
+        .icon-btn:disabled,
+        .btn-outline:disabled {
+            cursor: not-allowed;
+            opacity: 0.45;
+        }
+
         .sidebar-content {
             flex: 1;
             overflow-y: auto;
@@ -379,6 +390,7 @@
             font-size: 15px;
             line-height: 1.6;
             color: var(--text-primary);
+            overflow-wrap: break-word;
         }
 
         .article-body p {
@@ -409,6 +421,62 @@
             font-style: italic;
         }
 
+        .article-body figure {
+            margin: 24px 0;
+            max-width: 100%;
+        }
+
+        .article-body img,
+        .article-body svg,
+        .article-body video,
+        .article-body canvas {
+            display: block;
+            max-width: 100%;
+            height: auto;
+            margin: 24px 0;
+        }
+
+        .article-body figure img,
+        .article-body figure svg,
+        .article-body figure video,
+        .article-body figure canvas {
+            margin: 0;
+        }
+
+        .article-body iframe,
+        .article-body table,
+        .article-body pre {
+            max-width: 100%;
+        }
+
+        .article-body pre,
+        .article-body table {
+            overflow-x: auto;
+        }
+
+        .article-body pre {
+            background-color: var(--bg-panel);
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            padding: 16px;
+            margin-bottom: 20px;
+            white-space: pre-wrap;
+        }
+
+        .article-body table {
+            display: block;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+
+        .article-body th,
+        .article-body td {
+            border: 1px solid var(--border-light);
+            padding: 10px 12px;
+            text-align: left;
+            vertical-align: top;
+        }
+
         .inline-link {
             color: var(--accent-orange);
             text-decoration: none;
@@ -423,6 +491,152 @@
             height: 12px;
         }
 
+        .empty-state {
+            padding: 20px;
+            color: var(--text-secondary);
+            font-size: var(--font-size-sm);
+            line-height: 1.6;
+        }
+
+        .feed-dialog {
+            border: none;
+            padding: 0;
+            border-radius: 12px;
+            box-shadow: 0 20px 50px rgba(15, 23, 42, 0.18);
+            max-width: 440px;
+            width: calc(100% - 32px);
+        }
+
+        .feed-dialog::backdrop {
+            background: rgba(15, 23, 42, 0.35);
+        }
+
+        .feed-dialog-card {
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .dialog-title {
+            font-size: var(--font-size-lg);
+            font-weight: 600;
+            color: var(--text-heading);
+        }
+
+        .dialog-copy {
+            color: var(--text-secondary);
+            font-size: var(--font-size-sm);
+        }
+
+        .form-field {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .form-label {
+            font-size: var(--font-size-xs);
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            font-weight: 600;
+        }
+
+        .text-input {
+            border: 1px solid var(--border-medium);
+            border-radius: var(--radius-md);
+            padding: 10px 12px;
+            font: inherit;
+            color: var(--text-primary);
+            background: #FFFFFF;
+        }
+
+        .text-input:focus {
+            outline: 2px solid rgba(30, 58, 138, 0.12);
+            border-color: var(--accent-blue);
+        }
+
+        .dialog-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        .btn-secondary {
+            background: #FFFFFF;
+            color: var(--text-primary);
+            border: 1px solid var(--border-medium);
+            border-radius: var(--radius-md);
+            padding: 8px 12px;
+            cursor: pointer;
+            font: inherit;
+        }
+
+        .btn-primary {
+            background: var(--accent-blue);
+            color: #FFFFFF;
+            border: 1px solid var(--accent-blue);
+            border-radius: var(--radius-md);
+            padding: 8px 12px;
+            cursor: pointer;
+            font: inherit;
+        }
+
+        .toast {
+            position: fixed;
+            right: 20px;
+            bottom: 20px;
+            background: var(--text-heading);
+            color: #FFFFFF;
+            padding: 10px 14px;
+            border-radius: 10px;
+            font-size: var(--font-size-sm);
+            box-shadow: 0 12px 30px rgba(15, 23, 42, 0.2);
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(8px);
+            transition: opacity 0.2s ease, transform 0.2s ease;
+        }
+
+        .toast.is-visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .toast.is-error {
+            background: #991B1B;
+        }
+
+        @media (max-width: 960px) {
+            body {
+                height: auto;
+                overflow: auto;
+            }
+
+            .app-layout {
+                min-height: 100vh;
+                flex-direction: column;
+            }
+
+            .sidebar,
+            .article-list {
+                width: 100%;
+            }
+
+            .sidebar,
+            .article-list {
+                border-right: none;
+                border-bottom: 1px solid var(--border-light);
+            }
+
+            .pane-header,
+            .pane-content-scroll {
+                padding-left: 20px;
+                padding-right: 20px;
+            }
+        }
+
     </style>
 </head>
 <body vid="6">
@@ -430,136 +644,70 @@
     <aside class="sidebar" vid="8">
         <div class="sidebar-header" vid="9">
             <span class="sidebar-title" vid="10">Reader</span>
-            <button class="icon-btn" title="Add Feed" vid="11">
+            <button class="icon-btn" id="add-feed-button" title="Add Feed" vid="11">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="12"><line x1="12" y1="5" x2="12" y2="19" vid="13"></line><line x1="5" y1="12" x2="19" y2="12" vid="14"></line></svg>
             </button>
         </div>
 
         <div class="sidebar-content" vid="15">
             <div class="nav-group" vid="16">
-                <a href="#" class="nav-item" vid="17">
+                <a href="#" class="nav-item" data-scope="today" id="nav-today" vid="17">
                     <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="18"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" vid="19"></rect><line x1="16" y1="2" x2="16" y2="6" vid="20"></line><line x1="8" y1="2" x2="8" y2="6" vid="21"></line><line x1="3" y1="10" x2="21" y2="10" vid="22"></line></svg>
                     Today
-                    <span class="nav-item-count" vid="23">12</span>
+                    <span class="nav-item-count" id="count-today" vid="23">0</span>
                 </a>
-                <a href="#" class="nav-item active" vid="24">
+                <a href="#" class="nav-item active" data-scope="all" id="nav-all" vid="24">
                     <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="25"><path d="M4 11a9 9 0 0 1 9 9" vid="26"></path><path d="M4 4a16 16 0 0 1 16 16" vid="27"></path><circle cx="5" cy="19" r="1" vid="28"></circle></svg>
                     All Articles
-                    <span class="nav-item-count" vid="29">48</span>
+                    <span class="nav-item-count" id="count-all" vid="29">0</span>
                 </a>
-                <a href="#" class="nav-item" vid="30">
+                <a href="#" class="nav-item" data-scope="saved" id="nav-saved" vid="30">
                     <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="31"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" vid="32"></path></svg>
                     Saved
+                    <span class="nav-item-count" id="count-saved">0</span>
                 </a>
             </div>
 
             <div class="nav-group" vid="33">
                 <div class="nav-label" vid="34">Folders</div>
-                <a href="#" class="nav-item" vid="35">
-                    <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="36"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" vid="37"></path></svg>
-                    Design
-                    <span class="nav-item-count" vid="38">14</span>
-                </a>
-                <a href="#" class="nav-item" vid="39">
-                    <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="40"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" vid="41"></path></svg>
-                    Technology
-                    <span class="nav-item-count" vid="42">31</span>
-                </a>
-                <a href="#" class="nav-item" vid="43">
-                    <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="44"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" vid="45"></path></svg>
-                    Business
-                    <span class="nav-item-count" vid="46">3</span>
-                </a>
+                <div id="folders-list">
+                    <div class="empty-state">Feeds you add will show up here by folder.</div>
+                </div>
             </div>
         </div>
     </aside>
 
     <section class="article-list" vid="47">
         <div class="list-header" vid="48">
-            <span class="list-title" vid="49">All Articles</span>
-            <button class="icon-btn" title="Mark all as read" vid="50">
+            <span class="list-title" id="list-title" vid="49">All Articles</span>
+            <button class="icon-btn" id="mark-all-read-button" title="Mark all as read" vid="50">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="51"><polyline points="20 6 9 17 4 12" vid="52"></polyline></svg>
             </button>
         </div>
 
-        <div class="list-content" vid="53">
-            <div class="article-item active" vid="54">
-                <div class="item-meta" vid="55">
-                    <div class="item-source" vid="56">
-                        <span class="unread-dot" vid="57"></span>
-                        UX Collective
-                    </div>
-                    <span class="item-time" vid="58">10:42 AM</span>
-                </div>
-                <div class="item-title" vid="59">Simplifying onboarding flows for complex enterprise applications</div>
-                <div class="item-preview" vid="60">Start by answering a few simple questions so that we can guide you through the process...</div>
-            </div>
-
-            <div class="article-item" vid="61">
-                <div class="item-meta" vid="62">
-                    <div class="item-source" vid="63">
-                        <span class="unread-dot" vid="64"></span>
-                        Smashing Magazine
-                    </div>
-                    <span class="item-time" vid="65">Yesterday</span>
-                </div>
-                <div class="item-title" vid="66">Designing better tables for data-heavy interfaces</div>
-                <div class="item-preview" vid="67">When designing for data density, typography and subtle borders play a crucial role in readability.</div>
-            </div>
-
-            <div class="article-item" vid="68">
-                <div class="item-meta" vid="69">
-                    <div class="item-source" vid="70">
-                        The Verge
-                    </div>
-                    <span class="item-time" vid="71">Oct 24</span>
-                </div>
-                <div class="item-title" vid="72">Apple announces new M3 chips and MacBook Pros</div>
-                <div class="item-preview" vid="73">The new architecture brings significant performance gains to professional workflows.</div>
-            </div>
-
-            <div class="article-item" vid="74">
-                <div class="item-meta" vid="75">
-                    <div class="item-source" vid="76">
-                        Nielsen Norman Group
-                    </div>
-                    <span class="item-time" vid="77">Oct 22</span>
-                </div>
-                <div class="item-title" vid="78">Breadcrumbs: 11 Design Guidelines for Desktop and Mobile</div>
-                <div class="item-preview" vid="79">Breadcrumbs are an essential secondary navigation scheme that reveal the user's location.</div>
-            </div>
-
-            <div class="article-item" vid="80">
-                <div class="item-meta" vid="81">
-                    <div class="item-source" vid="82">
-                        A List Apart
-                    </div>
-                    <span class="item-time" vid="83">Oct 20</span>
-                </div>
-                <div class="item-title" vid="84">The web's aesthetic vocabulary is changing again</div>
-                <div class="item-preview" vid="85">A look back at how trends shift from expressive visual styles to quiet, functional interfaces.</div>
-            </div>
+        <div class="list-content" id="article-list" vid="53">
+            <div class="empty-state">Add a feed to start building your reading queue.</div>
         </div>
     </section>
 
     <main class="reading-pane" vid="86">
         <div class="pane-header" vid="87">
             <div class="pane-actions-left" vid="88">
-                <button class="icon-btn" title="Previous article" vid="89">
+                <button class="icon-btn" id="previous-article-button" title="Previous article" vid="89">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="90"><polyline points="15 18 9 12 15 6" vid="91"></polyline></svg>
                 </button>
-                <button class="icon-btn" title="Next article" vid="92">
+                <button class="icon-btn" id="next-article-button" title="Next article" vid="92">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="93"><polyline points="9 18 15 12 9 6" vid="94"></polyline></svg>
                 </button>
             </div>
             <div class="pane-actions-right" vid="95">
-                <button class="icon-btn" title="Save article" vid="96">
+                <button class="icon-btn" id="save-article-button" title="Save article" vid="96">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="97"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" vid="98"></path></svg>
                 </button>
-                <button class="icon-btn" title="Share" vid="99">
+                <button class="icon-btn" id="share-article-button" title="Share" vid="99">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="100"><circle cx="18" cy="5" r="3" vid="101"></circle><circle cx="6" cy="12" r="3" vid="102"></circle><circle cx="18" cy="19" r="3" vid="103"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49" vid="104"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" vid="105"></line></svg>
                 </button>
-                <button class="btn-outline" vid="106">
+                <button class="btn-outline" id="open-article-button" vid="106">
                     Go to website
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="107"><line x1="7" y1="17" x2="17" y2="7" vid="108"></line><polyline points="7 7 17 7 17 17" vid="109"></polyline></svg>
                 </button>
@@ -567,43 +715,35 @@
         </div>
 
         <div class="pane-content-scroll" vid="110">
-            <article class="article-container" vid="111">
-                <header class="article-header" vid="112">
-                    <div class="article-feed-name" vid="113">
-                        <svg class="feed-icon-small" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="114"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" vid="115"></rect><line x1="16" y1="2" x2="16" y2="6" vid="116"></line><line x1="8" y1="2" x2="8" y2="6" vid="117"></line><line x1="3" y1="10" x2="21" y2="10" vid="118"></line></svg>
-                        UX Collective
-                    </div>
-                    <h1 class="article-h1" vid="119">Simplifying onboarding flows for complex enterprise applications</h1>
-
-                    <div class="article-meta-row" vid="120">
-                        <span vid="121">By <span class="article-author" vid="122">Sarah Jenkins</span></span>
-                        <span vid="123">•</span>
-                        <span vid="124">October 26, 2023</span>
-                        <span vid="125">•</span>
-                        <span vid="126">6 min read</span>
-                    </div>
-                </header>
-
-                <div class="article-body" vid="127">
-                    <p vid="128">Start by answering a few simple questions so that we can guide you through the process that's right for you. This is the core philosophy behind progressive disclosure, a technique particularly vital in enterprise software where the sheer volume of fields can paralyze a new user.</p>
-
-                    <p vid="129">When designing forms for complex tasks—like visa applications, tax filing, or system configuration—the cognitive load is already high. The interface should recede, providing a quiet, structured environment that organizes information logically.</p>
-
-                    <h2 vid="130">The anatomy of a clear step</h2>
-
-                    <p vid="131">Notice how information is structured when reviewing details. A label like <span style="color: var(--text-secondary); font-size: var(--font-size-sm);" vid="132">Traveling to</span> sits tightly above the value <strong vid="133">Australia</strong>. This stacked approach creates a clear, scannable block. If an action is needed, such as editing that specific field, placing the action on the far right edge establishes a consistent interaction zone.</p>
-
-                    <blockquote vid="134">
-                        "The goal isn't to hide complexity, but to structure it in a way that aligns with human processing capabilities."
-                    </blockquote>
-
-                    <p vid="135">Consider the use of color. A vibrant green (<span style="color: var(--accent-green)" vid="136">#10B981</span>) immediately signals success or a completed state without requiring the user to read a label. Conversely, using a distinct accent color for interactive elements—like an <a href="#" class="inline-link" vid="137">Edit link <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="138"><line x1="7" y1="17" x2="17" y2="7" vid="139"></line><polyline points="7 7 17 7 17 17" vid="140"></polyline></svg></a>—helps users quickly identify what they can change.</p>
-
-                    <p vid="141">By relying on subtle background shifts (like using `#FAFAFA` for list containers against a `#FFFFFF` page) and delicate borders, we define regions without adding visual noise. The design system acts as the physics engine for the layout, ensuring that whether a user is viewing a list of steps or a list of articles, the visual logic remains familiar and dependable.</p>
+            <article class="article-container" id="article-view" vid="111">
+                <div class="empty-state">
+                    Select an article to start reading. New feeds sync through Supabase every 15 minutes.
                 </div>
             </article>
         </div>
     </main>
 </div>
+<dialog class="feed-dialog" id="feed-dialog">
+    <form class="feed-dialog-card" id="feed-form" method="dialog">
+        <div>
+            <div class="dialog-title">Add feed</div>
+            <p class="dialog-copy">Paste an RSS/Atom feed URL or a website URL and Reader will discover the feed automatically when possible.</p>
+        </div>
+        <label class="form-field">
+            <span class="form-label">Feed or website URL</span>
+            <input class="text-input" id="feed-url-input" name="inputUrl" required type="url" placeholder="https://example.com/feed.xml">
+        </label>
+        <label class="form-field">
+            <span class="form-label">Folder</span>
+            <input class="text-input" id="feed-folder-input" name="folder" placeholder="Technology">
+        </label>
+        <div class="dialog-actions">
+            <button class="btn-secondary" id="feed-cancel-button" type="button">Cancel</button>
+            <button class="btn-primary" type="submit">Add feed</button>
+        </div>
+    </form>
+</dialog>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script type="module" src="/app.js"></script>
 </body>
 </html>
