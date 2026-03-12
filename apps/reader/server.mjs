@@ -84,6 +84,7 @@ createServer(async (request, response) => {
 
     if (request.method === "GET" && url.pathname === "/api/bootstrap") {
       const payload = await service.bootstrap({
+        limit: toInt(url.searchParams.get("limit")),
         folder: url.searchParams.get("folder") || "",
         scope: url.searchParams.get("scope") || "all",
         selectedArticleId: url.searchParams.get("selectedArticleId") || "",
@@ -95,11 +96,14 @@ createServer(async (request, response) => {
 
     if (request.method === "GET" && url.pathname === "/api/articles") {
       const payload = await service.listArticles({
+        beforeId: url.searchParams.get("beforeId") || "",
+        beforePublishedAt: url.searchParams.get("beforePublishedAt") || "",
         folder: url.searchParams.get("folder") || "",
+        limit: toInt(url.searchParams.get("limit")),
         scope: url.searchParams.get("scope") || "all",
         timezoneOffsetMinutes: toInt(url.searchParams.get("tzOffsetMinutes"))
       });
-      json(response, 200, { articles: payload });
+      json(response, 200, payload);
       return;
     }
 

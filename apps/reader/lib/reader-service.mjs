@@ -2,21 +2,9 @@ import { createClient } from "@supabase/supabase-js";
 
 import { decodeHtmlEntities, estimateReadTime, sanitizeFragment, stripHtml } from "./html.mjs";
 import { resolveFeedInput } from "./feed-discovery.mjs";
-import { isToday } from "./time.mjs";
 
-const summarySelect = `
-  id,
-  feed_id,
-  title,
-  url,
-  author,
-  published_at,
-  summary_html,
-  read_time_minutes,
-  is_read,
-  is_saved,
-  feed:feeds!inner(id, title, folder, site_url, icon_url)
-`;
+const DEFAULT_PAGE_LIMIT = 50;
+const MAX_PAGE_LIMIT = 100;
 
 const articleSelect = `
   id,
@@ -41,14 +29,14 @@ const createSupabase = ({ url, serviceRoleKey }) =>
 
 const mapSummary = (row) => ({
   author: decodeHtmlEntities(row.author || ""),
-  feedFolder: row.feed.folder,
-  feedIconUrl: row.feed.icon_url || "",
-  feedId: row.feed.id,
-  feedTitle: decodeHtmlEntities(row.feed.title),
+  feedFolder: row.feed_folder,
+  feedIconUrl: row.feed_icon_url || "",
+  feedId: row.feed_id,
+  feedTitle: decodeHtmlEntities(row.feed_title),
   id: row.id,
   isRead: Boolean(row.is_read),
   isSaved: Boolean(row.is_saved),
-  previewText: stripHtml(row.summary_html).slice(0, 220),
+  previewText: stripHtml(row.summary_html || "").slice(0, 220),
   publishedAt: row.published_at,
   readTimeMinutes: row.read_time_minutes || 1,
   title: decodeHtmlEntities(row.title),
@@ -94,79 +82,126 @@ const normalizeScope = (scope) => {
   return "all";
 };
 
-const filterSummaries = (rows, { folder, scope, timezoneOffsetMinutes, now = new Date() }) => {
-  return rows.filter((row) => {
-    if (folder && row.feedFolder !== folder) {
-      return false;
-    }
-
-    if (scope === "saved" && !row.isSaved) {
-      return false;
-    }
-
-    if (scope === "today" && !isToday(row.publishedAt, timezoneOffsetMinutes, now)) {
-      return false;
-    }
-
-    return true;
-  });
-};
-
-const buildCounts = (rows, timezoneOffsetMinutes, now = new Date()) => {
-  const folders = {};
-
-  for (const row of rows) {
-    folders[row.feedFolder] = (folders[row.feedFolder] || 0) + 1;
+const normalizeLimit = (value) => {
+  const parsed = Number.parseInt(String(value || DEFAULT_PAGE_LIMIT), 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return DEFAULT_PAGE_LIMIT;
   }
 
+  return Math.min(parsed, MAX_PAGE_LIMIT);
+};
+
+const normalizeCursor = ({ beforeId = "", beforePublishedAt = "" } = {}) => ({
+  beforeId: beforeId || null,
+  beforePublishedAt: beforePublishedAt || null
+});
+
+const buildNextCursor = (article) =>
+  article
+    ? {
+        beforeId: article.id,
+        beforePublishedAt: article.publishedAt
+      }
+    : null;
+
+const buildPageResult = (rows, limit) => {
+  const summaries = rows.map(mapSummary);
+  const hasMore = summaries.length > limit;
+  const articles = hasMore ? summaries.slice(0, limit) : summaries;
+
   return {
-    all: rows.length,
-    saved: rows.filter((row) => row.isSaved).length,
-    today: rows.filter((row) => isToday(row.publishedAt, timezoneOffsetMinutes, now)).length,
-    folders
+    articles,
+    hasMore,
+    nextCursor: hasMore ? buildNextCursor(articles.at(-1)) : null
   };
 };
+
+const emptyCounts = () => ({
+  all: 0,
+  folders: {},
+  saved: 0,
+  today: 0
+});
 
 export const createReaderService = ({ url, serviceRoleKey }) => {
   const supabase = createSupabase({ url, serviceRoleKey });
 
-  const fetchSummaries = async () => {
-    const result = await supabase
-      .from("articles")
-      .select(summarySelect)
-      .order("published_at", { ascending: false });
+  const getCounts = async (timezoneOffsetMinutes) => {
+    const result = await supabase.rpc("reader_sidebar_counts", {
+      p_tz_offset_minutes: timezoneOffsetMinutes
+    });
+    const data = assertResult(result, "Could not fetch article counts");
 
-    return assertResult(result, "Could not fetch article list").map(mapSummary);
+    return {
+      ...emptyCounts(),
+      ...(data || {}),
+      folders: data?.folders || {}
+    };
+  };
+
+  const getArticlePage = async ({
+    beforeId = "",
+    beforePublishedAt = "",
+    folder = "",
+    limit = DEFAULT_PAGE_LIMIT,
+    scope = "all",
+    timezoneOffsetMinutes = 0
+  }) => {
+    const normalizedLimit = normalizeLimit(limit);
+    const cursor = normalizeCursor({ beforeId, beforePublishedAt });
+    const result = await supabase.rpc("reader_article_page", {
+      p_before_id: cursor.beforeId,
+      p_before_published_at: cursor.beforePublishedAt,
+      p_folder: folder,
+      p_limit: normalizedLimit + 1,
+      p_scope: normalizeScope(scope),
+      p_tz_offset_minutes: timezoneOffsetMinutes
+    });
+
+    const rows = assertResult(result, "Could not fetch article list");
+    return buildPageResult(rows || [], normalizedLimit);
   };
 
   return {
-    async bootstrap({ folder = "", scope = "all", selectedArticleId = "", timezoneOffsetMinutes = 0 }) {
-      const normalizedScope = normalizeScope(scope);
-      const summaries = await fetchSummaries();
-      const counts = buildCounts(summaries, timezoneOffsetMinutes);
-      const articles = filterSummaries(summaries, {
-        folder,
-        scope: normalizedScope,
-        timezoneOffsetMinutes
-      });
-      const selectedId = articles.some((article) => article.id === selectedArticleId)
+    async bootstrap({
+      folder = "",
+      limit = DEFAULT_PAGE_LIMIT,
+      scope = "all",
+      selectedArticleId = "",
+      timezoneOffsetMinutes = 0
+    }) {
+      const [counts, page] = await Promise.all([
+        getCounts(timezoneOffsetMinutes),
+        getArticlePage({ folder, limit, scope, timezoneOffsetMinutes })
+      ]);
+
+      const selectedId = page.articles.some((article) => article.id === selectedArticleId)
         ? selectedArticleId
-        : (articles[0]?.id || "");
-      const selectedArticle = selectedId ? await this.getArticle(selectedId) : null;
+        : (page.articles[0]?.id || "");
 
       return {
-        articles,
+        articles: page.articles,
         counts,
-        selectedArticle,
+        hasMore: page.hasMore,
+        nextCursor: page.nextCursor,
         selectedArticleId: selectedId
       };
     },
 
-    async listArticles({ folder = "", scope = "all", timezoneOffsetMinutes = 0 }) {
-      const summaries = await fetchSummaries();
-      return filterSummaries(summaries, {
+    async listArticles({
+      beforeId = "",
+      beforePublishedAt = "",
+      folder = "",
+      limit = DEFAULT_PAGE_LIMIT,
+      scope = "all",
+      timezoneOffsetMinutes = 0
+    }) {
+      return getArticlePage({
+        beforeId,
+        beforePublishedAt,
         folder,
-        scope: normalizeScope(scope),
+        limit,
+        scope,
         timezoneOffsetMinutes
       });
     },
@@ -204,23 +239,15 @@ export const createReaderService = ({ url, serviceRoleKey }) => {
     },
 
     async markAllRead({ folder = "", scope = "all", timezoneOffsetMinutes = 0 }) {
-      const rows = await this.listArticles({ folder, scope, timezoneOffsetMinutes });
-      const unreadIds = rows.filter((row) => !row.isRead).map((row) => row.id);
+      const result = await supabase.rpc("reader_mark_all_read", {
+        p_folder: folder,
+        p_scope: normalizeScope(scope),
+        p_tz_offset_minutes: timezoneOffsetMinutes
+      });
 
-      if (unreadIds.length === 0) {
-        return { updated: 0 };
-      }
-
-      const result = await supabase
-        .from("articles")
-        .update({
-          is_read: true,
-          read_at: new Date().toISOString()
-        })
-        .in("id", unreadIds);
-
-      assertResult(result, "Could not mark articles as read");
-      return { updated: unreadIds.length };
+      return {
+        updated: Number(assertResult(result, "Could not mark articles as read") || 0)
+      };
     },
 
     async addFeed({ folder, inputUrl }) {

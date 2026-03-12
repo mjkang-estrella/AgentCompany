@@ -20,6 +20,7 @@ This repository is organized as a multi-product repo.
 ### `apps/prism`
 
 - Owns the clarification workspace UI and supporting app logic.
+- Owns its Supabase schema, migrations, and Vercel deployment/runtime configuration.
 - May share only stable config or generic utilities through `packages/*`.
 - Must not import code from `apps/reader`, `apps/inbox`, or `apps/wallet`.
 

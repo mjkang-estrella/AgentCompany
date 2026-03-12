@@ -11,6 +11,7 @@ export default {
       const url = new URL(request.url);
       const service = await getReaderService();
       const payload = await service.bootstrap({
+        limit: toInt(url.searchParams.get("limit")),
         folder: url.searchParams.get("folder") || "",
         scope: url.searchParams.get("scope") || "all",
         selectedArticleId: url.searchParams.get("selectedArticleId") || "",

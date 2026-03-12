@@ -1,3 +1,4 @@
+import he from "he";
 import sanitizeHtml from "sanitize-html";
 import { parse } from "node-html-parser";
 
@@ -37,12 +38,20 @@ const SANITIZE_OPTIONS = {
   }
 };
 
+export const decodeHtmlFragment = (value) => {
+  if (value == null || value === "") {
+    return "";
+  }
+
+  return he.decode(String(value));
+};
+
 export const sanitizeFragment = (html) => {
   if (!html) {
     return "";
   }
 
-  return sanitizeHtml(html, SANITIZE_OPTIONS);
+  return sanitizeHtml(decodeHtmlFragment(html), SANITIZE_OPTIONS);
 };
 
 export const decodeHtmlEntities = (value) => {
@@ -58,7 +67,7 @@ export const stripHtml = (html) => {
     return "";
   }
 
-  return decodeHtmlEntities(sanitizeHtml(html, {
+  return decodeHtmlEntities(sanitizeHtml(decodeHtmlFragment(html), {
     allowedTags: [],
     allowedAttributes: {}
   }).replace(/\s+/gu, " ").trim());

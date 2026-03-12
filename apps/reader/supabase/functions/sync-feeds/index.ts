@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 import { createClient } from "npm:@supabase/supabase-js@2.99.1";
 import { XMLParser } from "npm:fast-xml-parser@5.5.3";
+import he from "npm:he@1.2.0";
 import { parse as parseHtml } from "npm:node-html-parser@7.1.0";
 import sanitizeHtml from "npm:sanitize-html@2.17.1";
 
@@ -26,8 +27,16 @@ const defaultHeaders = {
   "user-agent": "AgentCompany Reader Sync/1.0 (+https://agent.company)",
 };
 
+const decodeHtmlFragment = (value: unknown) => {
+  if (value == null || value === "") {
+    return "";
+  }
+
+  return he.decode(String(value));
+};
+
 const sanitizeFragment = (html: string) =>
-  sanitizeHtml(html || "", {
+  sanitizeHtml(decodeHtmlFragment(html || ""), {
     allowedAttributes: {
       a: ["href", "target", "rel"],
       img: ["src", "alt", "title"],
@@ -72,7 +81,7 @@ const decodeHtmlEntities = (value: unknown) => {
 };
 
 const stripHtml = (html: string) =>
-  sanitizeHtml(html || "", {
+  sanitizeHtml(decodeHtmlFragment(html || ""), {
     allowedAttributes: {},
     allowedTags: [],
   }).replace(/\s+/gu, " ").trim();
@@ -143,12 +152,12 @@ const getHtml = (value: unknown): string => {
     html.replace(/^<!\[CDATA\[/u, "").replace(/\]\]>$/u, "").trim();
 
   if (typeof value === "string") {
-    return stripCdata(value);
+    return decodeHtmlFragment(stripCdata(value));
   }
 
   if (typeof value === "object") {
     const record = value as Record<string, unknown>;
-    return stripCdata(String(record.cdata || record.text || ""));
+    return decodeHtmlFragment(stripCdata(String(record.cdata || record.text || "")));
   }
 
   return "";

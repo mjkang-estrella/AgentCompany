@@ -1,5 +1,5 @@
 import { XMLParser } from "fast-xml-parser";
-import { decodeHtmlEntities } from "./html.mjs";
+import { decodeHtmlEntities, decodeHtmlFragment } from "./html.mjs";
 
 const parser = new XMLParser({
   attributeNamePrefix: "",
@@ -69,11 +69,11 @@ const getHtml = (value) => {
     html.replace(/^<!\[CDATA\[/u, "").replace(/\]\]>$/u, "").trim();
 
   if (typeof value === "string") {
-    return stripCdata(value);
+    return decodeHtmlFragment(stripCdata(value));
   }
 
   if (typeof value === "object") {
-    return stripCdata(String(value.cdata || value.text || ""));
+    return decodeHtmlFragment(stripCdata(String(value.cdata || value.text || "")));
   }
 
   return "";

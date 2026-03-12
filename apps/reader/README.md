@@ -2,6 +2,8 @@
 
 Reader is a standalone private RSS reader app with a lightweight HTML client, a small Node BFF, and Supabase-backed persistence plus scheduled syncing.
 
+The reader is page-based by default: it loads exact sidebar counts plus the newest 50 summaries first, fetches the selected article body separately, and appends older summaries with infinite scroll.
+
 ## Owns
 
 - Reader-inspired article list and reading surface

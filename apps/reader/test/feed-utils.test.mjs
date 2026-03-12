@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { decodeHtmlEntities, discoverFeedLinks, extractReadableContent, sanitizeFragment } from "../lib/html.mjs";
+import {
+  decodeHtmlEntities,
+  discoverFeedLinks,
+  extractReadableContent,
+  sanitizeFragment
+} from "../lib/html.mjs";
 import { parseFeed } from "../lib/feed-utils.mjs";
 import { getTodayBounds, isToday } from "../lib/time.mjs";
 
@@ -67,6 +72,27 @@ test("parseFeed decodes HTML entities in titles", () => {
   assert.equal(parsed.feed.entries[0].title, "Anthropic's Integration");
 });
 
+test("parseFeed decodes escaped HTML fragments in RSS descriptions", () => {
+  const rss = `<?xml version="1.0"?>
+    <rss version="2.0">
+      <channel>
+        <title>Reader Feed</title>
+        <link>https://example.com</link>
+        <item>
+          <title>Escaped body</title>
+          <link>https://example.com/post</link>
+          <guid>entry-3</guid>
+          <description>&lt;p&gt;Hello &amp;amp; world&lt;/p&gt;</description>
+          <pubDate>Tue, 11 Mar 2026 18:00:00 GMT</pubDate>
+        </item>
+      </channel>
+    </rss>`;
+
+  const parsed = parseFeed(rss, "https://example.com/feed.xml");
+  assert.equal(parsed.feed.entries[0].summaryHtml, "<p>Hello &amp; world</p>");
+  assert.equal(parsed.feed.entries[0].bodyHtml, "<p>Hello &amp; world</p>");
+});
+
 test("discoverFeedLinks finds alternate feeds and icon", () => {
   const html = `
     <html>
@@ -109,6 +135,12 @@ test("sanitizeFragment removes dangerous attributes", () => {
   assert.match(sanitized, /<a href="https:\/\/example.com"/);
   assert.doesNotMatch(sanitized, /onclick/);
   assert.doesNotMatch(sanitized, /script/);
+});
+
+test("sanitizeFragment decodes escaped markup before sanitizing", () => {
+  const sanitized = sanitizeFragment("&lt;p&gt;Hello&lt;/p&gt;&lt;script&gt;alert(1)&lt;/script&gt;");
+
+  assert.equal(sanitized, "<p>Hello</p>");
 });
 
 test("decodeHtmlEntities decodes numeric entities", () => {

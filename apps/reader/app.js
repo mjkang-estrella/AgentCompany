@@ -1,7 +1,14 @@
+const PAGE_LIMIT = 50;
+const LOAD_MORE_THRESHOLD = 240;
+
 const state = {
   articles: [],
   counts: { all: 0, saved: 0, today: 0, folders: {} },
   folder: "",
+  hasMore: false,
+  isLoadingArticle: false,
+  isLoadingMore: false,
+  nextCursor: null,
   scope: "all",
   selectedArticle: null,
   selectedArticleId: ""
@@ -50,6 +57,7 @@ const fallbackFeedIcon = `
 
 let toastTimer = null;
 let organizationEditedManually = false;
+let articleRequestToken = 0;
 
 const escapeHtml = (value) =>
   String(value ?? "").replace(/[&<>"']/gu, (character) => ({
@@ -182,8 +190,9 @@ const requestJson = async (url, options = {}) => {
   return response.json();
 };
 
-const buildQuery = () => {
+const buildQuery = ({ cursor = null, includeSelectedArticleId = false } = {}) => {
   const params = new URLSearchParams({
+    limit: String(PAGE_LIMIT),
     scope: state.scope,
     tzOffsetMinutes: String(new Date().getTimezoneOffset())
   });
@@ -192,11 +201,26 @@ const buildQuery = () => {
     params.set("folder", state.folder);
   }
 
-  if (state.selectedArticleId) {
+  if (includeSelectedArticleId && state.selectedArticleId) {
     params.set("selectedArticleId", state.selectedArticleId);
   }
 
+  if (cursor?.beforePublishedAt) {
+    params.set("beforePublishedAt", cursor.beforePublishedAt);
+  }
+
+  if (cursor?.beforeId) {
+    params.set("beforeId", cursor.beforeId);
+  }
+
   return params;
+};
+
+const clearSelection = () => {
+  articleRequestToken += 1;
+  state.isLoadingArticle = false;
+  state.selectedArticle = null;
+  state.selectedArticleId = "";
 };
 
 const renderSidebar = () => {
@@ -240,37 +264,55 @@ const renderArticleList = () => {
     return;
   }
 
-  elements.articleList.innerHTML = state.articles
-    .map((article) => `
-      <div class="article-item ${article.id === state.selectedArticleId ? "active" : ""}" data-article-id="${article.id}">
-        <div class="item-meta">
-          <div class="item-source">
-            ${article.isRead ? "" : '<span class="unread-dot"></span>'}
-            ${escapeHtml(article.feedTitle)}
+  const statusMarkup = state.isLoadingMore
+    ? '<div class="list-status">Loading more articles…</div>'
+    : (state.hasMore ? '<div class="list-status">Scroll for more</div>' : "");
+
+  elements.articleList.innerHTML = `
+    ${state.articles
+      .map((article) => `
+        <div class="article-item ${article.id === state.selectedArticleId ? "active" : ""}" data-article-id="${article.id}">
+          <div class="item-meta">
+            <div class="item-source">
+              ${article.isRead ? "" : '<span class="unread-dot"></span>'}
+              ${escapeHtml(article.feedTitle)}
+            </div>
+            <span class="item-time">${escapeHtml(formatListTime(article.publishedAt))}</span>
           </div>
-          <span class="item-time">${escapeHtml(formatListTime(article.publishedAt))}</span>
+          <div class="item-title">${escapeHtml(article.title)}</div>
+          <div class="item-preview">${escapeHtml(article.previewText || "No preview available.")}</div>
         </div>
-        <div class="item-title">${escapeHtml(article.title)}</div>
-        <div class="item-preview">${escapeHtml(article.previewText || "No preview available.")}</div>
-      </div>
-    `)
-    .join("");
+      `)
+      .join("")}
+    ${statusMarkup}
+  `;
 };
 
 const renderArticle = () => {
   const article = state.selectedArticle;
   const selectedIndex = articleIndex();
-  const hasSelection = Boolean(article);
+  const hasSelection = Boolean(state.selectedArticleId);
 
   elements.previousArticleButton.disabled = !hasSelection || selectedIndex <= 0;
   elements.nextArticleButton.disabled =
-    !hasSelection || selectedIndex === -1 || selectedIndex >= state.articles.length - 1;
-  elements.saveArticleButton.disabled = !hasSelection;
-  elements.shareArticleButton.disabled = !hasSelection;
-  elements.openArticleButton.disabled = !hasSelection;
+    !hasSelection ||
+    (selectedIndex === -1 && !state.hasMore) ||
+    (selectedIndex >= state.articles.length - 1 && !state.hasMore);
+  elements.saveArticleButton.disabled = !article;
+  elements.shareArticleButton.disabled = !article;
+  elements.openArticleButton.disabled = !article;
   elements.markAllReadButton.disabled = state.articles.length === 0;
 
   elements.saveArticleButton.classList.toggle("is-active", Boolean(article?.isSaved));
+
+  if (state.isLoadingArticle && state.selectedArticleId) {
+    elements.articleView.innerHTML = `
+      <div class="article-loading-state">
+        Loading article…
+      </div>
+    `;
+    return;
+  }
 
   if (!article) {
     elements.articleView.innerHTML = `
@@ -306,13 +348,70 @@ const render = () => {
   renderArticle();
 };
 
-const bootstrap = async () => {
-  const payload = await requestJson(`/api/bootstrap?${buildQuery().toString()}`);
-  state.articles = payload.articles;
-  state.counts = payload.counts;
-  state.selectedArticle = payload.selectedArticle;
-  state.selectedArticleId = payload.selectedArticleId || "";
+const loadArticle = async (articleId) => {
+  const requestToken = ++articleRequestToken;
+  state.isLoadingArticle = true;
+  state.selectedArticle = null;
   render();
+
+  try {
+    const article = await requestJson(`/api/articles/${articleId}`);
+    if (requestToken !== articleRequestToken || state.selectedArticleId !== articleId) {
+      return;
+    }
+
+    state.selectedArticle = article;
+  } finally {
+    if (requestToken === articleRequestToken && state.selectedArticleId === articleId) {
+      state.isLoadingArticle = false;
+      render();
+    }
+  }
+};
+
+const bootstrap = async () => {
+  const payload = await requestJson(`/api/bootstrap?${buildQuery({ includeSelectedArticleId: true }).toString()}`);
+  articleRequestToken += 1;
+  state.articles = payload.articles || [];
+  state.counts = payload.counts || { all: 0, saved: 0, today: 0, folders: {} };
+  state.hasMore = Boolean(payload.hasMore);
+  state.nextCursor = payload.nextCursor || null;
+  state.selectedArticle = null;
+  state.selectedArticleId = payload.selectedArticleId || "";
+  state.isLoadingArticle = Boolean(state.selectedArticleId);
+  state.isLoadingMore = false;
+  render();
+  elements.articleList.scrollTop = 0;
+
+  if (state.selectedArticleId) {
+    await loadArticle(state.selectedArticleId);
+  }
+};
+
+const appendArticles = (articles) => {
+  const existingIds = new Set(state.articles.map((article) => article.id));
+  const nextArticles = articles.filter((article) => !existingIds.has(article.id));
+  state.articles = [...state.articles, ...nextArticles];
+};
+
+const loadMoreArticles = async () => {
+  if (!state.hasMore || state.isLoadingMore || !state.nextCursor) {
+    return false;
+  }
+
+  state.isLoadingMore = true;
+  renderArticleList();
+
+  try {
+    const payload = await requestJson(`/api/articles?${buildQuery({ cursor: state.nextCursor }).toString()}`);
+    appendArticles(payload.articles || []);
+    state.hasMore = Boolean(payload.hasMore);
+    state.nextCursor = payload.nextCursor || null;
+    return (payload.articles || []).length > 0;
+  } finally {
+    state.isLoadingMore = false;
+    render();
+  }
 };
 
 const selectArticle = async (articleId) => {
@@ -321,14 +420,15 @@ const selectArticle = async (articleId) => {
 
   if (summary && !summary.isRead) {
     summary.isRead = true;
-    await requestJson(`/api/articles/${articleId}`, {
+    requestJson(`/api/articles/${articleId}`, {
       method: "PATCH",
       body: JSON.stringify({ isRead: true })
+    }).catch((error) => {
+      showToast(error.message, { error: true });
     });
   }
 
-  state.selectedArticle = await requestJson(`/api/articles/${articleId}`);
-  render();
+  await loadArticle(articleId);
 };
 
 const toggleSave = async () => {
@@ -348,6 +448,7 @@ const toggleSave = async () => {
   }
 
   if (state.scope === "saved" && !updated.isSaved) {
+    clearSelection();
     await bootstrap();
   } else {
     state.counts.saved += updated.isSaved ? 1 : -1;
@@ -365,6 +466,7 @@ const markAllRead = async () => {
     })
   });
 
+  clearSelection();
   await bootstrap();
   showToast("Marked the current list as read.");
 };
@@ -392,6 +494,7 @@ const submitFeed = async () => {
 
   closeDialog();
   showToast(payload.syncError ? `Feed added. ${payload.syncError}` : "Feed added and syncing.");
+  clearSelection();
   await bootstrap();
 };
 
@@ -413,14 +516,32 @@ const shareArticle = async () => {
 };
 
 const moveSelection = async (direction) => {
-  const currentIndex = articleIndex();
+  let currentIndex = articleIndex();
   if (currentIndex === -1) {
     return;
   }
 
-  const nextArticle = state.articles[currentIndex + direction];
+  let nextArticle = state.articles[currentIndex + direction];
+  if (!nextArticle && direction > 0 && state.hasMore) {
+    const loadedMore = await loadMoreArticles();
+    if (loadedMore) {
+      currentIndex = articleIndex();
+      nextArticle = state.articles[currentIndex + direction];
+    }
+  }
+
   if (nextArticle) {
     await selectArticle(nextArticle.id);
+  }
+};
+
+const maybeLoadMoreFromScroll = async () => {
+  const remaining = elements.articleList.scrollHeight -
+    elements.articleList.scrollTop -
+    elements.articleList.clientHeight;
+
+  if (remaining <= LOAD_MORE_THRESHOLD) {
+    await loadMoreArticles();
   }
 };
 
@@ -428,6 +549,7 @@ elements.navToday.addEventListener("click", async (event) => {
   event.preventDefault();
   state.scope = "today";
   state.folder = "";
+  clearSelection();
   await bootstrap();
 });
 
@@ -435,6 +557,7 @@ elements.navAll.addEventListener("click", async (event) => {
   event.preventDefault();
   state.scope = "all";
   state.folder = "";
+  clearSelection();
   await bootstrap();
 });
 
@@ -442,6 +565,7 @@ elements.navSaved.addEventListener("click", async (event) => {
   event.preventDefault();
   state.scope = "saved";
   state.folder = "";
+  clearSelection();
   await bootstrap();
 });
 
@@ -454,6 +578,7 @@ elements.foldersList.addEventListener("click", async (event) => {
   event.preventDefault();
   state.scope = "all";
   state.folder = anchor.dataset.folder;
+  clearSelection();
   await bootstrap();
 });
 
@@ -464,6 +589,12 @@ elements.articleList.addEventListener("click", async (event) => {
   }
 
   await selectArticle(item.dataset.articleId);
+});
+
+elements.articleList.addEventListener("scroll", () => {
+  maybeLoadMoreFromScroll().catch((error) => {
+    showToast(error.message, { error: true });
+  });
 });
 
 elements.saveArticleButton.addEventListener("click", async () => {
