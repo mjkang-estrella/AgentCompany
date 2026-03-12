@@ -4,6 +4,10 @@ Reader is a standalone private RSS reader app with a lightweight HTML client, a 
 
 The reader is page-based by default: it loads exact sidebar counts plus the newest 50 summaries first, fetches the selected article body separately, and appends older summaries with infinite scroll.
 
+Adding a feed is now treated as create-and-sync: the app verifies that the initial sync actually starts before considering the feed added.
+
+During sync, the reader prefers richer feed-provided sources when available. For example, if an RSS item exposes a custom markdown source URL, the sync job uses that instead of scraping the public article page.
+
 ## Owns
 
 - Reader-inspired article list and reading surface

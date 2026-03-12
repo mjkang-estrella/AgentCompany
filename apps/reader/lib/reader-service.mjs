@@ -123,6 +123,11 @@ const emptyCounts = () => ({
   today: 0
 });
 
+const sleep = (milliseconds) =>
+  new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
+
 export const createReaderService = ({ url, serviceRoleKey }) => {
   const supabase = createSupabase({ url, serviceRoleKey });
 
@@ -269,16 +274,64 @@ export const createReaderService = ({ url, serviceRoleKey }) => {
       return assertResult(result, "Could not create feed");
     },
 
-    async triggerSync(feedId) {
-      const result = await supabase.functions.invoke("sync-feeds", {
-        body: { feedId }
-      });
+    async deleteFeed(feedId) {
+      const result = await supabase
+        .from("feeds")
+        .delete()
+        .eq("id", feedId);
 
-      if (result.error) {
-        throw new Error(result.error.message || "Could not trigger feed sync");
+      assertResult(result, "Could not delete feed");
+    },
+
+    async addFeedAndSync({ folder, inputUrl }) {
+      const feed = await this.addFeed({ folder, inputUrl });
+
+      try {
+        const sync = await this.triggerSync(feed.id);
+        return { feed, sync };
+      } catch (error) {
+        try {
+          await this.deleteFeed(feed.id);
+        } catch {
+          // Preserve the original sync failure.
+        }
+
+        throw error;
+      }
+    },
+
+    async triggerSync(feedId, options = {}) {
+      const retries = Number.isFinite(options.retries) ? options.retries : 3;
+      let lastError = null;
+
+      for (let attempt = 0; attempt <= retries; attempt += 1) {
+        const result = await supabase.functions.invoke("sync-feeds", {
+          body: { feedId }
+        });
+
+        if (result.error) {
+          lastError = new Error(result.error.message || "Could not trigger feed sync");
+        } else {
+          const payload = result.data || {};
+          const matchingResult = Array.isArray(payload.results)
+            ? payload.results.find((entry) => entry.feedId === feedId) || payload.results[0]
+            : null;
+
+          if ((payload.processed || 0) < 1 || !matchingResult) {
+            lastError = new Error("Initial feed sync did not start. Please try again.");
+          } else if (matchingResult.ok === false) {
+            lastError = new Error(matchingResult.error || "Initial feed sync failed.");
+          } else {
+            return payload;
+          }
+        }
+
+        if (attempt < retries) {
+          await sleep(400 * (attempt + 1));
+        }
       }
 
-      return result.data || { ok: true };
+      throw lastError || new Error("Could not trigger feed sync");
     }
   };
 };

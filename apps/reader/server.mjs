@@ -142,19 +142,11 @@ createServer(async (request, response) => {
         return;
       }
 
-      const feed = await service.addFeed({
+      const result = await service.addFeedAndSync({
         folder: body.folder || "",
         inputUrl: body.inputUrl
       });
-
-      let syncError = "";
-      try {
-        await service.triggerSync(feed.id);
-      } catch (error) {
-        syncError = error.message;
-      }
-
-      json(response, 201, { feed, syncError });
+      json(response, 201, { feed: result.feed, sync: result.sync });
       return;
     }
 

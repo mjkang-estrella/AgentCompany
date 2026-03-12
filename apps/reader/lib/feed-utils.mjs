@@ -91,6 +91,22 @@ const resolveUrl = (value, baseUrl) => {
   }
 };
 
+const getExtensionUrl = (entry, suffixes, baseUrl) => {
+  for (const [key, value] of Object.entries(entry || {})) {
+    const normalizedKey = key.toLowerCase();
+    if (!suffixes.some((suffix) => normalizedKey === suffix || normalizedKey.endsWith(`:${suffix}`))) {
+      continue;
+    }
+
+    const resolved = resolveUrl(getText(value), baseUrl);
+    if (resolved) {
+      return resolved;
+    }
+  }
+
+  return "";
+};
+
 const pickAtomLink = (value, baseUrl) => {
   const links = toArray(value);
   const preferred =
@@ -127,6 +143,7 @@ const normalizeEntry = (entry, format, baseUrl) => {
       getText(entry.author?.name || entry.author || entry["dc:creator"]) || "",
     bodyHtml: feedBody,
     externalId,
+    markdownUrl: getExtensionUrl(entry, ["markdown"], baseUrl),
     publishedAt:
       getText(entry.pubDate || entry.published || entry.updated) ||
       new Date().toISOString(),

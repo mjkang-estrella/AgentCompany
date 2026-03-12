@@ -3,6 +3,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.99.1";
 import { XMLParser } from "npm:fast-xml-parser@5.5.3";
 import he from "npm:he@1.2.0";
+import { marked } from "npm:marked@16.4.1";
 import { parse as parseHtml } from "npm:node-html-parser@7.1.0";
 import sanitizeHtml from "npm:sanitize-html@2.17.1";
 
@@ -40,6 +41,8 @@ const sanitizeFragment = (html: string) =>
     allowedAttributes: {
       a: ["href", "target", "rel"],
       img: ["src", "alt", "title"],
+      td: ["colspan", "rowspan", "align"],
+      th: ["colspan", "rowspan", "align"],
     },
     allowedSchemes: ["http", "https", "mailto"],
     allowedTags: [
@@ -61,7 +64,15 @@ const sanitizeFragment = (html: string) =>
       "ol",
       "p",
       "pre",
+      "sub",
+      "sup",
       "strong",
+      "table",
+      "tbody",
+      "td",
+      "th",
+      "thead",
+      "tr",
       "ul",
     ],
     transformTags: {
@@ -78,6 +89,18 @@ const decodeHtmlEntities = (value: unknown) => {
   }
 
   return parseHtml(`<span>${String(value)}</span>`).textContent.trim();
+};
+
+const renderMarkdownFragment = (markdown: string) => {
+  if (!markdown) {
+    return "";
+  }
+
+  return sanitizeFragment(marked.parse(markdown, {
+    async: false,
+    breaks: false,
+    gfm: true,
+  }));
 };
 
 const stripHtml = (html: string) =>
@@ -175,6 +198,26 @@ const resolveUrl = (value: string, baseUrl: string) => {
   }
 };
 
+const getExtensionUrl = (
+  entry: Record<string, unknown>,
+  suffixes: string[],
+  baseUrl: string,
+) => {
+  for (const [key, value] of Object.entries(entry || {})) {
+    const normalizedKey = key.toLowerCase();
+    if (!suffixes.some((suffix) => normalizedKey === suffix || normalizedKey.endsWith(`:${suffix}`))) {
+      continue;
+    }
+
+    const resolved = resolveUrl(getText(value), baseUrl);
+    if (resolved) {
+      return resolved;
+    }
+  }
+
+  return "";
+};
+
 const pickAtomLink = (value: unknown, baseUrl: string) => {
   const links = toArray(value as Record<string, unknown>);
   const preferred = links.find((link) => !link.rel || link.rel === "alternate") ||
@@ -210,6 +253,7 @@ const normalizeEntry = (
     author: getText(entry.author || entry["dc:creator"] || (entry.author as Record<string, unknown>)?.name),
     bodyHtml: feedBody,
     externalId,
+    markdownUrl: getExtensionUrl(entry, ["markdown"], baseUrl),
     publishedAt: getText(entry.pubDate || entry.published || entry.updated),
     summaryHtml,
     title: getText(entry.title) || url || "Untitled article",
@@ -308,12 +352,31 @@ const normalizePublishedAt = (value: string) => {
   return parsed.toISOString();
 };
 
-const maybeFetchArticleBody = async (url: string, existingHtml: string) => {
-  if (!url || stripHtml(existingHtml).length >= 400) {
+const maybeFetchArticleBody = async (
+  url: string,
+  existingHtml: string,
+  markdownUrl = "",
+) => {
+  if (stripHtml(existingHtml).length >= 400 || (!url && !markdownUrl)) {
     return {
       bodyHtml: sanitizeFragment(existingHtml),
       bodySource: "feed" as const,
     };
+  }
+
+  if (markdownUrl) {
+    try {
+      const markdown = await fetchText(markdownUrl);
+      const rendered = renderMarkdownFragment(markdown.text);
+      if (stripHtml(rendered).length > stripHtml(existingHtml).length) {
+        return {
+          bodyHtml: rendered,
+          bodySource: "fetched" as const,
+        };
+      }
+    } catch {
+      // Fall back to HTML extraction.
+    }
   }
 
   try {
@@ -345,7 +408,11 @@ const syncFeed = async (feed: Record<string, string>) => {
 
     const payload = [];
     for (const entry of parsed.entries.slice(0, 50)) {
-      const fetchedBody = await maybeFetchArticleBody(entry.url, entry.bodyHtml || entry.summaryHtml);
+      const fetchedBody = await maybeFetchArticleBody(
+        entry.url,
+        entry.bodyHtml || entry.summaryHtml,
+        entry.markdownUrl,
+      );
       const bodyHtml = fetchedBody.bodyHtml || sanitizeFragment(entry.summaryHtml);
       const summaryHtml = sanitizeFragment(entry.summaryHtml || bodyHtml);
 

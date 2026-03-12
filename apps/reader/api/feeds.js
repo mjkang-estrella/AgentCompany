@@ -14,19 +14,11 @@ export default {
       }
 
       const service = await getReaderService();
-      const feed = await service.addFeed({
+      const result = await service.addFeedAndSync({
         folder: body.folder || "",
         inputUrl: body.inputUrl
       });
-
-      let syncError = "";
-      try {
-        await service.triggerSync(feed.id);
-      } catch (error) {
-        syncError = error instanceof Error ? error.message : String(error);
-      }
-
-      return jsonResponse({ feed, syncError }, 201);
+      return jsonResponse({ feed: result.feed, sync: result.sync }, 201);
     });
   }
 };

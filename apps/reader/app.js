@@ -493,7 +493,12 @@ const submitFeed = async () => {
   });
 
   closeDialog();
-  showToast(payload.syncError ? `Feed added. ${payload.syncError}` : "Feed added and syncing.");
+  const syncedArticles = payload.sync?.results?.[0]?.syncedArticles;
+  showToast(
+    Number.isFinite(syncedArticles)
+      ? `Feed added with ${syncedArticles} articles.`
+      : "Feed added and synced."
+  );
   clearSelection();
   await bootstrap();
 };

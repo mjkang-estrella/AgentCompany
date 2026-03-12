@@ -5,6 +5,7 @@ import {
   decodeHtmlEntities,
   discoverFeedLinks,
   extractReadableContent,
+  renderMarkdownFragment,
   sanitizeFragment
 } from "../lib/html.mjs";
 import { parseFeed } from "../lib/feed-utils.mjs";
@@ -93,6 +94,27 @@ test("parseFeed decodes escaped HTML fragments in RSS descriptions", () => {
   assert.equal(parsed.feed.entries[0].bodyHtml, "<p>Hello &amp; world</p>");
 });
 
+test("parseFeed keeps custom markdown source URLs from feed extensions", () => {
+  const rss = `<?xml version="1.0"?>
+    <rss version="2.0" xmlns:asmartbear="https://longform.asmartbear.com/feed-extension.xml">
+      <channel>
+        <title>Reader Feed</title>
+        <link>https://example.com</link>
+        <item>
+          <title>Markdown body</title>
+          <link>https://example.com/post</link>
+          <guid>entry-4</guid>
+          <description>Short summary</description>
+          <asmartbear:markdown>https://cdn.example.com/post.md</asmartbear:markdown>
+          <pubDate>Tue, 11 Mar 2026 18:00:00 GMT</pubDate>
+        </item>
+      </channel>
+    </rss>`;
+
+  const parsed = parseFeed(rss, "https://example.com/feed.xml");
+  assert.equal(parsed.feed.entries[0].markdownUrl, "https://cdn.example.com/post.md");
+});
+
 test("discoverFeedLinks finds alternate feeds and icon", () => {
   const html = `
     <html>
@@ -141,6 +163,22 @@ test("sanitizeFragment decodes escaped markup before sanitizing", () => {
   const sanitized = sanitizeFragment("&lt;p&gt;Hello&lt;/p&gt;&lt;script&gt;alert(1)&lt;/script&gt;");
 
   assert.equal(sanitized, "<p>Hello</p>");
+});
+
+test("renderMarkdownFragment keeps structure for markdown articles", () => {
+  const rendered = renderMarkdownFragment(`# Title
+
+| Plan | Value |
+| --- | --- |
+| Premium | High |
+
+Footnote[^1]
+
+[^1]: Useful note.`);
+
+  assert.match(rendered, /<h1>Title<\/h1>/);
+  assert.match(rendered, /<table>/);
+  assert.match(rendered, /Footnote/);
 });
 
 test("decodeHtmlEntities decodes numeric entities", () => {

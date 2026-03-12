@@ -1,3 +1,4 @@
+import { marked } from "marked";
 import he from "he";
 import sanitizeHtml from "sanitize-html";
 import { parse } from "node-html-parser";
@@ -22,12 +23,22 @@ const SANITIZE_OPTIONS = {
     "ol",
     "p",
     "pre",
+    "sub",
+    "sup",
     "strong",
+    "table",
+    "tbody",
+    "td",
+    "th",
+    "thead",
+    "tr",
     "ul"
   ],
   allowedAttributes: {
     a: ["href", "name", "target", "rel"],
-    img: ["src", "alt", "title"]
+    img: ["src", "alt", "title"],
+    td: ["colspan", "rowspan", "align"],
+    th: ["colspan", "rowspan", "align"]
   },
   allowedSchemes: ["http", "https", "mailto"],
   transformTags: {
@@ -52,6 +63,18 @@ export const sanitizeFragment = (html) => {
   }
 
   return sanitizeHtml(decodeHtmlFragment(html), SANITIZE_OPTIONS);
+};
+
+export const renderMarkdownFragment = (markdown) => {
+  if (!markdown) {
+    return "";
+  }
+
+  return sanitizeFragment(marked.parse(String(markdown), {
+    async: false,
+    breaks: false,
+    gfm: true
+  }));
 };
 
 export const decodeHtmlEntities = (value) => {
