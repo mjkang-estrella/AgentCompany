@@ -3,12 +3,10 @@ import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { getSupabaseAdminKey, loadEnvFiles, requireEnv } from "./lib/env.mjs";
 import { json, readJsonBody, text } from "./lib/http.mjs";
-import { createReaderService } from "./lib/reader-service.mjs";
+import { getReaderService } from "./lib/runtime.mjs";
 
 const appDir = fileURLToPath(new URL(".", import.meta.url));
-await loadEnvFiles(appDir);
 
 const port = Number(process.env.PORT || 4173);
 const staticRoot = appDir;
@@ -27,13 +25,9 @@ const contentTypes = {
 
 let readerService = null;
 
-const getReaderService = () => {
+const getService = async () => {
   if (!readerService) {
-    const env = requireEnv("SUPABASE_URL");
-    readerService = createReaderService({
-      serviceRoleKey: getSupabaseAdminKey(),
-      url: env.SUPABASE_URL
-    });
+    readerService = await getReaderService();
   }
 
   return readerService;
@@ -86,7 +80,7 @@ createServer(async (request, response) => {
       return;
     }
 
-    const service = getReaderService();
+    const service = await getService();
 
     if (request.method === "GET" && url.pathname === "/api/bootstrap") {
       const payload = await service.bootstrap({

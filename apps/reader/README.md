@@ -6,6 +6,7 @@ Reader is a standalone private RSS reader app with a lightweight HTML client, a 
 
 - Reader-inspired article list and reading surface
 - Local app runtime and JSON API for the reader UI
+- Vercel-compatible `api/*` functions and deployment config
 - Feed discovery, article state, and manual sync triggers
 - Supabase schema and Edge Function assets owned by this app
 
@@ -34,6 +35,23 @@ Copy [apps/reader/.env.example](/Users/mjkang/Develop/AgentCompany/apps/reader/.
 - `PORT` (optional, defaults to `4173`)
 
 Do not use a publishable key for the server. The Reader BFF performs admin reads and writes against Supabase.
+
+## Vercel deployment
+
+This app can be deployed from the `apps/reader` directory on Vercel.
+
+- `Application Preset`: `Other`
+- `Root Directory`: `apps/reader`
+- `Build Command`: leave blank
+- `Output Directory`: leave blank
+- `Install Command`: `npm install`
+
+Set these Vercel environment variables:
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY` or `SUPABASE_SECRET_KEY`
+
+Do not set `PORT` on Vercel. The deployed app uses static files plus the Vercel Functions defined under [apps/reader/api](/Users/mjkang/Develop/AgentCompany/apps/reader/api) and the rewrite rules in [apps/reader/vercel.json](/Users/mjkang/Develop/AgentCompany/apps/reader/vercel.json).
 
 ## Supabase setup
 
