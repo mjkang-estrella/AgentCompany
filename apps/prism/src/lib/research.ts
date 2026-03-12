@@ -17,7 +17,6 @@ import type {
 } from "@/types/workspace";
 
 const MARKET_RESEARCH_THRESHOLD = 80;
-const activeResearchTasks = new Map<string, Promise<void>>();
 
 interface QueryPlanResponse {
   queries: MarketResearchQuery[];
@@ -31,28 +30,11 @@ export function marketResearchThresholdMet(workspace: WorkspacePayload): boolean
   return workspace.metrics.overall_score >= MARKET_RESEARCH_THRESHOLD;
 }
 
-export function kickSessionMarketResearch(sessionId: string): void {
-  if (activeResearchTasks.has(sessionId)) {
-    return;
-  }
-
-  const task = runSessionMarketResearch(sessionId)
-    .catch((error) => {
-      console.error("[Prism] market research failed.", error);
-    })
-    .finally(() => {
-      activeResearchTasks.delete(sessionId);
-    });
-
-  activeResearchTasks.set(sessionId, task);
-}
-
-export async function waitForSessionMarketResearch(sessionId: string): Promise<void> {
-  await activeResearchTasks.get(sessionId);
-}
-
-export function startSessionMarketResearch(sessionId: string): WorkspacePayload {
-  const workspace = getWorkspace(sessionId);
+export async function startSessionMarketResearch(sessionId: string): Promise<{
+  workspace: WorkspacePayload;
+  started: boolean;
+}> {
+  const workspace = await getWorkspace(sessionId);
   if (!workspace) {
     throw new Error("Session not found.");
   }
@@ -66,10 +48,10 @@ export function startSessionMarketResearch(sessionId: string): WorkspacePayload 
   }
 
   if (workspace.marketReport && ["pending", "running"].includes(workspace.marketReport.status)) {
-    return workspace;
+    return { workspace, started: false };
   }
 
-  saveMarketReport(sessionId, {
+  await saveMarketReport(sessionId, {
     status: "pending",
     markdownContent: "",
     citations: [],
@@ -79,18 +61,16 @@ export function startSessionMarketResearch(sessionId: string): WorkspacePayload 
     errorMessage: null,
   });
 
-  kickSessionMarketResearch(sessionId);
-
-  const updated = getWorkspace(sessionId);
+  const updated = await getWorkspace(sessionId);
   if (!updated) {
     throw new Error("Failed to load updated workspace.");
   }
 
-  return updated;
+  return { workspace: updated, started: true };
 }
 
-async function runSessionMarketResearch(sessionId: string): Promise<void> {
-  const workspace = getWorkspace(sessionId);
+export async function runSessionMarketResearch(sessionId: string): Promise<void> {
+  const workspace = await getWorkspace(sessionId);
   if (!workspace || !workspace.marketReport) {
     return;
   }
@@ -102,7 +82,7 @@ async function runSessionMarketResearch(sessionId: string): Promise<void> {
 
   const specSnapshot = currentReport.spec_snapshot || workspace.session.spec_content;
 
-  saveMarketReport(sessionId, {
+  await saveMarketReport(sessionId, {
     status: "running",
     markdownContent: "",
     citations: [],
@@ -121,7 +101,7 @@ async function runSessionMarketResearch(sessionId: string): Promise<void> {
     const reportMarkdown = await synthesizeMarketReport(workspace, specSnapshot, queryPlan, hits, citations);
     const generatedAt = new Date().toISOString();
 
-    saveMarketReport(sessionId, {
+    await saveMarketReport(sessionId, {
       status: "completed",
       markdownContent: reportMarkdown,
       citations,
@@ -131,7 +111,7 @@ async function runSessionMarketResearch(sessionId: string): Promise<void> {
       errorMessage: null,
     });
   } catch (error) {
-    saveMarketReport(sessionId, {
+    await saveMarketReport(sessionId, {
       status: "failed",
       markdownContent: "",
       citations: [],

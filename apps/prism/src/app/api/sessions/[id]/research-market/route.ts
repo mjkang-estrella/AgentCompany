@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { startSessionMarketResearch } from "@/lib/research";
+import { runInBackground } from "@/lib/background";
+import { runSessionMarketResearch, startSessionMarketResearch } from "@/lib/research";
+
+export const maxDuration = 60;
 
 interface Params {
   params: {
@@ -9,7 +12,12 @@ interface Params {
 
 export async function POST(_: Request, { params }: Params) {
   try {
-    const workspace = startSessionMarketResearch(params.id);
+    const { workspace, started } = await startSessionMarketResearch(params.id);
+
+    if (started) {
+      runInBackground(runSessionMarketResearch(params.id));
+    }
+
     return NextResponse.json(workspace);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to start market research.";

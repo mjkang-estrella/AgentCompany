@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { kickSessionReconciliation, submitSessionAnswer } from "@/lib/clarification";
+import { submitSessionAnswer } from "@/lib/clarification";
 
 interface Params {
   params: {
@@ -24,8 +24,6 @@ export async function POST(request: Request, { params }: Params) {
       selectedChoiceKey: payload.selectedChoiceKey,
       selectedChoiceLabel: payload.selectedChoiceLabel,
     });
-
-    kickSessionReconciliation(params.id);
 
     return NextResponse.json(workspace);
   } catch (error) {

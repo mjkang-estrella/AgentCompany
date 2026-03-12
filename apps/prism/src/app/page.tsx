@@ -19,14 +19,12 @@ export default function HomePage() {
   const [optimisticAnswer, setOptimisticAnswer] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
   const activeSessionId = workspace?.session.id ?? null;
-  const reconciliationStatus = workspace?.session.reconciliation_status ?? "idle";
   const marketReportStatus = workspace?.marketReport?.status ?? "idle";
-  const isReconciling = workspace ? workspace.session.reconciliation_status !== "idle" : false;
   const isMarketResearchRunning = marketReportStatus === "pending" || marketReportStatus === "running";
   const isAiBusy = isCreating || isSavingDraft || isSubmittingAnswer;
   const isInteractionLocked = isAiBusy || isSelectingSession || deletingSessionId !== null;
   const isQuestionLocked = isCreating || isSubmittingAnswer || isSelectingSession || deletingSessionId !== null;
-  const isSpecLocked = isAiBusy || isSelectingSession || isReconciling || deletingSessionId !== null;
+  const isSpecLocked = isAiBusy || isSelectingSession || deletingSessionId !== null;
 
   async function loadSessions(selectFirst = true) {
     setIsLoadingSessions(true);
@@ -141,7 +139,7 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    if (!activeSessionId || (!isReconciling && !isMarketResearchRunning)) {
+    if (!activeSessionId || !isMarketResearchRunning) {
       return;
     }
 
@@ -152,7 +150,7 @@ export default function HomePage() {
     }, 1200);
 
     return () => window.clearInterval(interval);
-  }, [activeSessionId, isMarketResearchRunning, isReconciling, refreshWorkspace]);
+  }, [activeSessionId, isMarketResearchRunning, refreshWorkspace]);
 
   async function saveDraft(specContent: string) {
     if (!workspace) {

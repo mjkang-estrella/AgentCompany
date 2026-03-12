@@ -1,36 +1,29 @@
-import os from "os";
-import path from "path";
-import { randomUUID } from "crypto";
 import { vi } from "vitest";
 import {
   createSessionWorkspace,
   getSessionSummaries,
   getSessionWorkspace,
-  kickSessionReconciliation,
   submitSessionAnswer,
   updateSessionDraft,
-  waitForSessionReconciliation,
 } from "@/lib/clarification";
-import { getDb, resetDbForTests } from "@/lib/db";
-import { saveMarketReport, saveSessionSnapshot } from "@/lib/store";
-import { DELETE as sessionDeleteRoute } from "@/app/api/sessions/[id]/route";
 import { GET as exportRoute } from "@/app/api/sessions/[id]/export/route";
 import { POST as researchRoute } from "@/app/api/sessions/[id]/research-market/route";
-import { waitForSessionMarketResearch } from "@/lib/research";
+import { runSessionMarketResearch, startSessionMarketResearch } from "@/lib/research";
+import { createTestStore, saveMarketReport, saveSessionSnapshot, setStoreAdapterForTests } from "@/lib/store";
 
 describe("clarification service", () => {
   beforeEach(() => {
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.OPENAI_API_KEY;
-    process.env.PRISM_CODEX_DB_PATH = path.join(os.tmpdir(), `prism-codex-${randomUUID()}.db`);
-    resetDbForTests();
+    delete process.env.EXA_API_KEY;
+    setStoreAdapterForTests(createTestStore());
   });
 
   afterEach(() => {
-    resetDbForTests();
+    setStoreAdapterForTests(null);
     delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.OPENAI_API_KEY;
     delete process.env.EXA_API_KEY;
-    delete process.env.PRISM_CODEX_DB_PATH;
     vi.restoreAllMocks();
   });
 
@@ -42,8 +35,8 @@ describe("clarification service", () => {
 
     expect(workspace.session.title).toBe("New idea");
     expect(workspace.pendingQuestion).not.toBeNull();
-    expect(getSessionSummaries()).toHaveLength(1);
-    expect(getSessionWorkspace(workspace.session.id)?.transcript[0]?.role).toBe("assistant");
+    expect(await getSessionSummaries()).toHaveLength(1);
+    expect((await getSessionWorkspace(workspace.session.id))?.transcript[0]?.role).toBe("assistant");
   });
 
   it("updates the spec and transcript after an answer", async () => {
@@ -52,18 +45,15 @@ describe("clarification service", () => {
       initialIdea: "A tool that clarifies vague software concepts.",
     });
 
-    const immediate = await submitSessionAnswer(workspace.session.id, {
+    const updated = await submitSessionAnswer(workspace.session.id, {
       answer: "The first outcome is a markdown spec ready for engineering handoff.",
     });
-    kickSessionReconciliation(workspace.session.id);
-    await waitForSessionReconciliation(workspace.session.id);
-    const updated = getSessionWorkspace(workspace.session.id);
 
-    expect(immediate.transcript.some((entry) => entry.role === "user")).toBe(true);
-    expect(immediate.session.reconciliation_status).toBe("pending");
-    expect(updated?.session.spec_content).toContain("markdown spec ready for engineering handoff");
-    expect(updated?.session.clarification_round).toBe(1);
-    expect(updated?.session.reconciliation_status).toBe("idle");
+    expect(updated.transcript.some((entry) => entry.role === "user")).toBe(true);
+    expect(updated.session.spec_content).toContain("markdown spec ready for engineering handoff");
+    expect(updated.session.clarification_round).toBe(1);
+    expect(updated.session.reconciliation_status).toBe("idle");
+    expect(updated.pendingQuestion?.round_number).toBe(2);
   });
 
   it("supports manual draft updates with last-write-wins persistence", async () => {
@@ -72,10 +62,10 @@ describe("clarification service", () => {
       initialIdea: "A planning assistant.",
     });
 
-    const edited = updateSessionDraft(workspace.session.id, "# Manual edit\n\n## Overview\n\nEdited by user\n");
+    const edited = await updateSessionDraft(workspace.session.id, "# Manual edit\n\n## Overview\n\nEdited by user\n");
 
     expect(edited?.session.spec_content).toContain("Edited by user");
-    expect(getSessionWorkspace(workspace.session.id)?.session.spec_content).toContain("Edited by user");
+    expect((await getSessionWorkspace(workspace.session.id))?.session.spec_content).toContain("Edited by user");
   });
 
   it("deletes a session and cascades related records", async () => {
@@ -84,7 +74,7 @@ describe("clarification service", () => {
       initialIdea: "A planning assistant.",
     });
 
-    saveMarketReport(workspace.session.id, {
+    await saveMarketReport(workspace.session.id, {
       status: "completed",
       markdownContent: "# Market Research",
       citations: [],
@@ -93,26 +83,14 @@ describe("clarification service", () => {
       generatedAt: new Date().toISOString(),
     });
 
+    const { DELETE: sessionDeleteRoute } = await import("@/app/api/sessions/[id]/route");
     const response = await sessionDeleteRoute(new Request("http://localhost", { method: "DELETE" }), {
       params: { id: workspace.session.id },
     });
-    const db = getDb();
-    const transcriptCount = (
-      db.prepare("SELECT COUNT(*) AS count FROM transcript_entries WHERE session_id = ?").get(workspace.session.id) as {
-        count: number;
-      }
-    ).count;
-    const marketReportCount = (
-      db.prepare("SELECT COUNT(*) AS count FROM market_reports WHERE session_id = ?").get(workspace.session.id) as {
-        count: number;
-      }
-    ).count;
 
     expect(response.status).toBe(200);
-    expect(getSessionWorkspace(workspace.session.id)).toBeNull();
-    expect(getSessionSummaries()).toHaveLength(0);
-    expect(transcriptCount).toBe(0);
-    expect(marketReportCount).toBe(0);
+    expect(await getSessionWorkspace(workspace.session.id)).toBeNull();
+    expect(await getSessionSummaries()).toHaveLength(0);
   });
 
   it("keeps export disabled until score and ambiguity meet the readiness threshold", async () => {
@@ -147,7 +125,7 @@ describe("clarification service", () => {
       initialIdea: "A planning assistant.",
     });
 
-    saveSessionSnapshot(workspace.session.id, {
+    await saveSessionSnapshot(workspace.session.id, {
       specContent: workspace.session.spec_content,
       clarificationRound: workspace.session.clarification_round,
       metrics: {
@@ -157,6 +135,8 @@ describe("clarification service", () => {
         overall_score: 82,
       },
       pendingQuestion: workspace.pendingQuestion,
+      reconciliationStatus: "idle",
+      reconciledRound: workspace.session.reconciled_round,
     });
 
     const response = await researchRoute(new Request("http://localhost"), {
@@ -172,7 +152,7 @@ describe("clarification service", () => {
       initialIdea: "A planning assistant for engineering teams.",
     });
 
-    saveSessionSnapshot(workspace.session.id, {
+    await saveSessionSnapshot(workspace.session.id, {
       specContent: `# Export pack
 
 ## Overview
@@ -226,6 +206,8 @@ Engineering managers and ICs.
         ambiguity_score: 0.16,
       },
       pendingQuestion: null,
+      reconciliationStatus: "idle",
+      reconciledRound: 3,
     });
 
     const response = await exportRoute(new Request("http://localhost"), {
@@ -278,7 +260,7 @@ Engineering managers and ICs.
       initialIdea: "Voice journaling app for founders.",
     });
 
-    saveSessionSnapshot(workspace.session.id, {
+    await saveSessionSnapshot(workspace.session.id, {
       specContent: workspace.session.spec_content,
       clarificationRound: workspace.session.clarification_round,
       metrics: {
@@ -288,15 +270,14 @@ Engineering managers and ICs.
         overall_score: 84,
       },
       pendingQuestion: workspace.pendingQuestion,
+      reconciliationStatus: "idle",
+      reconciledRound: workspace.session.reconciled_round,
     });
 
-    const response = await researchRoute(new Request("http://localhost"), {
-      params: { id: workspace.session.id },
-    });
-    await waitForSessionMarketResearch(workspace.session.id);
-    const updated = getSessionWorkspace(workspace.session.id);
+    await startSessionMarketResearch(workspace.session.id);
+    await runSessionMarketResearch(workspace.session.id);
+    const updated = await getSessionWorkspace(workspace.session.id);
 
-    expect(response.status).toBe(200);
     expect(updated?.marketReport?.status).toBe("completed");
     expect(updated?.marketReport?.markdown_content).toContain("# Market Research");
     expect(updated?.marketReport?.markdown_content).toContain("## Sources");

@@ -23,7 +23,6 @@ import {
   getWorkspace,
   insertTranscriptEntry,
   listSessionSummaries,
-  runInTransaction,
   saveSessionSnapshot,
 } from "@/lib/store";
 import type {
@@ -39,7 +38,6 @@ import type {
 
 const MAX_CLARIFICATION_ROUNDS = 20;
 const MAX_QUESTION_GENERATION_ATTEMPTS = 3;
-const activeReconciliations = new Map<string, Promise<void>>();
 
 interface ScoreResponse {
   goal_clarity_score: number;
@@ -75,7 +73,7 @@ export async function createSessionWorkspace(payload: CreateSessionPayload): Pro
   }
 
   const specContent = buildInitialSpec(title, initialIdea);
-  const session = createSessionSeed({ title, initialIdea, specContent });
+  const session = await createSessionSeed({ title, initialIdea, specContent });
   const transcript: TranscriptEntry[] = [];
   const preMetrics = await scoreWorkspace({
     session,
@@ -97,32 +95,25 @@ export async function createSessionWorkspace(payload: CreateSessionPayload): Pro
     hasPendingQuestion: true,
   });
 
-  runInTransaction((db) => {
-    saveSessionSnapshot(
-      session.id,
-      {
-        specContent,
-        clarificationRound: 0,
-        metrics,
-        pendingQuestion,
-      },
-      db
-    );
-    insertTranscriptEntry(
-      {
-        sessionId: session.id,
-        role: "assistant",
-        entryType: "question",
-        content: pendingQuestion.question,
-        choices: pendingQuestion.suggested_choices,
-        targetDimension: pendingQuestion.target_dimension,
-        roundNumber: pendingQuestion.round_number,
-      },
-      db
-    );
+  await saveSessionSnapshot(session.id, {
+    specContent,
+    clarificationRound: 0,
+    metrics,
+    pendingQuestion,
+    reconciliationStatus: "idle",
+    reconciledRound: 0,
+  });
+  await insertTranscriptEntry({
+    sessionId: session.id,
+    role: "assistant",
+    entryType: "question",
+    content: pendingQuestion.question,
+    choices: pendingQuestion.suggested_choices,
+    targetDimension: pendingQuestion.target_dimension,
+    roundNumber: pendingQuestion.round_number,
   });
 
-  const workspace = getWorkspace(session.id);
+  const workspace = await getWorkspace(session.id);
   if (!workspace) {
     throw new Error("Failed to load the created session.");
   }
@@ -130,40 +121,20 @@ export async function createSessionWorkspace(payload: CreateSessionPayload): Pro
   return workspace;
 }
 
-export function getSessionWorkspace(sessionId: string): WorkspacePayload | null {
+export async function getSessionWorkspace(sessionId: string): Promise<WorkspacePayload | null> {
   return getWorkspace(sessionId);
 }
 
-export function kickSessionReconciliation(sessionId: string): void {
-  if (activeReconciliations.has(sessionId)) {
-    return;
-  }
-
-  const task = reconcileSessionLoop(sessionId)
-    .catch((error) => {
-      console.error("[Prism] background reconciliation failed.", error);
-    })
-    .finally(() => {
-      activeReconciliations.delete(sessionId);
-    });
-
-  activeReconciliations.set(sessionId, task);
-}
-
-export async function waitForSessionReconciliation(sessionId: string): Promise<void> {
-  await activeReconciliations.get(sessionId);
-}
-
-export function getSessionSummaries() {
+export async function getSessionSummaries() {
   return listSessionSummaries();
 }
 
-export function deleteSessionWorkspace(sessionId: string): boolean {
+export async function deleteSessionWorkspace(sessionId: string): Promise<boolean> {
   return deleteSessionRecord(sessionId);
 }
 
-export function updateSessionDraft(sessionId: string, specContent: string): WorkspacePayload | null {
-  const workspace = getWorkspace(sessionId);
+export async function updateSessionDraft(sessionId: string, specContent: string): Promise<WorkspacePayload | null> {
+  const workspace = await getWorkspace(sessionId);
 
   if (!workspace) {
     return null;
@@ -183,18 +154,20 @@ export function updateSessionDraft(sessionId: string, specContent: string): Work
     hasPendingQuestion: Boolean(workspace.pendingQuestion),
   });
 
-  saveSessionSnapshot(sessionId, {
+  await saveSessionSnapshot(sessionId, {
     specContent,
     clarificationRound: workspace.session.clarification_round,
     metrics,
     pendingQuestion: workspace.pendingQuestion,
+    reconciliationStatus: "idle",
+    reconciledRound: workspace.session.reconciled_round,
   });
 
   return getWorkspace(sessionId);
 }
 
 export async function submitSessionAnswer(sessionId: string, payload: AnswerPayload): Promise<WorkspacePayload> {
-  const workspace = getWorkspace(sessionId);
+  const workspace = await getWorkspace(sessionId);
   if (!workspace) {
     throw new Error("Session not found.");
   }
@@ -223,168 +196,80 @@ export async function submitSessionAnswer(sessionId: string, payload: AnswerPayl
   };
   const transcriptWithAnswer = [...workspace.transcript, userEntry];
   const roundNumber = pendingQuestion.round_number;
+  const specUpdate = await rewriteSpecification({
+    session: workspace.session,
+    transcript: transcriptWithAnswer,
+    pendingQuestion,
+    answer,
+  });
+  const preMetrics = await scoreWorkspace({
+    session: workspace.session,
+    transcript: transcriptWithAnswer,
+    specContent: specUpdate.spec_markdown,
+  });
   const canAskNext = roundNumber < MAX_CLARIFICATION_ROUNDS;
   const nextQuestion = canAskNext
     ? await generateNextQuestion(
-        workspace.session,
+        {
+          ...workspace.session,
+          spec_content: specUpdate.spec_markdown,
+        },
         transcriptWithAnswer,
-        workspace.metrics,
+        preMetrics,
         roundNumber + 1
       )
     : null;
-
-  runInTransaction((db) => {
-    insertTranscriptEntry(
-      {
-        sessionId,
-        role: "user",
-        entryType: "answer",
-        content: answer,
-        selectedChoiceKey: payload.selectedChoiceKey ?? null,
-        selectedChoiceLabel: payload.selectedChoiceLabel ?? null,
-        targetDimension: pendingQuestion.target_dimension,
-        roundNumber,
-      },
-      db
-    );
-
-    if (nextQuestion) {
-      insertTranscriptEntry(
-        {
-          sessionId,
-          role: "assistant",
-          entryType: "question",
-          content: nextQuestion.question,
-          choices: nextQuestion.suggested_choices,
-          targetDimension: nextQuestion.target_dimension,
-          roundNumber: nextQuestion.round_number,
-        },
-        db
-      );
-    }
-
-    saveSessionSnapshot(
-      sessionId,
-      {
-        specContent: workspace.session.spec_content,
-        clarificationRound: roundNumber,
-        metrics: workspace.metrics,
-        pendingQuestion: nextQuestion,
-        reconciliationStatus: "pending",
-        reconciledRound: workspace.session.reconciled_round,
-      },
-      db
-    );
+  const finalMetrics = buildClarificationMetrics({
+    specContent: specUpdate.spec_markdown,
+    ambiguityScore: preMetrics.ambiguity_score,
+    goalClarity: preMetrics.goal_clarity,
+    constraintClarity: preMetrics.constraint_clarity,
+    successCriteriaClarity: preMetrics.success_criteria_clarity,
+    goalJustification: preMetrics.goal_justification,
+    constraintJustification: preMetrics.constraint_justification,
+    successCriteriaJustification: preMetrics.success_criteria_justification,
+    modelWarnings: specUpdate.warnings,
+    modelOpenQuestions: specUpdate.open_questions,
+    hasPendingQuestion: Boolean(nextQuestion),
   });
 
-  const updated = getWorkspace(sessionId);
+  await saveSessionSnapshot(sessionId, {
+    specContent: specUpdate.spec_markdown,
+    clarificationRound: roundNumber,
+    metrics: finalMetrics,
+    pendingQuestion: nextQuestion,
+    reconciliationStatus: "idle",
+    reconciledRound: roundNumber,
+  });
+  await insertTranscriptEntry({
+    sessionId,
+    role: "user",
+    entryType: "answer",
+    content: answer,
+    selectedChoiceKey: payload.selectedChoiceKey ?? null,
+    selectedChoiceLabel: payload.selectedChoiceLabel ?? null,
+    targetDimension: pendingQuestion.target_dimension,
+    roundNumber,
+  });
+
+  if (nextQuestion) {
+    await insertTranscriptEntry({
+      sessionId,
+      role: "assistant",
+      entryType: "question",
+      content: nextQuestion.question,
+      choices: nextQuestion.suggested_choices,
+      targetDimension: nextQuestion.target_dimension,
+      roundNumber: nextQuestion.round_number,
+    });
+  }
+
+  const updated = await getWorkspace(sessionId);
   if (!updated) {
     throw new Error("Updated session could not be loaded.");
   }
 
   return updated;
-}
-
-async function reconcileSessionLoop(sessionId: string): Promise<void> {
-  while (true) {
-    const workspace = getWorkspace(sessionId);
-    if (!workspace) {
-      return;
-    }
-
-    if (
-      workspace.session.reconciliation_status === "idle" &&
-      workspace.session.reconciled_round >= workspace.session.clarification_round
-    ) {
-      return;
-    }
-
-    const answeredTranscript = stripPendingQuestionFromTranscript(
-      workspace.transcript,
-      workspace.pendingQuestion
-    );
-    const latestAnsweredPair = getLatestAnsweredPair(answeredTranscript);
-
-    if (!latestAnsweredPair) {
-      saveSessionSnapshot(sessionId, {
-        specContent: workspace.session.spec_content,
-        clarificationRound: workspace.session.clarification_round,
-        metrics: workspace.metrics,
-        pendingQuestion: workspace.pendingQuestion,
-        reconciliationStatus: "idle",
-        reconciledRound: workspace.session.clarification_round,
-      });
-      return;
-    }
-
-    const targetRound = workspace.session.clarification_round;
-
-    saveSessionSnapshot(sessionId, {
-      specContent: workspace.session.spec_content,
-      clarificationRound: workspace.session.clarification_round,
-      metrics: workspace.metrics,
-      pendingQuestion: workspace.pendingQuestion,
-      reconciliationStatus: "running",
-      reconciledRound: workspace.session.reconciled_round,
-    });
-
-    const specUpdate = await rewriteSpecification({
-      session: workspace.session,
-      transcript: answeredTranscript,
-      pendingQuestion: latestAnsweredPair.question,
-      answer: latestAnsweredPair.answer.content,
-    });
-    const preMetrics = await scoreWorkspace({
-      session: workspace.session,
-      transcript: answeredTranscript,
-      specContent: specUpdate.spec_markdown,
-    });
-
-    const latestWorkspace = getWorkspace(sessionId);
-    if (!latestWorkspace) {
-      return;
-    }
-
-    if (latestWorkspace.session.clarification_round !== targetRound) {
-      saveSessionSnapshot(sessionId, {
-        specContent: latestWorkspace.session.spec_content,
-        clarificationRound: latestWorkspace.session.clarification_round,
-        metrics: latestWorkspace.metrics,
-        pendingQuestion: latestWorkspace.pendingQuestion,
-        reconciliationStatus: "pending",
-        reconciledRound: latestWorkspace.session.reconciled_round,
-      });
-      continue;
-    }
-
-    const finalMetrics = buildClarificationMetrics({
-      specContent: specUpdate.spec_markdown,
-      ambiguityScore: preMetrics.ambiguity_score,
-      goalClarity: preMetrics.goal_clarity,
-      constraintClarity: preMetrics.constraint_clarity,
-      successCriteriaClarity: preMetrics.success_criteria_clarity,
-      goalJustification: preMetrics.goal_justification,
-      constraintJustification: preMetrics.constraint_justification,
-      successCriteriaJustification: preMetrics.success_criteria_justification,
-      modelWarnings: specUpdate.warnings,
-      modelOpenQuestions: specUpdate.open_questions,
-      hasPendingQuestion: Boolean(latestWorkspace.pendingQuestion),
-    });
-
-    saveSessionSnapshot(sessionId, {
-      specContent: specUpdate.spec_markdown,
-      clarificationRound: latestWorkspace.session.clarification_round,
-      metrics: finalMetrics,
-      pendingQuestion: latestWorkspace.pendingQuestion,
-      reconciliationStatus: "idle",
-      reconciledRound: latestWorkspace.session.clarification_round,
-    });
-
-    const current = getWorkspace(sessionId);
-    if (!current || current.session.reconciled_round >= current.session.clarification_round) {
-      return;
-    }
-  }
 }
 
 async function scoreWorkspace(input: {
@@ -621,63 +506,6 @@ function fallbackScore(session: SessionRecord, specContent: string, transcript: 
     constraint_justification: "Fallback heuristic based on how concrete the constraints and non-goals are.",
     success_criteria_justification: "Fallback heuristic based on whether success criteria are concrete and measurable.",
   };
-}
-
-function stripPendingQuestionFromTranscript(
-  transcript: TranscriptEntry[],
-  pendingQuestion: PendingQuestion | null
-): TranscriptEntry[] {
-  if (!pendingQuestion) {
-    return transcript;
-  }
-
-  for (let index = transcript.length - 1; index >= 0; index -= 1) {
-    const entry = transcript[index];
-    if (
-      entry.role === "assistant" &&
-      entry.entry_type === "question" &&
-      entry.round_number === pendingQuestion.round_number &&
-      entry.content === pendingQuestion.question
-    ) {
-      return [...transcript.slice(0, index), ...transcript.slice(index + 1)];
-    }
-  }
-
-  return transcript;
-}
-
-function getLatestAnsweredPair(transcript: TranscriptEntry[]): {
-  question: PendingQuestion;
-  answer: TranscriptEntry;
-} | null {
-  for (let index = transcript.length - 1; index >= 0; index -= 1) {
-    const answer = transcript[index];
-
-    if (answer.role !== "user" || answer.entry_type !== "answer") {
-      continue;
-    }
-
-    const questionEntry = transcript
-      .slice(0, index)
-      .reverse()
-      .find((entry) => entry.role === "assistant" && entry.entry_type === "question" && entry.round_number === answer.round_number);
-
-    if (!questionEntry) {
-      continue;
-    }
-
-    return {
-      question: {
-        question: questionEntry.content,
-        suggested_choices: questionEntry.choices,
-        target_dimension: questionEntry.target_dimension ?? "context",
-        round_number: questionEntry.round_number,
-      },
-      answer,
-    };
-  }
-
-  return null;
 }
 
 function fallbackQuestion(

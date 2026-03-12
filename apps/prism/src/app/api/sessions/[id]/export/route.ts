@@ -9,7 +9,7 @@ interface Params {
 }
 
 export async function GET(_: Request, { params }: Params) {
-  const workspace = getSessionWorkspace(params.id);
+  const workspace = await getSessionWorkspace(params.id);
 
   if (!workspace) {
     return NextResponse.json({ error: "Session not found." }, { status: 404 });

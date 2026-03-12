@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 const metadataBase = (() => {
-  const explicitUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.RENDER_EXTERNAL_URL;
+  const explicitUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL;
 
   if (!explicitUrl) {
     return new URL("http://localhost:3000");

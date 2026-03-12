@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { deleteSessionWorkspace, getSessionWorkspace, kickSessionReconciliation, updateSessionDraft } from "@/lib/clarification";
-import { kickSessionMarketResearch } from "@/lib/research";
+import { deleteSessionWorkspace, getSessionWorkspace, updateSessionDraft } from "@/lib/clarification";
 
 interface Params {
   params: {
@@ -9,18 +8,10 @@ interface Params {
 }
 
 export async function GET(_: Request, { params }: Params) {
-  const workspace = getSessionWorkspace(params.id);
+  const workspace = await getSessionWorkspace(params.id);
 
   if (!workspace) {
     return NextResponse.json({ error: "Session not found." }, { status: 404 });
-  }
-
-  if (workspace.session.reconciliation_status !== "idle") {
-    kickSessionReconciliation(params.id);
-  }
-
-  if (workspace.marketReport && ["pending", "running"].includes(workspace.marketReport.status)) {
-    kickSessionMarketResearch(params.id);
   }
 
   return NextResponse.json(workspace);
@@ -34,7 +25,7 @@ export async function PATCH(request: Request, { params }: Params) {
       return NextResponse.json({ error: "spec_content must be a string." }, { status: 400 });
     }
 
-    const workspace = updateSessionDraft(params.id, payload.spec_content);
+    const workspace = await updateSessionDraft(params.id, payload.spec_content);
     if (!workspace) {
       return NextResponse.json({ error: "Session not found." }, { status: 404 });
     }
@@ -50,7 +41,7 @@ export async function PATCH(request: Request, { params }: Params) {
 
 export async function DELETE(_: Request, { params }: Params) {
   try {
-    const deleted = deleteSessionWorkspace(params.id);
+    const deleted = await deleteSessionWorkspace(params.id);
 
     if (!deleted) {
       return NextResponse.json({ error: "Session not found." }, { status: 404 });

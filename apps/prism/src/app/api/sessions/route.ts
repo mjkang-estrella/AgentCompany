@@ -3,7 +3,7 @@ import { createSessionWorkspace, getSessionSummaries } from "@/lib/clarification
 
 export async function GET() {
   return NextResponse.json({
-    sessions: getSessionSummaries(),
+    sessions: await getSessionSummaries(),
   });
 }
 
