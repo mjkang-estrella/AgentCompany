@@ -186,6 +186,15 @@ const getHtml = (value: unknown): string => {
   return "";
 };
 
+const findFirstImageUrl = (html: string, baseUrl: string) => {
+  if (!html) {
+    return "";
+  }
+
+  const match = decodeHtmlFragment(String(html)).match(/<img\b[^>]*\bsrc=["']([^"']+)["']/iu);
+  return resolveUrl(match?.[1] || "", baseUrl);
+};
+
 const resolveUrl = (value: string, baseUrl: string) => {
   if (!value) {
     return "";
@@ -212,6 +221,35 @@ const getExtensionUrl = (
     const resolved = resolveUrl(getText(value), baseUrl);
     if (resolved) {
       return resolved;
+    }
+  }
+
+  return "";
+};
+
+const getImageUrl = (value: unknown, baseUrl: string) => {
+  for (const item of toArray(value as Record<string, unknown>)) {
+    if (!item) {
+      continue;
+    }
+
+    if (typeof item === "string") {
+      const resolved = resolveUrl(item, baseUrl);
+      if (resolved) {
+        return resolved;
+      }
+      continue;
+    }
+
+    if (typeof item === "object") {
+      const record = item as Record<string, unknown>;
+      const medium = String(record.medium || "").toLowerCase();
+      const type = String(record.type || "").toLowerCase();
+      const url = resolveUrl(String(record.url || record.href || record.src || ""), baseUrl);
+
+      if (url && (medium === "image" || type.startsWith("image/") || (!medium && !type))) {
+        return url;
+      }
     }
   }
 
@@ -256,6 +294,11 @@ const normalizeEntry = (
     markdownUrl: getExtensionUrl(entry, ["markdown"], baseUrl),
     publishedAt: getText(entry.pubDate || entry.published || entry.updated),
     summaryHtml,
+    thumbnailUrl:
+      getImageUrl(entry["media:content"], baseUrl) ||
+      getImageUrl(entry["media:thumbnail"], baseUrl) ||
+      getImageUrl(entry.enclosure, baseUrl) ||
+      findFirstImageUrl(feedBody || summaryHtml, baseUrl),
     title: getText(entry.title) || url || "Untitled article",
     url,
   };
@@ -425,6 +468,7 @@ const syncFeed = async (feed: Record<string, string>) => {
         published_at: normalizePublishedAt(entry.publishedAt),
         read_time_minutes: estimateReadTime(bodyHtml),
         summary_html: summaryHtml,
+        thumbnail_url: entry.thumbnailUrl || findFirstImageUrl(bodyHtml || summaryHtml, entry.url || parsed.siteUrl || response.url) || null,
         title: entry.title,
         url: entry.url,
       });

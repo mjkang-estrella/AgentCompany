@@ -190,6 +190,242 @@ const requestJson = async (url, options = {}) => {
   return response.json();
 };
 
+const normalizeComparableUrl = (value) => {
+  if (!value) {
+    return "";
+  }
+
+  try {
+    const url = new URL(String(value), window.location.href);
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return String(value).trim();
+  }
+};
+
+const normalizeComparableText = (value) =>
+  String(value || "")
+    .normalize("NFKD")
+    .replace(/[“”]/gu, "\"")
+    .replace(/[‘’]/gu, "'")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .toLowerCase();
+
+const collectImageUrls = (node) =>
+  Array.from(node?.querySelectorAll?.("img") || [])
+    .map((image) => normalizeComparableUrl(image.getAttribute("src")))
+    .filter(Boolean);
+
+const isIgnorableLeadNode = (node) => {
+  if (!node) {
+    return true;
+  }
+
+  if (node.tagName === "HR") {
+    return true;
+  }
+
+  const hasMedia = Boolean(node.querySelector("img, picture, video, iframe, canvas, svg"));
+  return !hasMedia && normalizeComparableText(node.textContent) === "";
+};
+
+const isImageOnlyContainer = (node) => {
+  if (!node) {
+    return false;
+  }
+
+  if (node.tagName === "FIGURE") {
+    return Boolean(node.querySelector("img, picture, video"));
+  }
+
+  if (node.tagName === "IMG" || node.tagName === "PICTURE" || node.tagName === "VIDEO") {
+    return true;
+  }
+
+  if (!["P", "DIV"].includes(node.tagName)) {
+    return false;
+  }
+
+  const hasSingleMediaChild = node.children.length === 1 &&
+    ["IMG", "PICTURE", "VIDEO"].includes(node.firstElementChild?.tagName || "");
+
+  return hasSingleMediaChild && normalizeComparableText(node.textContent) === "";
+};
+
+const isSubstantialTextBlock = (node) => {
+  if (!node) {
+    return false;
+  }
+
+  const text = normalizeComparableText(node.textContent);
+  if (text.length === 0) {
+    return false;
+  }
+
+  if (/^H[1-6]$/u.test(node.tagName)) {
+    return true;
+  }
+
+  return text.length >= 48;
+};
+
+const stripLeadingDuplicateTitle = (root, title) => {
+  const comparableTitle = normalizeComparableText(title);
+
+  while (root?.firstElementChild) {
+    const firstNode = root.firstElementChild;
+    const isHeading = /^H[1-6]$/u.test(firstNode.tagName);
+
+    if (!isHeading || normalizeComparableText(firstNode.textContent) !== comparableTitle) {
+      break;
+    }
+
+    firstNode.remove();
+  }
+};
+
+const trimLeadingIgnorableNodes = (root) => {
+  while (root?.firstElementChild && isIgnorableLeadNode(root.firstElementChild)) {
+    root.firstElementChild.remove();
+  }
+};
+
+const isLikelyMetadataBlock = (node, comparableThumbnailUrl) => {
+  if (!node) {
+    return false;
+  }
+
+  const text = normalizeComparableText(node.textContent);
+  const imageUrls = collectImageUrls(node);
+  const linkCount = node.querySelectorAll("a").length;
+  const hasThumbnailImage = Boolean(
+    comparableThumbnailUrl && imageUrls.includes(comparableThumbnailUrl)
+  );
+  const hasBylineMarkers = /\bby\b/u.test(text) || /\bin\b/u.test(text);
+  const isCompact = text.length <= 140;
+
+  if (node.tagName === "TABLE") {
+    return isCompact && (hasThumbnailImage || hasBylineMarkers || imageUrls.length > 0);
+  }
+
+  return isCompact && imageUrls.length <= 2 && linkCount <= 4 && hasThumbnailImage && hasBylineMarkers;
+};
+
+const stripLeadingMetadataBlocks = (root, comparableThumbnailUrl) => {
+  const removedImageUrls = new Set();
+  let removedCount = 0;
+
+  trimLeadingIgnorableNodes(root);
+  while (root?.firstElementChild && removedCount < 2) {
+    const firstNode = root.firstElementChild;
+    if (!isLikelyMetadataBlock(firstNode, comparableThumbnailUrl)) {
+      break;
+    }
+
+    for (const imageUrl of collectImageUrls(firstNode)) {
+      removedImageUrls.add(imageUrl);
+    }
+
+    firstNode.remove();
+    removedCount += 1;
+    trimLeadingIgnorableNodes(root);
+  }
+
+  return removedImageUrls;
+};
+
+const consumeLeadMediaNode = (root) => {
+  trimLeadingIgnorableNodes(root);
+  const leadNodes = Array.from(root?.children || []).filter((node) => !isIgnorableLeadNode(node)).slice(0, 3);
+
+  for (const node of leadNodes) {
+    if (isImageOnlyContainer(node)) {
+      const heroHtml = node.outerHTML;
+      node.remove();
+      return heroHtml;
+    }
+
+    if (isSubstantialTextBlock(node)) {
+      return "";
+    }
+  }
+
+  return "";
+};
+
+const buildArticleHero = (bodyHtml, thumbnailUrl, title) => {
+  if (!bodyHtml && !thumbnailUrl) {
+    return { bodyHtml: bodyHtml || "", heroHtml: "" };
+  }
+
+  const parser = new DOMParser();
+  const documentRoot = parser.parseFromString(`<div>${bodyHtml || ""}</div>`, "text/html");
+  const root = documentRoot.body.firstElementChild;
+  const comparableThumbnailUrl = normalizeComparableUrl(thumbnailUrl);
+  let heroHtml = "";
+
+  if (root) {
+    stripLeadingDuplicateTitle(root, title);
+    trimLeadingIgnorableNodes(root);
+  }
+
+  const metadataImageUrls = root ? stripLeadingMetadataBlocks(root, comparableThumbnailUrl) : new Set();
+  const thumbnailWasMetadata = Boolean(
+    comparableThumbnailUrl && metadataImageUrls.has(comparableThumbnailUrl)
+  );
+
+  if (root && comparableThumbnailUrl) {
+    const matchingImage = Array.from(root.querySelectorAll("img")).find((image) =>
+      normalizeComparableUrl(image.getAttribute("src")) === comparableThumbnailUrl
+    );
+
+    if (matchingImage) {
+      const paragraphWrapper =
+        matchingImage.parentElement?.tagName === "P" &&
+        matchingImage.parentElement.children.length === 1
+          ? matchingImage.parentElement
+          : null;
+      const heroNode = matchingImage.closest("figure") || paragraphWrapper || matchingImage;
+      heroHtml = heroNode.outerHTML;
+      heroNode.remove();
+    }
+  }
+
+  const leadMediaHtml = !heroHtml && root ? consumeLeadMediaNode(root) : "";
+
+  if (!heroHtml && thumbnailUrl && !thumbnailWasMetadata) {
+    heroHtml = `
+      <img
+        src="${escapeHtml(thumbnailUrl)}"
+        alt="${escapeHtml(title)}"
+        loading="eager"
+        referrerpolicy="no-referrer"
+      >
+    `;
+  }
+
+  if (!heroHtml && leadMediaHtml) {
+    heroHtml = leadMediaHtml;
+  }
+
+  if (!heroHtml && thumbnailUrl) {
+    heroHtml = `
+      <img
+        src="${escapeHtml(thumbnailUrl)}"
+        alt="${escapeHtml(title)}"
+        loading="eager"
+        referrerpolicy="no-referrer"
+      >
+    `;
+  }
+
+  return {
+    bodyHtml: root ? root.innerHTML : (bodyHtml || ""),
+    heroHtml
+  };
+};
+
 const buildQuery = ({ cursor = null, includeSelectedArticleId = false } = {}) => {
   const params = new URLSearchParams({
     limit: String(PAGE_LIMIT),
@@ -323,7 +559,10 @@ const renderArticle = () => {
     return;
   }
 
+  const articleHero = buildArticleHero(article.bodyHtml, article.thumbnailUrl, article.title);
+
   elements.articleView.innerHTML = `
+    ${articleHero.heroHtml ? `<div class="article-hero">${articleHero.heroHtml}</div>` : ""}
     <header class="article-header">
       <div class="article-feed-name">
         ${feedIconMarkup(article.feedIconUrl)}
@@ -338,7 +577,7 @@ const renderArticle = () => {
         <span>${escapeHtml(`${article.readTimeMinutes} min read`)}</span>
       </div>
     </header>
-    <div class="article-body">${article.bodyHtml || "<p>No article body available yet.</p>"}</div>
+    <div class="article-body">${articleHero.bodyHtml || "<p>No article body available yet.</p>"}</div>
   `;
 };
 

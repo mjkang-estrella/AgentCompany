@@ -115,6 +115,27 @@ test("parseFeed keeps custom markdown source URLs from feed extensions", () => {
   assert.equal(parsed.feed.entries[0].markdownUrl, "https://cdn.example.com/post.md");
 });
 
+test("parseFeed extracts article thumbnails from feed metadata", () => {
+  const rss = `<?xml version="1.0"?>
+    <rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/">
+      <channel>
+        <title>Reader Feed</title>
+        <link>https://example.com</link>
+        <item>
+          <title>Thumbnail body</title>
+          <link>https://example.com/post</link>
+          <guid>entry-5</guid>
+          <description>Short summary</description>
+          <media:content url="https://cdn.example.com/thumb.jpg" medium="image" type="image/jpeg" />
+          <pubDate>Tue, 11 Mar 2026 18:00:00 GMT</pubDate>
+        </item>
+      </channel>
+    </rss>`;
+
+  const parsed = parseFeed(rss, "https://example.com/feed.xml");
+  assert.equal(parsed.feed.entries[0].thumbnailUrl, "https://cdn.example.com/thumb.jpg");
+});
+
 test("discoverFeedLinks finds alternate feeds and icon", () => {
   const html = `
     <html>

@@ -79,6 +79,15 @@ const getHtml = (value) => {
   return "";
 };
 
+const findFirstImageUrl = (html, baseUrl) => {
+  if (!html) {
+    return "";
+  }
+
+  const match = decodeHtmlFragment(String(html)).match(/<img\b[^>]*\bsrc=["']([^"']+)["']/iu);
+  return resolveUrl(match?.[1] || "", baseUrl);
+};
+
 const resolveUrl = (value, baseUrl) => {
   if (!value) {
     return "";
@@ -89,6 +98,34 @@ const resolveUrl = (value, baseUrl) => {
   } catch {
     return "";
   }
+};
+
+const getImageUrl = (value, baseUrl) => {
+  for (const item of toArray(value)) {
+    if (!item) {
+      continue;
+    }
+
+    if (typeof item === "string") {
+      const resolved = resolveUrl(item, baseUrl);
+      if (resolved) {
+        return resolved;
+      }
+      continue;
+    }
+
+    if (typeof item === "object") {
+      const medium = String(item.medium || "").toLowerCase();
+      const type = String(item.type || "").toLowerCase();
+      const url = resolveUrl(String(item.url || item.href || item.src || ""), baseUrl);
+
+      if (url && (medium === "image" || type.startsWith("image/") || (!medium && !type))) {
+        return url;
+      }
+    }
+  }
+
+  return "";
 };
 
 const getExtensionUrl = (entry, suffixes, baseUrl) => {
@@ -148,6 +185,11 @@ const normalizeEntry = (entry, format, baseUrl) => {
       getText(entry.pubDate || entry.published || entry.updated) ||
       new Date().toISOString(),
     summaryHtml,
+    thumbnailUrl:
+      getImageUrl(entry["media:content"], baseUrl) ||
+      getImageUrl(entry["media:thumbnail"], baseUrl) ||
+      getImageUrl(entry.enclosure, baseUrl) ||
+      findFirstImageUrl(feedBody || summaryHtml, baseUrl),
     title: getText(entry.title) || url || "Untitled article",
     url
   };

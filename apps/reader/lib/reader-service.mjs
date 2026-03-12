@@ -13,6 +13,7 @@ const articleSelect = `
   url,
   author,
   published_at,
+  thumbnail_url,
   summary_html,
   body_html,
   body_source,
@@ -39,6 +40,7 @@ const mapSummary = (row) => ({
   previewText: stripHtml(row.summary_html || "").slice(0, 220),
   publishedAt: row.published_at,
   readTimeMinutes: row.read_time_minutes || 1,
+  thumbnailUrl: row.thumbnail_url || "",
   title: decodeHtmlEntities(row.title),
   url: row.url
 });
@@ -61,6 +63,7 @@ const mapArticle = (row) => {
     publishedAt: row.published_at,
     readTimeMinutes: row.read_time_minutes || estimateReadTime(bodyHtml),
     summaryHtml: sanitizeFragment(row.summary_html || ""),
+    thumbnailUrl: row.thumbnail_url || "",
     title: decodeHtmlEntities(row.title),
     url: row.url
   };

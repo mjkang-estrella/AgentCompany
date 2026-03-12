@@ -8,6 +8,8 @@ Adding a feed is now treated as create-and-sync: the app verifies that the initi
 
 During sync, the reader prefers richer feed-provided sources when available. For example, if an RSS item exposes a custom markdown source URL, the sync job uses that instead of scraping the public article page.
 
+When a feed exposes article imagery, the sync job stores `thumbnail_url` on the article and the reader uses it as a hero image at the top of the opened document when appropriate.
+
 ## Owns
 
 - Reader-inspired article list and reading surface
