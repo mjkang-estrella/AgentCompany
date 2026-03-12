@@ -16,8 +16,8 @@ const elements = {
   countToday: document.querySelector("#count-today"),
   feedCancelButton: document.querySelector("#feed-cancel-button"),
   feedDialog: document.querySelector("#feed-dialog"),
-  feedFolderInput: document.querySelector("#feed-folder-input"),
   feedForm: document.querySelector("#feed-form"),
+  feedOrganizationInput: document.querySelector("#feed-organization-input"),
   feedUrlInput: document.querySelector("#feed-url-input"),
   foldersList: document.querySelector("#folders-list"),
   listTitle: document.querySelector("#list-title"),
@@ -49,6 +49,7 @@ const fallbackFeedIcon = `
 `;
 
 let toastTimer = null;
+let organizationEditedManually = false;
 
 const escapeHtml = (value) =>
   String(value ?? "").replace(/[&<>"']/gu, (character) => ({
@@ -125,6 +126,31 @@ const feedIconMarkup = (iconUrl) =>
     ? `<img class="feed-icon-small" src="${escapeHtml(iconUrl)}" alt="" referrerpolicy="no-referrer">`
     : fallbackFeedIcon;
 
+const titleCaseWord = (word) =>
+  word ? word.charAt(0).toUpperCase() + word.slice(1) : "";
+
+const deriveOrganizationFromUrl = (value) => {
+  if (!value) {
+    return "";
+  }
+
+  try {
+    const normalizedUrl = new URL(
+      /^https?:\/\//iu.test(value.trim()) ? value.trim() : `https://${value.trim()}`
+    );
+    const parts = normalizedUrl.hostname.replace(/^www\./iu, "").split(".");
+    const base = parts.length > 1 ? parts.at(-2) : parts[0];
+
+    return base
+      .split(/[-_]+/u)
+      .filter(Boolean)
+      .map(titleCaseWord)
+      .join(" ");
+  } catch {
+    return "";
+  }
+};
+
 const requestJson = async (url, options = {}) => {
   const response = await fetch(url, {
     headers: {
@@ -187,7 +213,7 @@ const renderSidebar = () => {
   );
 
   if (folders.length === 0) {
-    elements.foldersList.innerHTML = `<div class="empty-state">Feeds you add will show up here by folder.</div>`;
+    elements.foldersList.innerHTML = `<div class="empty-state">Feeds you add will show up here by organization.</div>`;
     return;
   }
 
@@ -344,6 +370,7 @@ const markAllRead = async () => {
 };
 
 const openDialog = () => {
+  organizationEditedManually = false;
   elements.feedDialog.showModal();
   elements.feedUrlInput.focus();
 };
@@ -351,13 +378,14 @@ const openDialog = () => {
 const closeDialog = () => {
   elements.feedDialog.close();
   elements.feedForm.reset();
+  organizationEditedManually = false;
 };
 
 const submitFeed = async () => {
   const payload = await requestJson("/api/feeds", {
     method: "POST",
     body: JSON.stringify({
-      folder: elements.feedFolderInput.value,
+      folder: elements.feedOrganizationInput.value,
       inputUrl: elements.feedUrlInput.value
     })
   });
@@ -456,6 +484,17 @@ elements.markAllReadButton.addEventListener("click", async () => {
 
 elements.addFeedButton.addEventListener("click", openDialog);
 elements.feedCancelButton.addEventListener("click", closeDialog);
+elements.feedUrlInput.addEventListener("input", () => {
+  if (organizationEditedManually && elements.feedOrganizationInput.value.trim()) {
+    return;
+  }
+
+  const organization = deriveOrganizationFromUrl(elements.feedUrlInput.value);
+  elements.feedOrganizationInput.value = organization;
+});
+elements.feedOrganizationInput.addEventListener("input", () => {
+  organizationEditedManually = true;
+});
 elements.feedForm.addEventListener("submit", async (event) => {
   event.preventDefault();
 

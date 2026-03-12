@@ -505,6 +505,11 @@
             box-shadow: 0 20px 50px rgba(15, 23, 42, 0.18);
             max-width: 440px;
             width: calc(100% - 32px);
+            margin: 0;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
         }
 
         .feed-dialog::backdrop {
@@ -669,9 +674,9 @@
             </div>
 
             <div class="nav-group" vid="33">
-                <div class="nav-label" vid="34">Folders</div>
+                <div class="nav-label" vid="34">Organizations</div>
                 <div id="folders-list">
-                    <div class="empty-state">Feeds you add will show up here by folder.</div>
+                    <div class="empty-state">Feeds you add will show up here by organization.</div>
                 </div>
             </div>
         </div>
@@ -727,15 +732,15 @@
     <form class="feed-dialog-card" id="feed-form" method="dialog">
         <div>
             <div class="dialog-title">Add feed</div>
-            <p class="dialog-copy">Paste an RSS/Atom feed URL or a website URL and Reader will discover the feed automatically when possible.</p>
+            <p class="dialog-copy">Paste an RSS/Atom feed URL or a website URL and Reader will discover the feed automatically when possible. Organization will be suggested from the URL and you can edit it.</p>
         </div>
         <label class="form-field">
             <span class="form-label">Feed or website URL</span>
             <input class="text-input" id="feed-url-input" name="inputUrl" required type="url" placeholder="https://example.com/feed.xml">
         </label>
         <label class="form-field">
-            <span class="form-label">Folder</span>
-            <input class="text-input" id="feed-folder-input" name="folder" placeholder="Technology">
+            <span class="form-label">Organization</span>
+            <input class="text-input" id="feed-organization-input" name="organization" placeholder="Example">
         </label>
         <div class="dialog-actions">
             <button class="btn-secondary" id="feed-cancel-button" type="button">Cancel</button>
