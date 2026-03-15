@@ -278,6 +278,57 @@
             font-size: var(--font-size-base);
         }
 
+        .list-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            position: relative;
+        }
+
+        .list-actions [hidden] {
+            display: none !important;
+        }
+
+        .list-menu {
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            min-width: 200px;
+            padding: 6px;
+            border: 1px solid var(--border-light);
+            border-radius: 10px;
+            background: var(--bg-body);
+            box-shadow: 0 12px 30px var(--shadow-overlay);
+            z-index: 20;
+        }
+
+        .list-menu-item {
+            width: 100%;
+            border: none;
+            background: none;
+            color: var(--text-primary);
+            border-radius: var(--radius-sm);
+            padding: 10px 12px;
+            cursor: pointer;
+            font: inherit;
+            text-align: left;
+        }
+
+        .list-menu-item:hover,
+        .list-menu-item:focus-visible {
+            background: var(--bg-hover);
+            outline: none;
+        }
+
+        .list-menu-item.is-danger {
+            color: var(--error-bg);
+        }
+
+        .list-menu-item:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+
         .list-content {
             flex: 1;
             overflow-y: auto;
@@ -692,6 +743,16 @@
             font: inherit;
         }
 
+        .btn-danger {
+            background: var(--error-bg);
+            color: var(--text-on-dark);
+            border: 1px solid var(--error-bg);
+            border-radius: var(--radius-md);
+            padding: 8px 12px;
+            cursor: pointer;
+            font: inherit;
+        }
+
         .toast {
             position: fixed;
             right: 20px;
@@ -854,9 +915,15 @@
     <section class="article-list" aria-label="Article list" vid="47">
         <div class="list-header" vid="48">
             <span class="list-title" id="list-title" vid="49">All Articles</span>
-            <button class="icon-btn" id="mark-all-read-button" title="Mark all as read" aria-label="Mark all as read" vid="50">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="51"><polyline points="20 6 9 17 4 12" vid="52"></polyline></svg>
-            </button>
+            <div class="list-actions">
+                <button class="icon-btn" id="list-menu-button" title="More actions" aria-label="More actions" aria-expanded="false" aria-haspopup="menu" type="button">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5" r="1.5"></circle><circle cx="12" cy="12" r="1.5"></circle><circle cx="12" cy="19" r="1.5"></circle></svg>
+                </button>
+                <div class="list-menu" hidden id="list-menu" role="menu" aria-label="List actions">
+                    <button class="list-menu-item" id="mark-all-read-button" role="menuitem" type="button">Mark all as read</button>
+                    <button class="list-menu-item is-danger" hidden id="remove-organization-button" role="menuitem" type="button">Remove organization</button>
+                </div>
+            </div>
         </div>
 
         <div class="list-content" id="article-list" vid="53">
@@ -914,6 +981,18 @@
         <div class="dialog-actions">
             <button class="btn-secondary" id="feed-cancel-button" type="button">Cancel</button>
             <button class="btn-primary" type="submit">Add feed</button>
+        </div>
+    </form>
+</dialog>
+<dialog class="feed-dialog" id="remove-organization-dialog">
+    <form class="feed-dialog-card" id="remove-organization-form" method="dialog">
+        <div>
+            <div class="dialog-title">Remove organization</div>
+            <p class="dialog-copy" id="remove-organization-copy">This will permanently delete the feeds and articles in this organization.</p>
+        </div>
+        <div class="dialog-actions">
+            <button class="btn-secondary" id="remove-organization-cancel-button" type="button">Cancel</button>
+            <button class="btn-danger" id="remove-organization-confirm-button" type="submit">Remove organization</button>
         </div>
     </form>
 </dialog>

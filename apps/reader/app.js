@@ -26,6 +26,7 @@ const state = {
   isLoadingArticle: false,
   isLoadingMore: false,
   nextCursor: null,
+  pendingOrganizationRemoval: "",
   scope: "all",
   sidebarCollapsed: false,
   selectedArticle: null,
@@ -46,6 +47,9 @@ const elements = {
   feedOrganizationInput: document.querySelector("#feed-organization-input"),
   feedUrlInput: document.querySelector("#feed-url-input"),
   foldersList: document.querySelector("#folders-list"),
+  listActions: document.querySelector(".list-actions"),
+  listMenu: document.querySelector("#list-menu"),
+  listMenuButton: document.querySelector("#list-menu-button"),
   listTitle: document.querySelector("#list-title"),
   markAllReadButton: document.querySelector("#mark-all-read-button"),
   navAll: document.querySelector("#nav-all"),
@@ -54,6 +58,12 @@ const elements = {
   nextArticleButton: document.querySelector("#next-article-button"),
   openArticleButton: document.querySelector("#open-article-button"),
   previousArticleButton: document.querySelector("#previous-article-button"),
+  removeOrganizationCancelButton: document.querySelector("#remove-organization-cancel-button"),
+  removeOrganizationConfirmButton: document.querySelector("#remove-organization-confirm-button"),
+  removeOrganizationButton: document.querySelector("#remove-organization-button"),
+  removeOrganizationCopy: document.querySelector("#remove-organization-copy"),
+  removeOrganizationDialog: document.querySelector("#remove-organization-dialog"),
+  removeOrganizationForm: document.querySelector("#remove-organization-form"),
   saveArticleButton: document.querySelector("#save-article-button"),
   shareArticleButton: document.querySelector("#share-article-button"),
   sidebarToggleButton: document.querySelector("#sidebar-toggle-button"),
@@ -78,6 +88,7 @@ const fallbackFeedIcon = `
 let toastTimer = null;
 let organizationEditedManually = false;
 let articleRequestToken = 0;
+let isListMenuOpen = false;
 
 const escapeHtml = (value) =>
   String(value ?? "").replace(/[&<>"']/gu, (character) => ({
@@ -144,6 +155,26 @@ const showToast = (message, options = {}) => {
     elements.toast.classList.remove("is-visible");
     elements.toast.classList.remove("is-error");
   }, 3200);
+};
+
+const syncListMenuState = () => {
+  elements.listMenu.hidden = !isListMenuOpen;
+  elements.listMenuButton.setAttribute("aria-expanded", isListMenuOpen ? "true" : "false");
+};
+
+const openListMenu = () => {
+  isListMenuOpen = true;
+  syncListMenuState();
+};
+
+const closeListMenu = () => {
+  isListMenuOpen = false;
+  syncListMenuState();
+};
+
+const toggleListMenu = () => {
+  isListMenuOpen = !isListMenuOpen;
+  syncListMenuState();
 };
 
 const readStoredSidebarCollapsed = () => {
@@ -579,6 +610,12 @@ const renderSidebar = () => {
 
 const renderArticleList = () => {
   elements.listTitle.textContent = listTitle();
+  elements.markAllReadButton.disabled = state.articles.length === 0;
+  elements.removeOrganizationButton.hidden = !state.folder;
+  elements.removeOrganizationButton.disabled = !state.folder;
+  elements.removeOrganizationButton.textContent = state.folder
+    ? `Remove ${state.folder}`
+    : "Remove organization";
 
   if (state.articles.length === 0) {
     elements.articleList.innerHTML = `
@@ -626,7 +663,6 @@ const renderArticle = () => {
   elements.saveArticleButton.disabled = !article;
   elements.shareArticleButton.disabled = !article;
   elements.openArticleButton.disabled = !article;
-  elements.markAllReadButton.disabled = state.articles.length === 0;
 
   elements.saveArticleButton.classList.toggle("is-active", Boolean(article?.isSaved));
 
@@ -679,6 +715,7 @@ const render = () => {
   renderSidebar();
   renderArticleList();
   renderArticle();
+  syncListMenuState();
 };
 
 const loadArticle = async (articleId) => {
@@ -821,6 +858,18 @@ const closeDialog = () => {
   organizationEditedManually = false;
 };
 
+const openRemoveOrganizationDialog = (folder) => {
+  state.pendingOrganizationRemoval = folder;
+  elements.removeOrganizationCopy.textContent = `This will permanently delete all feeds and articles in ${folder}.`;
+  elements.removeOrganizationDialog.showModal();
+  elements.removeOrganizationConfirmButton.focus();
+};
+
+const closeRemoveOrganizationDialog = () => {
+  state.pendingOrganizationRemoval = "";
+  elements.removeOrganizationDialog.close();
+};
+
 const submitFeed = async () => {
   await convexRequest("action", "feeds:add", {
     folder: elements.feedOrganizationInput.value,
@@ -831,6 +880,34 @@ const submitFeed = async () => {
   showToast("Feed added. Initial sync queued.");
   clearSelection();
   await bootstrap();
+};
+
+const removeOrganization = async () => {
+  const folder = state.pendingOrganizationRemoval;
+  if (!folder) {
+    return;
+  }
+
+  const removedCurrentFolder = state.folder === folder;
+  const removedSelectedArticle =
+    state.selectedArticle?.feedFolder === folder ||
+    state.articles.find((article) => article.id === state.selectedArticleId)?.feedFolder === folder;
+
+  const result = await convexRequest("action", "feeds:removeOrganization", { folder });
+
+  closeRemoveOrganizationDialog();
+
+  if (removedCurrentFolder) {
+    state.scope = "all";
+    state.folder = "";
+  }
+
+  if (removedCurrentFolder || removedSelectedArticle) {
+    clearSelection();
+  }
+
+  await bootstrap();
+  showToast(`Removed ${result.removedFeeds} feed${result.removedFeeds === 1 ? "" : "s"} from ${folder}.`);
 };
 
 const shareArticle = async () => {
@@ -938,6 +1015,11 @@ elements.articleList.addEventListener("scroll", () => {
   });
 });
 
+elements.listMenuButton.addEventListener("click", (event) => {
+  event.stopPropagation();
+  toggleListMenu();
+});
+
 elements.saveArticleButton.addEventListener("click", async () => {
   try {
     await toggleSave();
@@ -948,10 +1030,20 @@ elements.saveArticleButton.addEventListener("click", async () => {
 
 elements.markAllReadButton.addEventListener("click", async () => {
   try {
+    closeListMenu();
     await markAllRead();
   } catch (error) {
     showToast(error.message, { error: true });
   }
+});
+
+elements.removeOrganizationButton.addEventListener("click", () => {
+  if (!state.folder) {
+    return;
+  }
+
+  closeListMenu();
+  openRemoveOrganizationDialog(state.folder);
 });
 
 elements.addFeedButton.addEventListener("click", openDialog);
@@ -961,6 +1053,7 @@ elements.sidebarToggleButton.addEventListener("click", () => {
   persistSidebarCollapsed();
 });
 elements.feedCancelButton.addEventListener("click", closeDialog);
+elements.removeOrganizationCancelButton.addEventListener("click", closeRemoveOrganizationDialog);
 elements.feedUrlInput.addEventListener("input", () => {
   if (organizationEditedManually && elements.feedOrganizationInput.value.trim()) {
     return;
@@ -979,6 +1072,34 @@ elements.feedForm.addEventListener("submit", async (event) => {
     await submitFeed();
   } catch (error) {
     showToast(error.message, { error: true });
+  }
+});
+
+elements.removeOrganizationForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  try {
+    await removeOrganization();
+  } catch (error) {
+    showToast(error.message, { error: true });
+  }
+});
+
+document.addEventListener("click", (event) => {
+  if (!isListMenuOpen) {
+    return;
+  }
+
+  if (elements.listActions && elements.listActions.contains(event.target)) {
+    return;
+  }
+
+  closeListMenu();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && isListMenuOpen) {
+    closeListMenu();
   }
 });
 

@@ -6,6 +6,8 @@ The reader is page-based by default: it loads exact sidebar counts plus the newe
 
 Adding a feed is asynchronous: the app creates the feed immediately, makes it visible in the organization list, and queues the first sync in Convex.
 
+Organizations can be removed inline from the left sidebar. Removing an organization permanently deletes all feeds in that organization and all synced articles attached to those feeds.
+
 During sync, the reader prefers richer feed-provided sources when available. For example, if an RSS item exposes a custom markdown source URL, the sync job uses that instead of scraping the public article page.
 
 When a feed exposes article imagery, the sync job stores `thumbnail_url` on the article and the reader uses it as a hero image at the top of the opened document when appropriate.

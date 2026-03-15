@@ -27,6 +27,14 @@ export const getByFeedUrl = internalQuery({
     ctx.db.query("feeds").withIndex("by_feed_url", (q) => q.eq("feedUrl", args.feedUrl)).unique()
 });
 
+export const listByFolder = internalQuery({
+  args: {
+    folder: v.string()
+  },
+  handler: async (ctx, args) =>
+    ctx.db.query("feeds").withIndex("by_folder", (q) => q.eq("folder", args.folder)).collect()
+});
+
 export const upsertResolvedFeed = internalMutation({
   args: {
     feedUrl: v.string(),
@@ -84,6 +92,66 @@ export const queueSync = internalMutation({
   }
 });
 
+export const markFeedsInactive = internalMutation({
+  args: {
+    feedIds: v.array(v.id("feeds"))
+  },
+  handler: async (ctx, args) => {
+    for (const feedId of args.feedIds) {
+      await ctx.db.patch(feedId, {
+        isActive: false,
+        syncStatus: "error"
+      });
+    }
+  }
+});
+
+export const articleIdBatchForFeed = internalQuery({
+  args: {
+    cursor: v.optional(v.string()),
+    feedId: v.id("feeds"),
+    limit: v.optional(v.number())
+  },
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("articles")
+      .withIndex("by_feed_id_and_published_at", (q) => q.eq("feedId", args.feedId))
+      .order("desc")
+      .paginate({
+        cursor: args.cursor ?? null,
+        numItems: Math.min(Math.max(args.limit || 100, 1), 200)
+      });
+
+    return {
+      ids: page.page.map((article) => article._id),
+      isDone: page.isDone,
+      nextCursor: page.isDone ? null : page.continueCursor
+    };
+  }
+});
+
+export const deleteArticleIds = internalMutation({
+  args: {
+    articleIds: v.array(v.id("articles"))
+  },
+  handler: async (ctx, args) => {
+    for (const articleId of args.articleIds) {
+      await ctx.db.delete(articleId);
+    }
+  }
+});
+
+export const deleteFeedIds = internalMutation({
+  args: {
+    feedIds: v.array(v.id("feeds"))
+  },
+  handler: async (ctx, args) => {
+    for (const feedId of args.feedIds) {
+      await ctx.db.delete(feedId);
+    }
+  }
+});
+
 export const add = action({
   args: {
     folder: v.optional(v.string()),
@@ -126,6 +194,60 @@ export const syncOne = action({
     return {
       feed: mapFeed(feed),
       syncStatus: "queued"
+    };
+  }
+});
+
+export const removeOrganization = action({
+  args: {
+    folder: v.string()
+  },
+  handler: async (ctx, args) => {
+    const folder = args.folder.trim();
+    if (!folder) {
+      throw new Error("folder is required");
+    }
+
+    const feeds = await ctx.runQuery(internal.feeds.listByFolder, { folder });
+    if (feeds.length === 0) {
+      throw new Error("Organization not found");
+    }
+
+    const feedIds = feeds.map((feed) => feed._id);
+    await ctx.runMutation(internal.feeds.markFeedsInactive, { feedIds });
+
+    let removedArticles = 0;
+    for (const feedId of feedIds) {
+      let cursor = null;
+
+      while (true) {
+        const batch = await ctx.runQuery(internal.feeds.articleIdBatchForFeed, {
+          cursor: cursor || undefined,
+          feedId,
+          limit: 100
+        });
+
+        if (batch.ids.length > 0) {
+          removedArticles += batch.ids.length;
+          await ctx.runMutation(internal.feeds.deleteArticleIds, {
+            articleIds: batch.ids
+          });
+        }
+
+        if (batch.isDone || !batch.nextCursor) {
+          break;
+        }
+
+        cursor = batch.nextCursor;
+      }
+    }
+
+    await ctx.runMutation(internal.feeds.deleteFeedIds, { feedIds });
+
+    return {
+      folder,
+      removedArticles,
+      removedFeeds: feedIds.length
     };
   }
 });

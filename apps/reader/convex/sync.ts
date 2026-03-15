@@ -110,6 +110,16 @@ export const getFeed = internalQuery({
   handler: async (ctx, args) => ctx.db.get(args.feedId)
 });
 
+export const ensureFeedActive = internalQuery({
+  args: {
+    feedId: v.id("feeds")
+  },
+  handler: async (ctx, args) => {
+    const feed = await ctx.db.get(args.feedId);
+    return Boolean(feed && feed.isActive);
+  }
+});
+
 export const listActiveFeedIds = internalQuery({
   args: {},
   handler: async (ctx) => {
@@ -277,6 +287,13 @@ export const runFeed = internalAction({
         });
       }
 
+      const feedStillActive = await ctx.runQuery(internal.sync.ensureFeedActive, {
+        feedId: feed._id
+      });
+      if (!feedStillActive) {
+        return { feedId: feed._id, ok: false, error: "Feed removed during sync" };
+      }
+
       if (articles.length > 0) {
         await ctx.runMutation(internal.sync.upsertArticles, { articles });
       }
@@ -284,6 +301,13 @@ export const runFeed = internalAction({
       const iconUrl = parsed.siteUrl
         ? new URL("/favicon.ico", parsed.siteUrl).toString()
         : (feed.iconUrl || undefined);
+
+      const feedStillExists = await ctx.runQuery(internal.sync.ensureFeedActive, {
+        feedId: feed._id
+      });
+      if (!feedStillExists) {
+        return { feedId: feed._id, ok: false, error: "Feed removed during sync" };
+      }
 
       await ctx.runMutation(internal.sync.markFeedSuccess, {
         feedId: feed._id,
