@@ -114,10 +114,24 @@ const PREFERRED_CONTENT_SELECTORS = [
   ".article"
 ];
 
+const FALLBACK_CONTENT_SELECTORS = "article, main, section, div, td, font, center";
+
 const scoreNode = (node) => {
   const textLength = node.textContent.replace(/\s+/gu, " ").trim().length;
   const paragraphCount = node.querySelectorAll("p").length;
-  return textLength + paragraphCount * 200;
+  const lineBreakCount = node.querySelectorAll("br").length;
+  const imageCount = node.querySelectorAll("img").length;
+  const linkTextLength = node
+    .querySelectorAll("a")
+    .reduce((total, link) => total + link.textContent.replace(/\s+/gu, " ").trim().length, 0);
+
+  return (
+    textLength +
+    paragraphCount * 200 +
+    lineBreakCount * 12 -
+    imageCount * 40 -
+    linkTextLength * 0.25
+  );
 };
 
 export const discoverFeedLinks = (html, pageUrl) => {
@@ -170,7 +184,7 @@ export const extractReadableContent = (html) => {
     .map((selector) => root.querySelector(selector))
     .filter(Boolean);
 
-  const fallback = root.querySelectorAll("article, main, section, div");
+  const fallback = root.querySelectorAll(FALLBACK_CONTENT_SELECTORS);
   const candidates = [...preferred, ...fallback].filter(Boolean);
 
   if (candidates.length === 0) {

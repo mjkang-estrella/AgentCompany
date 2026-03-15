@@ -170,6 +170,38 @@ test("extractReadableContent strips scripts and keeps article body", () => {
   assert.doesNotMatch(content, /script/);
 });
 
+test("extractReadableContent supports legacy table-based article layouts", () => {
+  const html = `
+    <html>
+      <body>
+        <table>
+          <tr valign="top">
+            <td>
+              <a href="index.html">Home</a><br>
+              <a href="articles.html">Articles</a><br>
+              <a href="rss.html">RSS</a>
+            </td>
+            <td width="24"></td>
+            <td>
+              <img src="title.gif" alt="Superlinear Returns"><br><br>
+              <font size="2" face="verdana">
+                October 2023<br><br>
+                One of the most important things I didn't understand about the world when I was a child
+                is the degree to which the returns for performance are superlinear.<br><br>
+                Teachers and coaches implicitly told us the returns were linear.
+              </font>
+            </td>
+          </tr>
+        </table>
+      </body>
+    </html>`;
+
+  const content = extractReadableContent(html);
+  assert.match(content, /One of the most important things/);
+  assert.match(content, /returns for performance are superlinear/);
+  assert.doesNotMatch(content, /Home<\/a>/);
+});
+
 test("sanitizeFragment removes dangerous attributes", () => {
   const sanitized = sanitizeFragment(
     `<p>Hello</p><a href="https://example.com" onclick="evil()">link</a><script>alert(1)</script>`
