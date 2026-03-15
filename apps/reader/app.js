@@ -1,5 +1,21 @@
+const sanitizeHtml = (dirty) =>
+  typeof DOMPurify !== "undefined"
+    ? DOMPurify.sanitize(dirty, { ADD_ATTR: ["referrerpolicy"], ADD_TAGS: ["iframe"] })
+    : dirty;
+
 const PAGE_LIMIT = 50;
 const LOAD_MORE_THRESHOLD = 240;
+const SIDEBAR_COLLAPSED_STORAGE_KEY = "reader.sidebarCollapsed";
+const SIDEBAR_COLLAPSE_ICON = `
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <polyline points="15 18 9 12 15 6"></polyline>
+  </svg>
+`;
+const SIDEBAR_EXPAND_ICON = `
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <polyline points="9 18 15 12 9 6"></polyline>
+  </svg>
+`;
 
 const state = {
   articles: [],
@@ -10,12 +26,14 @@ const state = {
   isLoadingMore: false,
   nextCursor: null,
   scope: "all",
+  sidebarCollapsed: false,
   selectedArticle: null,
   selectedArticleId: ""
 };
 
 const elements = {
   addFeedButton: document.querySelector("#add-feed-button"),
+  appLayout: document.querySelector(".app-layout"),
   articleList: document.querySelector("#article-list"),
   articleView: document.querySelector("#article-view"),
   countAll: document.querySelector("#count-all"),
@@ -37,17 +55,18 @@ const elements = {
   previousArticleButton: document.querySelector("#previous-article-button"),
   saveArticleButton: document.querySelector("#save-article-button"),
   shareArticleButton: document.querySelector("#share-article-button"),
+  sidebarToggleButton: document.querySelector("#sidebar-toggle-button"),
   toast: document.querySelector("#toast")
 };
 
 const folderIcon = `
-  <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
   </svg>
 `;
 
 const fallbackFeedIcon = `
-  <svg class="feed-icon-small" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+  <svg class="feed-icon-small" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
     <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
     <line x1="16" y1="2" x2="16" y2="6"></line>
     <line x1="8" y1="2" x2="8" y2="6"></line>
@@ -124,6 +143,43 @@ const showToast = (message, options = {}) => {
     elements.toast.classList.remove("is-visible");
     elements.toast.classList.remove("is-error");
   }, 3200);
+};
+
+const readStoredSidebarCollapsed = () => {
+  try {
+    return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+};
+
+const persistSidebarCollapsed = () => {
+  try {
+    window.localStorage.setItem(
+      SIDEBAR_COLLAPSED_STORAGE_KEY,
+      state.sidebarCollapsed ? "true" : "false"
+    );
+  } catch {
+    // Ignore unavailable storage.
+  }
+};
+
+const syncSidebarState = () => {
+  elements.appLayout.classList.toggle("sidebar-collapsed", state.sidebarCollapsed);
+  elements.sidebarToggleButton.innerHTML = state.sidebarCollapsed
+    ? SIDEBAR_EXPAND_ICON
+    : SIDEBAR_COLLAPSE_ICON;
+  elements.sidebarToggleButton.title = state.sidebarCollapsed
+    ? "Expand sidebar"
+    : "Collapse sidebar";
+  elements.sidebarToggleButton.setAttribute(
+    "aria-label",
+    state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"
+  );
+  elements.sidebarToggleButton.setAttribute(
+    "aria-pressed",
+    state.sidebarCollapsed ? "true" : "false"
+  );
 };
 
 const articleIndex = () =>
@@ -479,11 +535,11 @@ const renderSidebar = () => {
 
   elements.foldersList.innerHTML = folders
     .map(([folder, count]) => `
-      <a href="#" class="nav-item ${state.folder === folder ? "active" : ""}" data-folder="${escapeHtml(folder)}">
+      <button class="nav-item ${state.folder === folder ? "active" : ""}" data-folder="${escapeHtml(folder)}">
         ${folderIcon}
         ${escapeHtml(folder)}
         <span class="nav-item-count">${count}</span>
-      </a>
+      </button>
     `)
     .join("");
 };
@@ -507,7 +563,7 @@ const renderArticleList = () => {
   elements.articleList.innerHTML = `
     ${state.articles
       .map((article) => `
-        <div class="article-item ${article.id === state.selectedArticleId ? "active" : ""}" data-article-id="${article.id}">
+        <div class="article-item ${article.id === state.selectedArticleId ? "active" : ""}" data-article-id="${article.id}" role="button" tabindex="0" aria-label="${escapeHtml(article.title)}">
           <div class="item-meta">
             <div class="item-source">
               ${article.isRead ? "" : '<span class="unread-dot"></span>'}
@@ -562,7 +618,7 @@ const renderArticle = () => {
   const articleHero = buildArticleHero(article.bodyHtml, article.thumbnailUrl, article.title);
 
   elements.articleView.innerHTML = `
-    ${articleHero.heroHtml ? `<div class="article-hero">${articleHero.heroHtml}</div>` : ""}
+    ${articleHero.heroHtml ? `<div class="article-hero">${sanitizeHtml(articleHero.heroHtml)}</div>` : ""}
     <header class="article-header">
       <div class="article-feed-name">
         ${feedIconMarkup(article.feedIconUrl)}
@@ -577,8 +633,13 @@ const renderArticle = () => {
         <span>${escapeHtml(`${article.readTimeMinutes} min read`)}</span>
       </div>
     </header>
-    <div class="article-body">${articleHero.bodyHtml || "<p>No article body available yet.</p>"}</div>
+    <div class="article-body">${sanitizeHtml(articleHero.bodyHtml) || "<p>No article body available yet.</p>"}</div>
   `;
+
+  for (const link of elements.articleView.querySelectorAll(".article-body a[href]")) {
+    link.setAttribute("rel", "noopener noreferrer");
+    link.setAttribute("target", "_blank");
+  }
 };
 
 const render = () => {
@@ -789,24 +850,21 @@ const maybeLoadMoreFromScroll = async () => {
   }
 };
 
-elements.navToday.addEventListener("click", async (event) => {
-  event.preventDefault();
+elements.navToday.addEventListener("click", async () => {
   state.scope = "today";
   state.folder = "";
   clearSelection();
   await bootstrap();
 });
 
-elements.navAll.addEventListener("click", async (event) => {
-  event.preventDefault();
+elements.navAll.addEventListener("click", async () => {
   state.scope = "all";
   state.folder = "";
   clearSelection();
   await bootstrap();
 });
 
-elements.navSaved.addEventListener("click", async (event) => {
-  event.preventDefault();
+elements.navSaved.addEventListener("click", async () => {
   state.scope = "saved";
   state.folder = "";
   clearSelection();
@@ -819,7 +877,6 @@ elements.foldersList.addEventListener("click", async (event) => {
     return;
   }
 
-  event.preventDefault();
   state.scope = "all";
   state.folder = anchor.dataset.folder;
   clearSelection();
@@ -833,6 +890,16 @@ elements.articleList.addEventListener("click", async (event) => {
   }
 
   await selectArticle(item.dataset.articleId);
+});
+
+elements.articleList.addEventListener("keydown", async (event) => {
+  if (event.key === "Enter" || event.key === " ") {
+    const item = event.target.closest("[data-article-id]");
+    if (item) {
+      event.preventDefault();
+      await selectArticle(item.dataset.articleId);
+    }
+  }
 });
 
 elements.articleList.addEventListener("scroll", () => {
@@ -858,6 +925,11 @@ elements.markAllReadButton.addEventListener("click", async () => {
 });
 
 elements.addFeedButton.addEventListener("click", openDialog);
+elements.sidebarToggleButton.addEventListener("click", () => {
+  state.sidebarCollapsed = !state.sidebarCollapsed;
+  syncSidebarState();
+  persistSidebarCollapsed();
+});
 elements.feedCancelButton.addEventListener("click", closeDialog);
 elements.feedUrlInput.addEventListener("input", () => {
   if (organizationEditedManually && elements.feedOrganizationInput.value.trim()) {
@@ -911,6 +983,48 @@ elements.openArticleButton.addEventListener("click", () => {
 
   window.open(state.selectedArticle.url, "_blank", "noopener,noreferrer");
 });
+
+document.addEventListener("keydown", async (event) => {
+  if (event.target.closest("input, textarea, select, dialog")) {
+    return;
+  }
+
+  try {
+    switch (event.key) {
+      case "j":
+        event.preventDefault();
+        if (state.selectedArticleId) {
+          await moveSelection(1);
+        } else if (state.articles.length > 0) {
+          await selectArticle(state.articles[0].id);
+        }
+        break;
+      case "k":
+        event.preventDefault();
+        await moveSelection(-1);
+        break;
+      case "s":
+        event.preventDefault();
+        await toggleSave();
+        break;
+      case "o":
+        if (state.selectedArticle) {
+          event.preventDefault();
+          window.open(state.selectedArticle.url, "_blank", "noopener,noreferrer");
+        }
+        break;
+      case "m":
+        event.preventDefault();
+        await markAllRead();
+        break;
+    }
+  } catch (error) {
+    showToast(error.message, { error: true });
+  }
+});
+
+state.sidebarCollapsed = readStoredSidebarCollapsed();
+syncSidebarState();
 
 bootstrap().catch((error) => {
   render();

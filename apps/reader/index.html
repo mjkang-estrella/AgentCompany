@@ -32,6 +32,17 @@
 
             --radius-sm: 4px;
             --radius-md: 6px;
+
+            --scrollbar-thumb: #D1D5DB;
+            --scrollbar-thumb-hover: #9CA3AF;
+            --bg-btn-hover-warm: #FFF7ED;
+            --shadow-overlay: rgba(15, 23, 42, 0.18);
+            --shadow-toast: rgba(15, 23, 42, 0.2);
+            --backdrop-overlay: rgba(15, 23, 42, 0.35);
+            --text-on-dark: #FFFFFF;
+            --error-bg: #991B1B;
+            --font-size-article: 15px;
+            --font-size-article-h2: 18px;
         }
 
         * {
@@ -58,6 +69,11 @@
             height: 100%;
         }
 
+        * {
+            scrollbar-width: thin;
+            scrollbar-color: var(--scrollbar-thumb) transparent;
+        }
+
         ::-webkit-scrollbar {
             width: 6px;
             height: 6px;
@@ -68,12 +84,12 @@
         }
 
         ::-webkit-scrollbar-thumb {
-            background: #D1D5DB;
+            background: var(--scrollbar-thumb);
             border-radius: 10px;
         }
 
         ::-webkit-scrollbar-thumb:hover {
-            background: #9CA3AF;
+            background: var(--scrollbar-thumb-hover);
         }
 
         .sidebar {
@@ -83,6 +99,8 @@
             display: flex;
             flex-direction: column;
             flex-shrink: 0;
+            overflow: hidden;
+            transition: width 0.2s ease;
         }
 
         .sidebar-header {
@@ -94,6 +112,13 @@
             height: 60px;
         }
 
+        .sidebar-header-brand {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 0;
+        }
+
         .sidebar-title {
             font-size: var(--font-size-sm);
             font-weight: 600;
@@ -102,12 +127,35 @@
             letter-spacing: 0.05em;
         }
 
+        .app-layout.sidebar-collapsed .sidebar {
+            width: 60px;
+        }
+
+        .app-layout.sidebar-collapsed .sidebar-header {
+            padding-left: 12px;
+            padding-right: 12px;
+            justify-content: center;
+        }
+
+        .app-layout.sidebar-collapsed .sidebar-header-brand {
+            width: 100%;
+            justify-content: center;
+        }
+
+        .app-layout.sidebar-collapsed .sidebar-title,
+        .app-layout.sidebar-collapsed #add-feed-button,
+        .app-layout.sidebar-collapsed .sidebar-content {
+            display: none;
+        }
+
         .icon-btn {
             background: none;
             border: none;
             color: var(--text-secondary);
             cursor: pointer;
-            padding: 4px;
+            padding: 8px;
+            min-width: 36px;
+            min-height: 36px;
             border-radius: var(--radius-sm);
             display: inline-flex;
             align-items: center;
@@ -130,6 +178,16 @@
             opacity: 0.45;
         }
 
+        .icon-btn:focus-visible,
+        .nav-item:focus-visible,
+        .btn-outline:focus-visible,
+        .btn-primary:focus-visible,
+        .btn-secondary:focus-visible,
+        .article-item:focus-visible {
+            outline: 2px solid var(--accent-blue);
+            outline-offset: 2px;
+        }
+
         .sidebar-content {
             flex: 1;
             overflow-y: auto;
@@ -150,13 +208,18 @@
         .nav-item {
             display: flex;
             align-items: center;
+            width: 100%;
             padding: 6px 12px;
             margin-bottom: 2px;
+            border: none;
             border-radius: var(--radius-sm);
+            background: none;
             cursor: pointer;
             text-decoration: none;
             color: var(--text-primary);
+            font: inherit;
             font-size: var(--font-size-sm);
+            text-align: left;
         }
 
         .nav-item:hover {
@@ -313,7 +376,7 @@
         }
 
         .btn-outline {
-            background-color: #FFFFFF;
+            background-color: var(--bg-body);
             border: 1px solid var(--accent-orange-light);
             color: var(--accent-orange);
             padding: 6px 12px;
@@ -328,7 +391,7 @@
         }
 
         .btn-outline:hover {
-            background-color: #FFF7ED;
+            background-color: var(--bg-btn-hover-warm);
             border-color: var(--accent-orange);
         }
 
@@ -417,7 +480,7 @@
         }
 
         .article-body {
-            font-size: 15px;
+            font-size: var(--font-size-article);
             line-height: 1.6;
             color: var(--text-primary);
             overflow-wrap: break-word;
@@ -428,7 +491,7 @@
         }
 
         .article-body h2 {
-            font-size: 18px;
+            font-size: var(--font-size-article-h2);
             font-weight: 600;
             color: var(--text-heading);
             margin: 32px 0 16px;
@@ -436,11 +499,13 @@
 
         .article-body a {
             color: var(--accent-orange);
-            text-decoration: none;
+            text-decoration: underline;
+            text-decoration-color: var(--accent-orange-light);
+            text-underline-offset: 2px;
         }
 
         .article-body a:hover {
-            text-decoration: underline;
+            text-decoration-color: var(--accent-orange);
         }
 
         .article-body blockquote {
@@ -545,18 +610,14 @@
             border: none;
             padding: 0;
             border-radius: 12px;
-            box-shadow: 0 20px 50px rgba(15, 23, 42, 0.18);
+            box-shadow: 0 20px 50px var(--shadow-overlay);
             max-width: 440px;
             width: calc(100% - 32px);
-            margin: 0;
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
+            margin: auto;
         }
 
         .feed-dialog::backdrop {
-            background: rgba(15, 23, 42, 0.35);
+            background: var(--backdrop-overlay);
         }
 
         .feed-dialog-card {
@@ -597,7 +658,7 @@
             padding: 10px 12px;
             font: inherit;
             color: var(--text-primary);
-            background: #FFFFFF;
+            background: var(--bg-body);
         }
 
         .text-input:focus {
@@ -612,7 +673,7 @@
         }
 
         .btn-secondary {
-            background: #FFFFFF;
+            background: var(--bg-body);
             color: var(--text-primary);
             border: 1px solid var(--border-medium);
             border-radius: var(--radius-md);
@@ -623,7 +684,7 @@
 
         .btn-primary {
             background: var(--accent-blue);
-            color: #FFFFFF;
+            color: var(--text-on-dark);
             border: 1px solid var(--accent-blue);
             border-radius: var(--radius-md);
             padding: 8px 12px;
@@ -636,11 +697,11 @@
             right: 20px;
             bottom: 20px;
             background: var(--text-heading);
-            color: #FFFFFF;
+            color: var(--text-on-dark);
             padding: 10px 14px;
             border-radius: 10px;
             font-size: var(--font-size-sm);
-            box-shadow: 0 12px 30px rgba(15, 23, 42, 0.2);
+            box-shadow: 0 12px 30px var(--shadow-toast);
             opacity: 0;
             pointer-events: none;
             transform: translateY(8px);
@@ -653,7 +714,37 @@
         }
 
         .toast.is-error {
-            background: #991B1B;
+            background: var(--error-bg);
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg-body: #111827;
+                --bg-panel: #1F2937;
+                --bg-hover: #374151;
+                --bg-active: #1E3A5F;
+
+                --text-primary: #F3F4F6;
+                --text-secondary: #9CA3AF;
+                --text-heading: #F9FAFB;
+
+                --accent-orange: #FB923C;
+                --accent-orange-light: #431407;
+                --accent-green: #34D399;
+                --accent-blue: #60A5FA;
+
+                --border-light: #374151;
+                --border-medium: #4B5563;
+
+                --scrollbar-thumb: #4B5563;
+                --scrollbar-thumb-hover: #6B7280;
+                --bg-btn-hover-warm: #431407;
+                --shadow-overlay: rgba(0, 0, 0, 0.4);
+                --shadow-toast: rgba(0, 0, 0, 0.5);
+                --backdrop-overlay: rgba(0, 0, 0, 0.5);
+                --text-on-dark: #F9FAFB;
+                --error-bg: #DC2626;
+            }
         }
 
         @media (max-width: 960px) {
@@ -678,10 +769,40 @@
                 border-bottom: 1px solid var(--border-light);
             }
 
+            .app-layout.sidebar-collapsed .sidebar {
+                width: 100%;
+            }
+
+            .app-layout.sidebar-collapsed .sidebar-header {
+                padding-left: 20px;
+                padding-right: 20px;
+                justify-content: space-between;
+            }
+
+            .app-layout.sidebar-collapsed .sidebar-header-brand {
+                width: auto;
+                justify-content: flex-start;
+            }
+
+            .app-layout.sidebar-collapsed .sidebar-title,
+            .app-layout.sidebar-collapsed #add-feed-button {
+                display: inline-flex;
+            }
+
             .pane-header,
             .pane-content-scroll {
                 padding-left: 20px;
                 padding-right: 20px;
+            }
+
+            .icon-btn {
+                min-width: 44px;
+                min-height: 44px;
+            }
+
+            .pane-content-scroll {
+                padding-top: 24px;
+                padding-bottom: 24px;
             }
         }
 
@@ -691,29 +812,34 @@
 <div class="app-layout" vid="7">
     <aside class="sidebar" vid="8">
         <div class="sidebar-header" vid="9">
-            <span class="sidebar-title" vid="10">Reader</span>
-            <button class="icon-btn" id="add-feed-button" title="Add Feed" vid="11">
+            <div class="sidebar-header-brand">
+                <button class="icon-btn" id="sidebar-toggle-button" title="Collapse sidebar" aria-label="Collapse sidebar">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                </button>
+                <span class="sidebar-title" vid="10">Reader</span>
+            </div>
+            <button class="icon-btn" id="add-feed-button" title="Add Feed" aria-label="Add Feed" vid="11">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="12"><line x1="12" y1="5" x2="12" y2="19" vid="13"></line><line x1="5" y1="12" x2="19" y2="12" vid="14"></line></svg>
             </button>
         </div>
 
         <div class="sidebar-content" vid="15">
             <div class="nav-group" vid="16">
-                <a href="#" class="nav-item" data-scope="today" id="nav-today" vid="17">
+                <button class="nav-item" data-scope="today" id="nav-today" vid="17">
                     <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="18"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" vid="19"></rect><line x1="16" y1="2" x2="16" y2="6" vid="20"></line><line x1="8" y1="2" x2="8" y2="6" vid="21"></line><line x1="3" y1="10" x2="21" y2="10" vid="22"></line></svg>
                     Today
                     <span class="nav-item-count" id="count-today" vid="23">0</span>
-                </a>
-                <a href="#" class="nav-item active" data-scope="all" id="nav-all" vid="24">
+                </button>
+                <button class="nav-item active" data-scope="all" id="nav-all" vid="24">
                     <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="25"><path d="M4 11a9 9 0 0 1 9 9" vid="26"></path><path d="M4 4a16 16 0 0 1 16 16" vid="27"></path><circle cx="5" cy="19" r="1" vid="28"></circle></svg>
                     All Articles
                     <span class="nav-item-count" id="count-all" vid="29">0</span>
-                </a>
-                <a href="#" class="nav-item" data-scope="saved" id="nav-saved" vid="30">
+                </button>
+                <button class="nav-item" data-scope="saved" id="nav-saved" vid="30">
                     <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="31"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" vid="32"></path></svg>
                     Saved
                     <span class="nav-item-count" id="count-saved">0</span>
-                </a>
+                </button>
             </div>
 
             <div class="nav-group" vid="33">
@@ -725,34 +851,34 @@
         </div>
     </aside>
 
-    <section class="article-list" vid="47">
+    <section class="article-list" aria-label="Article list" vid="47">
         <div class="list-header" vid="48">
             <span class="list-title" id="list-title" vid="49">All Articles</span>
-            <button class="icon-btn" id="mark-all-read-button" title="Mark all as read" vid="50">
+            <button class="icon-btn" id="mark-all-read-button" title="Mark all as read" aria-label="Mark all as read" vid="50">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="51"><polyline points="20 6 9 17 4 12" vid="52"></polyline></svg>
             </button>
         </div>
 
         <div class="list-content" id="article-list" vid="53">
-            <div class="empty-state">Add a feed to start building your reading queue.</div>
+            <div class="empty-state" id="article-list-initial">Loading articles…</div>
         </div>
     </section>
 
     <main class="reading-pane" vid="86">
         <div class="pane-header" vid="87">
             <div class="pane-actions-left" vid="88">
-                <button class="icon-btn" id="previous-article-button" title="Previous article" vid="89">
+                <button class="icon-btn" id="previous-article-button" title="Previous article" aria-label="Previous article" vid="89">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="90"><polyline points="15 18 9 12 15 6" vid="91"></polyline></svg>
                 </button>
-                <button class="icon-btn" id="next-article-button" title="Next article" vid="92">
+                <button class="icon-btn" id="next-article-button" title="Next article" aria-label="Next article" vid="92">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="93"><polyline points="9 18 15 12 9 6" vid="94"></polyline></svg>
                 </button>
             </div>
             <div class="pane-actions-right" vid="95">
-                <button class="icon-btn" id="save-article-button" title="Save article" vid="96">
+                <button class="icon-btn" id="save-article-button" title="Save article" aria-label="Save article" vid="96">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="97"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" vid="98"></path></svg>
                 </button>
-                <button class="icon-btn" id="share-article-button" title="Share" vid="99">
+                <button class="icon-btn" id="share-article-button" title="Share" aria-label="Share" vid="99">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vid="100"><circle cx="18" cy="5" r="3" vid="101"></circle><circle cx="6" cy="12" r="3" vid="102"></circle><circle cx="18" cy="19" r="3" vid="103"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49" vid="104"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" vid="105"></line></svg>
                 </button>
                 <button class="btn-outline" id="open-article-button" vid="106">
@@ -792,6 +918,7 @@
     </form>
 </dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"></script>
 <script type="module" src="/app.js"></script>
 </body>
 </html>
