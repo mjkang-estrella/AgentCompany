@@ -3,12 +3,16 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "convex:dev": "convex dev",
+    "convex:deploy": "convex deploy",
     "dev": "node server.mjs",
+    "import:feeds": "node scripts/import-feeds-to-convex.mjs",
     "start": "node server.mjs",
     "test": "node --test"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.1",
+    "convex": "^1.33.0",
     "fast-xml-parser": "^5.5.3",
     "he": "^1.2.0",
     "marked": "^17.0.4",

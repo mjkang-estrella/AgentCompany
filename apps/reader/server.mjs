@@ -3,17 +3,13 @@ import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { json, readJsonBody, text } from "./lib/http.mjs";
-import { getReaderService } from "./lib/runtime.mjs";
+import { getConvexUrl, loadEnvFiles } from "./lib/env.mjs";
+import { json, text } from "./lib/http.mjs";
 
 const appDir = fileURLToPath(new URL(".", import.meta.url));
 
 const port = Number(process.env.PORT || 4173);
 const staticRoot = appDir;
-const routes = {
-  article: new URLPattern({ pathname: "/api/articles/:id" }),
-  feedSync: new URLPattern({ pathname: "/api/feeds/:id/sync" })
-};
 
 const contentTypes = {
   ".css": "text/css; charset=utf-8",
@@ -21,16 +17,6 @@ const contentTypes = {
   ".js": "application/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".svg": "image/svg+xml; charset=utf-8"
-};
-
-let readerService = null;
-
-const getService = async () => {
-  if (!readerService) {
-    readerService = await getReaderService();
-  }
-
-  return readerService;
 };
 
 const serveStatic = async (response, pathname) => {
@@ -60,11 +46,6 @@ const serveStatic = async (response, pathname) => {
   }
 };
 
-const toInt = (value, fallback = 0) => {
-  const number = Number.parseInt(value, 10);
-  return Number.isFinite(number) ? number : fallback;
-};
-
 const sendError = (response, statusCode, error) => {
   json(response, statusCode, {
     error: error instanceof Error ? error.message : String(error)
@@ -75,97 +56,21 @@ createServer(async (request, response) => {
   const url = new URL(request.url, `http://${request.headers.host || `127.0.0.1:${port}`}`);
 
   try {
+    await loadEnvFiles(appDir);
+
     if (!url.pathname.startsWith("/api/")) {
       await serveStatic(response, url.pathname);
       return;
     }
 
-    const service = await getService();
-
-    if (request.method === "GET" && url.pathname === "/api/bootstrap") {
-      const payload = await service.bootstrap({
-        limit: toInt(url.searchParams.get("limit")),
-        folder: url.searchParams.get("folder") || "",
-        scope: url.searchParams.get("scope") || "all",
-        selectedArticleId: url.searchParams.get("selectedArticleId") || "",
-        timezoneOffsetMinutes: toInt(url.searchParams.get("tzOffsetMinutes"))
-      });
-      json(response, 200, payload);
-      return;
-    }
-
-    if (request.method === "GET" && url.pathname === "/api/articles") {
-      const payload = await service.listArticles({
-        beforeId: url.searchParams.get("beforeId") || "",
-        beforePublishedAt: url.searchParams.get("beforePublishedAt") || "",
-        folder: url.searchParams.get("folder") || "",
-        limit: toInt(url.searchParams.get("limit")),
-        scope: url.searchParams.get("scope") || "all",
-        timezoneOffsetMinutes: toInt(url.searchParams.get("tzOffsetMinutes"))
-      });
-      json(response, 200, payload);
-      return;
-    }
-
-    const articleMatch = routes.article.exec(url);
-    if (articleMatch && request.method === "GET") {
-      const article = await service.getArticle(articleMatch.pathname.groups.id);
-      json(response, 200, article);
-      return;
-    }
-
-    if (articleMatch && request.method === "PATCH") {
-      const body = await readJsonBody(request);
-      const article = await service.updateArticle(articleMatch.pathname.groups.id, {
-        isRead: body.isRead,
-        isSaved: body.isSaved
-      });
-      json(response, 200, article);
-      return;
-    }
-
-    if (request.method === "POST" && url.pathname === "/api/articles/mark-all-read") {
-      const body = await readJsonBody(request);
-      const result = await service.markAllRead({
-        folder: body.folder || "",
-        scope: body.scope || "all",
-        timezoneOffsetMinutes: toInt(String(body.tzOffsetMinutes ?? 0))
-      });
-      json(response, 200, result);
-      return;
-    }
-
-    if (request.method === "POST" && url.pathname === "/api/feeds") {
-      const body = await readJsonBody(request);
-      if (!body.inputUrl) {
-        sendError(response, 400, new Error("inputUrl is required"));
-        return;
-      }
-
-      const result = await service.addFeedAndSync({
-        folder: body.folder || "",
-        inputUrl: body.inputUrl
-      });
-      json(response, 201, { feed: result.feed, sync: result.sync });
-      return;
-    }
-
-    const feedSyncMatch = routes.feedSync.exec(url);
-    if (feedSyncMatch && request.method === "POST") {
-      const result = await service.triggerSync(feedSyncMatch.pathname.groups.id);
-      json(response, 200, result);
+    if (request.method === "GET" && url.pathname === "/api/config") {
+      json(response, 200, { convexUrl: getConvexUrl() });
       return;
     }
 
     sendError(response, 404, new Error("Route not found"));
   } catch (error) {
-    const statusCode =
-      error.message?.includes("required") ||
-      error.message?.includes("valid JSON") ||
-      error.message?.includes("discover") ||
-      error.message?.includes("valid RSS")
-        ? 400
-        : 500;
+    const statusCode = error.message?.includes("required") ? 400 : 500;
     sendError(response, statusCode, error);
   }
 }).listen(port, () => {

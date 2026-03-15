@@ -66,6 +66,15 @@ export const requireEnv = (...keys) => {
   return Object.fromEntries(keys.map((key) => [key, process.env[key]]));
 };
 
+export const getConvexUrl = () => {
+  const value = process.env.CONVEX_URL || process.env.NEXT_PUBLIC_CONVEX_URL || "";
+  if (!value) {
+    throw new Error("Missing required environment variable: CONVEX_URL");
+  }
+
+  return value;
+};
+
 export const getSupabaseAdminKey = () => {
   const candidates = [
     process.env.SUPABASE_SERVICE_ROLE_KEY || "",

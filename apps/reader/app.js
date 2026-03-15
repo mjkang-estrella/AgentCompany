@@ -20,6 +20,7 @@ const SIDEBAR_EXPAND_ICON = `
 const state = {
   articles: [],
   counts: { all: 0, saved: 0, today: 0, folders: {} },
+  convexUrl: "",
   folder: "",
   hasMore: false,
   isLoadingArticle: false,
@@ -244,6 +245,42 @@ const requestJson = async (url, options = {}) => {
   }
 
   return response.json();
+};
+
+const loadConfig = async () => {
+  if (state.convexUrl) {
+    return state.convexUrl;
+  }
+
+  const payload = await requestJson("/api/config");
+  if (!payload.convexUrl) {
+    throw new Error("Reader is missing CONVEX_URL");
+  }
+
+  state.convexUrl = payload.convexUrl;
+  return state.convexUrl;
+};
+
+const convexRequest = async (kind, path, args = {}) => {
+  const convexUrl = await loadConfig();
+  const response = await fetch(`${convexUrl}/api/${kind}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      args,
+      format: "json",
+      path
+    })
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.status === "error") {
+    throw new Error(payload.errorMessage || `${response.status} ${response.statusText}`);
+  }
+
+  return payload.value;
 };
 
 const normalizeComparableUrl = (value) => {
@@ -482,30 +519,26 @@ const buildArticleHero = (bodyHtml, thumbnailUrl, title) => {
   };
 };
 
-const buildQuery = ({ cursor = null, includeSelectedArticleId = false } = {}) => {
-  const params = new URLSearchParams({
-    limit: String(PAGE_LIMIT),
+const buildRequestArgs = ({ cursor = null, includeSelectedArticleId = false } = {}) => {
+  const args = {
+    limit: PAGE_LIMIT,
     scope: state.scope,
-    tzOffsetMinutes: String(new Date().getTimezoneOffset())
-  });
+    timezoneOffsetMinutes: new Date().getTimezoneOffset()
+  };
 
   if (state.folder) {
-    params.set("folder", state.folder);
+    args.folder = state.folder;
   }
 
   if (includeSelectedArticleId && state.selectedArticleId) {
-    params.set("selectedArticleId", state.selectedArticleId);
+    args.selectedArticleId = state.selectedArticleId;
   }
 
-  if (cursor?.beforePublishedAt) {
-    params.set("beforePublishedAt", cursor.beforePublishedAt);
+  if (cursor) {
+    args.cursor = cursor;
   }
 
-  if (cursor?.beforeId) {
-    params.set("beforeId", cursor.beforeId);
-  }
-
-  return params;
+  return args;
 };
 
 const clearSelection = () => {
@@ -609,7 +642,7 @@ const renderArticle = () => {
   if (!article) {
     elements.articleView.innerHTML = `
       <div class="empty-state">
-        Select an article to start reading. New feeds sync through Supabase every 15 minutes.
+        Select an article to start reading. New feeds sync through Convex every 15 minutes.
       </div>
     `;
     return;
@@ -655,7 +688,7 @@ const loadArticle = async (articleId) => {
   render();
 
   try {
-    const article = await requestJson(`/api/articles/${articleId}`);
+    const article = await convexRequest("query", "reader:getArticle", { articleId });
     if (requestToken !== articleRequestToken || state.selectedArticleId !== articleId) {
       return;
     }
@@ -670,7 +703,11 @@ const loadArticle = async (articleId) => {
 };
 
 const bootstrap = async () => {
-  const payload = await requestJson(`/api/bootstrap?${buildQuery({ includeSelectedArticleId: true }).toString()}`);
+  const payload = await convexRequest(
+    "query",
+    "reader:bootstrap",
+    buildRequestArgs({ includeSelectedArticleId: true })
+  );
   articleRequestToken += 1;
   state.articles = payload.articles || [];
   state.counts = payload.counts || { all: 0, saved: 0, today: 0, folders: {} };
@@ -703,7 +740,11 @@ const loadMoreArticles = async () => {
   renderArticleList();
 
   try {
-    const payload = await requestJson(`/api/articles?${buildQuery({ cursor: state.nextCursor }).toString()}`);
+    const payload = await convexRequest(
+      "query",
+      "reader:listArticles",
+      buildRequestArgs({ cursor: state.nextCursor })
+    );
     appendArticles(payload.articles || []);
     state.hasMore = Boolean(payload.hasMore);
     state.nextCursor = payload.nextCursor || null;
@@ -720,9 +761,9 @@ const selectArticle = async (articleId) => {
 
   if (summary && !summary.isRead) {
     summary.isRead = true;
-    requestJson(`/api/articles/${articleId}`, {
-      method: "PATCH",
-      body: JSON.stringify({ isRead: true })
+    convexRequest("mutation", "reader:updateArticle", {
+      articleId,
+      isRead: true
     }).catch((error) => {
       showToast(error.message, { error: true });
     });
@@ -736,9 +777,9 @@ const toggleSave = async () => {
     return;
   }
 
-  const updated = await requestJson(`/api/articles/${state.selectedArticle.id}`, {
-    method: "PATCH",
-    body: JSON.stringify({ isSaved: !state.selectedArticle.isSaved })
+  const updated = await convexRequest("mutation", "reader:updateArticle", {
+    articleId: state.selectedArticle.id,
+    isSaved: !state.selectedArticle.isSaved
   });
 
   state.selectedArticle = updated;
@@ -757,13 +798,10 @@ const toggleSave = async () => {
 };
 
 const markAllRead = async () => {
-  await requestJson("/api/articles/mark-all-read", {
-    method: "POST",
-    body: JSON.stringify({
-      folder: state.folder,
-      scope: state.scope,
-      tzOffsetMinutes: new Date().getTimezoneOffset()
-    })
+  await convexRequest("action", "reader:markAllRead", {
+    folder: state.folder,
+    scope: state.scope,
+    timezoneOffsetMinutes: new Date().getTimezoneOffset()
   });
 
   clearSelection();
@@ -784,28 +822,13 @@ const closeDialog = () => {
 };
 
 const submitFeed = async () => {
-  const payload = await requestJson("/api/feeds", {
-    method: "POST",
-    body: JSON.stringify({
-      folder: elements.feedOrganizationInput.value,
-      inputUrl: elements.feedUrlInput.value
-    })
+  await convexRequest("action", "feeds:add", {
+    folder: elements.feedOrganizationInput.value,
+    inputUrl: elements.feedUrlInput.value
   });
 
   closeDialog();
-  const syncedArticles = payload.sync?.results?.[0]?.syncedArticles;
-  if (payload.syncError) {
-    showToast(
-      `Feed added, but the first sync failed: ${payload.syncError}`,
-      { error: true }
-    );
-  } else {
-    showToast(
-      Number.isFinite(syncedArticles)
-        ? `Feed added with ${syncedArticles} articles.`
-        : "Feed added and synced."
-    );
-  }
+  showToast("Feed added. Initial sync queued.");
   clearSelection();
   await bootstrap();
 };
@@ -1030,10 +1053,15 @@ document.addEventListener("keydown", async (event) => {
   }
 });
 
+const start = async () => {
+  await loadConfig();
+  await bootstrap();
+};
+
 state.sidebarCollapsed = readStoredSidebarCollapsed();
 syncSidebarState();
 
-bootstrap().catch((error) => {
+start().catch((error) => {
   render();
   showToast(error.message, { error: true });
 });

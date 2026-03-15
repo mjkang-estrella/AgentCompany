@@ -1,10 +1,10 @@
 # Reader
 
-Reader is a standalone private RSS reader app with a lightweight HTML client, a small Node BFF, and Supabase-backed persistence plus scheduled syncing.
+Reader is a standalone private RSS reader app with a lightweight HTML client, static hosting, and a Convex backend for persistence, pagination, and scheduled syncing.
 
 The reader is page-based by default: it loads exact sidebar counts plus the newest 50 summaries first, fetches the selected article body separately, and appends older summaries with infinite scroll.
 
-Adding a feed is now treated as create-and-sync: the app verifies that the initial sync actually starts before considering the feed added.
+Adding a feed is asynchronous: the app creates the feed immediately, makes it visible in the organization list, and queues the first sync in Convex.
 
 During sync, the reader prefers richer feed-provided sources when available. For example, if an RSS item exposes a custom markdown source URL, the sync job uses that instead of scraping the public article page.
 
@@ -13,10 +13,10 @@ When a feed exposes article imagery, the sync job stores `thumbnail_url` on the 
 ## Owns
 
 - Reader-inspired article list and reading surface
-- Local app runtime and JSON API for the reader UI
-- Vercel-compatible `api/*` functions and deployment config
+- Local static runtime and public config endpoint for the reader UI
+- Convex schema, functions, cron sync, and import tooling
 - Feed discovery, article state, and manual sync triggers
-- Supabase schema and Edge Function assets owned by this app
+- Legacy Supabase migration assets kept only for rollback and feed import
 
 ## Does not own
 
@@ -34,15 +34,21 @@ npm test
 
 The app serves [index.html](/Users/mjkang/Develop/AgentCompany/apps/reader/index.html) at `http://127.0.0.1:4173`.
 
+Convex backend code lives under [apps/reader/convex](/Users/mjkang/Develop/AgentCompany/apps/reader/convex).
+
 ## Environment
 
 Copy [apps/reader/.env.example](/Users/mjkang/Develop/AgentCompany/apps/reader/.env.example) to `apps/reader/.env` or `apps/reader/.env.local` and set:
 
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY` or `SUPABASE_SECRET_KEY`
+- `CONVEX_URL`
 - `PORT` (optional, defaults to `4173`)
 
-Do not use a publishable key for the server. The Reader BFF performs admin reads and writes against Supabase.
+The Reader host only serves static assets and exposes `CONVEX_URL` to the browser through `/api/config`.
+
+If you want to import existing feed definitions from Supabase one time, also set:
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY` or `SUPABASE_SECRET_KEY`
 
 ## Vercel deployment
 
@@ -54,17 +60,25 @@ This app can be deployed from the `apps/reader` directory on Vercel.
 - `Output Directory`: leave blank
 - `Install Command`: `npm install`
 
-Set these Vercel environment variables:
+Set this Vercel environment variable:
 
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY` or `SUPABASE_SECRET_KEY`
+- `CONVEX_URL`
 
-Do not set `PORT` on Vercel. The deployed app uses static files plus the Vercel Functions defined under [apps/reader/api](/Users/mjkang/Develop/AgentCompany/apps/reader/api) and the rewrite rules in [apps/reader/vercel.json](/Users/mjkang/Develop/AgentCompany/apps/reader/vercel.json).
+Do not set `PORT` on Vercel. The deployed app uses static files plus the public config function at [apps/reader/api/config.js](/Users/mjkang/Develop/AgentCompany/apps/reader/api/config.js).
 
-## Supabase setup
+## Convex setup
 
-- Apply the SQL migrations in [apps/reader/supabase/migrations](/Users/mjkang/Develop/AgentCompany/apps/reader/supabase/migrations).
-- Deploy the Edge Function in [apps/reader/supabase/functions/sync-feeds/index.ts](/Users/mjkang/Develop/AgentCompany/apps/reader/supabase/functions/sync-feeds/index.ts).
-- Create Vault secrets named `reader_project_url` and `reader_function_api_key`.
-- Keep `pg_cron` and `pg_net` enabled so the 15-minute sync job can invoke `sync-feeds`.
-- New feeds are kept even if the first sync fails. The UI will show the organization with a `0` count and surface the sync error instead of silently deleting the feed.
+- Configure the app against your deployment URL, for example `https://quixotic-condor-161.convex.cloud`.
+- Run `npm run convex:dev` once in [apps/reader](/Users/mjkang/Develop/AgentCompany/apps/reader) to generate Convex types and link the project locally.
+- Deploy the backend with `npm run convex:deploy`.
+- Cron syncing is defined in [apps/reader/convex/crons.ts](/Users/mjkang/Develop/AgentCompany/apps/reader/convex/crons.ts).
+
+## One-off Supabase feed import
+
+If you want to carry over existing feed definitions before cutover:
+
+```bash
+npm run import:feeds
+```
+
+That script reads `feeds` from Supabase and imports only feed definitions into Convex. It does not copy article history, `is_read`, or `is_saved`.
