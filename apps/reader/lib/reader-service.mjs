@@ -135,15 +135,32 @@ export const createReaderService = ({ url, serviceRoleKey }) => {
   const supabase = createSupabase({ url, serviceRoleKey });
 
   const getCounts = async (timezoneOffsetMinutes) => {
-    const result = await supabase.rpc("reader_sidebar_counts", {
-      p_tz_offset_minutes: timezoneOffsetMinutes
-    });
-    const data = assertResult(result, "Could not fetch article counts");
+    const [countResult, feedFoldersResult] = await Promise.all([
+      supabase.rpc("reader_sidebar_counts", {
+        p_tz_offset_minutes: timezoneOffsetMinutes
+      }),
+      supabase
+        .from("feeds")
+        .select("folder")
+        .order("folder", { ascending: true })
+    ]);
+
+    const data = assertResult(countResult, "Could not fetch article counts");
+    const feedFolders = assertResult(feedFoldersResult, "Could not fetch feed folders");
+    const folders = { ...(data?.folders || {}) };
+
+    for (const row of feedFolders || []) {
+      if (!row.folder || row.folder in folders) {
+        continue;
+      }
+
+      folders[row.folder] = 0;
+    }
 
     return {
       ...emptyCounts(),
       ...(data || {}),
-      folders: data?.folders || {}
+      folders
     };
   };
 
@@ -286,20 +303,39 @@ export const createReaderService = ({ url, serviceRoleKey }) => {
       assertResult(result, "Could not delete feed");
     },
 
+    async updateFeedSyncError(feedId, message) {
+      const result = await supabase
+        .from("feeds")
+        .update({
+          last_sync_error: message,
+          last_synced_at: null
+        })
+        .eq("id", feedId);
+
+      assertResult(result, "Could not update feed sync status");
+    },
+
     async addFeedAndSync({ folder, inputUrl }) {
       const feed = await this.addFeed({ folder, inputUrl });
 
       try {
         const sync = await this.triggerSync(feed.id);
-        return { feed, sync };
+        return { feed, sync, syncError: null };
       } catch (error) {
         try {
-          await this.deleteFeed(feed.id);
+          await this.updateFeedSyncError(
+            feed.id,
+            error instanceof Error ? error.message : String(error)
+          );
         } catch {
           // Preserve the original sync failure.
         }
 
-        throw error;
+        return {
+          feed,
+          sync: null,
+          syncError: error instanceof Error ? error.message : String(error)
+        };
       }
     },
 

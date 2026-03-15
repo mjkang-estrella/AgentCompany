@@ -794,11 +794,18 @@ const submitFeed = async () => {
 
   closeDialog();
   const syncedArticles = payload.sync?.results?.[0]?.syncedArticles;
-  showToast(
-    Number.isFinite(syncedArticles)
-      ? `Feed added with ${syncedArticles} articles.`
-      : "Feed added and synced."
-  );
+  if (payload.syncError) {
+    showToast(
+      `Feed added, but the first sync failed: ${payload.syncError}`,
+      { error: true }
+    );
+  } else {
+    showToast(
+      Number.isFinite(syncedArticles)
+        ? `Feed added with ${syncedArticles} articles.`
+        : "Feed added and synced."
+    );
+  }
   clearSelection();
   await bootstrap();
 };

@@ -67,3 +67,4 @@ Do not set `PORT` on Vercel. The deployed app uses static files plus the Vercel 
 - Deploy the Edge Function in [apps/reader/supabase/functions/sync-feeds/index.ts](/Users/mjkang/Develop/AgentCompany/apps/reader/supabase/functions/sync-feeds/index.ts).
 - Create Vault secrets named `reader_project_url` and `reader_function_api_key`.
 - Keep `pg_cron` and `pg_net` enabled so the 15-minute sync job can invoke `sync-feeds`.
+- New feeds are kept even if the first sync fails. The UI will show the organization with a `0` count and surface the sync error instead of silently deleting the feed.
