@@ -42,7 +42,7 @@ const main = async () => {
 
   const feeds = (result.data || []).map((feed) => ({
     feedUrl: feed.feed_url,
-    folder: feed.folder,
+    feedGroup: feed.folder,
     iconUrl: feed.icon_url || undefined,
     isActive: Boolean(feed.is_active),
     siteUrl: feed.site_url || undefined,

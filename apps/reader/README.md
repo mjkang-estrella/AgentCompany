@@ -4,9 +4,13 @@ Reader is a standalone private RSS reader app with a lightweight HTML client, st
 
 The reader is page-based by default: it loads exact sidebar counts plus the newest 50 summaries first, fetches the selected article body separately, and appends older summaries with infinite scroll.
 
-Adding a feed is asynchronous: the app creates the feed immediately, makes it visible in the organization list, and queues the first sync in Convex.
+Adding a feed is asynchronous: the app creates the feed immediately, makes it visible in the feed list, and queues the first sync in Convex.
 
-Organizations can be removed inline from the left sidebar. Removing an organization permanently deletes all feeds in that organization and all synced articles attached to those feeds.
+Feeds can be removed from the article-list overflow menu while a feed is selected. Removing a feed permanently deletes all RSS feeds in that feed group and all synced articles attached to them.
+
+Reader also has a separate `Articles` section in the sidebar. It accepts a single pasted article URL, fetches the readable body directly, dedupes by canonical URL, and adds the article into `All Articles`, `Today`, and `Saved` without creating an RSS subscription.
+
+Individual articles can be deleted from the top-right actions in the reading pane. Deletions are soft for feed-backed items so they stay gone on later syncs.
 
 During sync, the reader prefers richer feed-provided sources when available. For example, if an RSS item exposes a custom markdown source URL, the sync job uses that instead of scraping the public article page.
 

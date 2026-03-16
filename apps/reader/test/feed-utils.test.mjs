@@ -2,8 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  canonicalizeUrl,
   decodeHtmlEntities,
   discoverFeedLinks,
+  extractPageMetadata,
   extractReadableContent,
   renderMarkdownFragment,
   sanitizeFragment
@@ -236,6 +238,34 @@ Footnote[^1]
 
 test("decodeHtmlEntities decodes numeric entities", () => {
   assert.equal(decodeHtmlEntities("Anthropic&#39;s"), "Anthropic's");
+});
+
+test("canonicalizeUrl removes fragments and default trailing slashes", () => {
+  assert.equal(canonicalizeUrl("https://example.com/path/#section"), "https://example.com/path");
+  assert.equal(canonicalizeUrl("https://example.com/path/?a=1#frag"), "https://example.com/path?a=1");
+});
+
+test("extractPageMetadata reads article metadata from common meta tags", () => {
+  const html = `
+    <html>
+      <head>
+        <title>Ignored title</title>
+        <meta property="og:title" content="Real title">
+        <meta property="og:site_name" content="Example Site">
+        <meta property="article:published_time" content="2026-03-14T08:30:00Z">
+        <meta name="author" content="Jane Writer">
+        <meta name="description" content="Useful summary">
+        <meta property="og:image" content="/hero.jpg">
+      </head>
+    </html>`;
+
+  const metadata = extractPageMetadata(html, "https://example.com/posts/real-title");
+  assert.equal(metadata.title, "Real title");
+  assert.equal(metadata.siteName, "Example Site");
+  assert.equal(metadata.author, "Jane Writer");
+  assert.equal(metadata.description, "Useful summary");
+  assert.equal(metadata.publishedAt, "2026-03-14T08:30:00Z");
+  assert.equal(metadata.thumbnailUrl, "https://example.com/hero.jpg");
 });
 
 test("today bounds and today matching use client timezone offset", () => {

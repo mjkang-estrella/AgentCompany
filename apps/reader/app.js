@@ -6,6 +6,17 @@ const sanitizeHtml = (dirty) =>
 const PAGE_LIMIT = 50;
 const LOAD_MORE_THRESHOLD = 240;
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "reader.sidebarCollapsed";
+const THEME_STORAGE_KEY = "reader.theme";
+const THEME_ICON_LIGHT = `
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+  </svg>
+`;
+const THEME_ICON_DARK = `
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+  </svg>
+`;
 const SIDEBAR_COLLAPSE_ICON = `
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <polyline points="15 18 9 12 15 6"></polyline>
@@ -19,58 +30,68 @@ const SIDEBAR_EXPAND_ICON = `
 
 const state = {
   articles: [],
-  counts: { all: 0, saved: 0, today: 0, folders: {} },
+  counts: { all: 0, feedGroups: {}, manual: 0, saved: 0, today: 0 },
   convexUrl: "",
-  folder: "",
+  feedGroup: "",
   hasMore: false,
   isLoadingArticle: false,
   isLoadingMore: false,
   nextCursor: null,
-  pendingOrganizationRemoval: "",
+  pendingFeedGroupRemoval: "",
   scope: "all",
   sidebarCollapsed: false,
+  theme: "auto",
   selectedArticle: null,
   selectedArticleId: ""
 };
 
 const elements = {
   addFeedButton: document.querySelector("#add-feed-button"),
+  addManualArticleButton: document.querySelector("#add-manual-article-button"),
   appLayout: document.querySelector(".app-layout"),
+  articleCancelButton: document.querySelector("#article-cancel-button"),
+  articleDialog: document.querySelector("#article-dialog"),
+  articleForm: document.querySelector("#article-form"),
   articleList: document.querySelector("#article-list"),
+  articleUrlInput: document.querySelector("#article-url-input"),
   articleView: document.querySelector("#article-view"),
   countAll: document.querySelector("#count-all"),
+  countManual: document.querySelector("#count-manual"),
   countSaved: document.querySelector("#count-saved"),
   countToday: document.querySelector("#count-today"),
+  deleteArticleButton: document.querySelector("#delete-article-button"),
   feedCancelButton: document.querySelector("#feed-cancel-button"),
   feedDialog: document.querySelector("#feed-dialog"),
+  feedGroupList: document.querySelector("#feed-groups-list"),
   feedForm: document.querySelector("#feed-form"),
-  feedOrganizationInput: document.querySelector("#feed-organization-input"),
+  feedGroupInput: document.querySelector("#feed-group-input"),
   feedUrlInput: document.querySelector("#feed-url-input"),
-  foldersList: document.querySelector("#folders-list"),
   listActions: document.querySelector(".list-actions"),
   listMenu: document.querySelector("#list-menu"),
   listMenuButton: document.querySelector("#list-menu-button"),
   listTitle: document.querySelector("#list-title"),
   markAllReadButton: document.querySelector("#mark-all-read-button"),
   navAll: document.querySelector("#nav-all"),
+  navManualArticles: document.querySelector("#nav-manual-articles"),
   navSaved: document.querySelector("#nav-saved"),
   navToday: document.querySelector("#nav-today"),
   nextArticleButton: document.querySelector("#next-article-button"),
   openArticleButton: document.querySelector("#open-article-button"),
   previousArticleButton: document.querySelector("#previous-article-button"),
-  removeOrganizationCancelButton: document.querySelector("#remove-organization-cancel-button"),
-  removeOrganizationConfirmButton: document.querySelector("#remove-organization-confirm-button"),
-  removeOrganizationButton: document.querySelector("#remove-organization-button"),
-  removeOrganizationCopy: document.querySelector("#remove-organization-copy"),
-  removeOrganizationDialog: document.querySelector("#remove-organization-dialog"),
-  removeOrganizationForm: document.querySelector("#remove-organization-form"),
+  removeFeedGroupButton: document.querySelector("#remove-feed-group-button"),
+  removeFeedGroupCancelButton: document.querySelector("#remove-feed-group-cancel-button"),
+  removeFeedGroupConfirmButton: document.querySelector("#remove-feed-group-confirm-button"),
+  removeFeedGroupCopy: document.querySelector("#remove-feed-group-copy"),
+  removeFeedGroupDialog: document.querySelector("#remove-feed-group-dialog"),
+  removeFeedGroupForm: document.querySelector("#remove-feed-group-form"),
   saveArticleButton: document.querySelector("#save-article-button"),
   shareArticleButton: document.querySelector("#share-article-button"),
   sidebarToggleButton: document.querySelector("#sidebar-toggle-button"),
+  themeToggleButton: document.querySelector("#theme-toggle-button"),
   toast: document.querySelector("#toast")
 };
 
-const folderIcon = `
+const feedGroupIcon = `
   <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
   </svg>
@@ -86,7 +107,7 @@ const fallbackFeedIcon = `
 `;
 
 let toastTimer = null;
-let organizationEditedManually = false;
+let feedGroupEditedManually = false;
 let articleRequestToken = 0;
 let isListMenuOpen = false;
 
@@ -130,8 +151,8 @@ const formatArticleDate = (isoString) =>
   }).format(new Date(isoString));
 
 const listTitle = () => {
-  if (state.folder) {
-    return state.folder;
+  if (state.feedGroup) {
+    return state.feedGroup;
   }
 
   if (state.scope === "today") {
@@ -140,6 +161,10 @@ const listTitle = () => {
 
   if (state.scope === "saved") {
     return "Saved";
+  }
+
+  if (state.scope === "manual") {
+    return "Articles";
   }
 
   return "All Articles";
@@ -165,11 +190,16 @@ const syncListMenuState = () => {
 const openListMenu = () => {
   isListMenuOpen = true;
   syncListMenuState();
+  const firstItem = elements.listMenu.querySelector(".list-menu-item:not([hidden]):not(:disabled)");
+  if (firstItem) {
+    firstItem.focus();
+  }
 };
 
 const closeListMenu = () => {
   isListMenuOpen = false;
   syncListMenuState();
+  elements.listMenuButton.focus();
 };
 
 const toggleListMenu = () => {
@@ -225,7 +255,7 @@ const feedIconMarkup = (iconUrl) =>
 const titleCaseWord = (word) =>
   word ? word.charAt(0).toUpperCase() + word.slice(1) : "";
 
-const deriveOrganizationFromUrl = (value) => {
+const deriveFeedGroupFromUrl = (value) => {
   if (!value) {
     return "";
   }
@@ -557,8 +587,8 @@ const buildRequestArgs = ({ cursor = null, includeSelectedArticleId = false } = 
     timezoneOffsetMinutes: new Date().getTimezoneOffset()
   };
 
-  if (state.folder) {
-    args.folder = state.folder;
+  if (state.feedGroup) {
+    args.feedGroup = state.feedGroup;
   }
 
   if (includeSelectedArticleId && state.selectedArticleId) {
@@ -582,26 +612,28 @@ const clearSelection = () => {
 const renderSidebar = () => {
   elements.countToday.textContent = String(state.counts.today || 0);
   elements.countAll.textContent = String(state.counts.all || 0);
+  elements.countManual.textContent = String(state.counts.manual || 0);
   elements.countSaved.textContent = String(state.counts.saved || 0);
 
-  elements.navToday.classList.toggle("active", state.scope === "today" && !state.folder);
-  elements.navAll.classList.toggle("active", state.scope === "all" && !state.folder);
-  elements.navSaved.classList.toggle("active", state.scope === "saved" && !state.folder);
+  elements.navToday.classList.toggle("active", state.scope === "today" && !state.feedGroup);
+  elements.navAll.classList.toggle("active", state.scope === "all" && !state.feedGroup);
+  elements.navManualArticles.classList.toggle("active", state.scope === "manual" && !state.feedGroup);
+  elements.navSaved.classList.toggle("active", state.scope === "saved" && !state.feedGroup);
 
-  const folders = Object.entries(state.counts.folders || {}).sort((left, right) =>
+  const feedGroups = Object.entries(state.counts.feedGroups || {}).sort((left, right) =>
     left[0].localeCompare(right[0])
   );
 
-  if (folders.length === 0) {
-    elements.foldersList.innerHTML = `<div class="empty-state">Feeds you add will show up here by organization.</div>`;
+  if (feedGroups.length === 0) {
+    elements.feedGroupList.innerHTML = `<div class="empty-state">Feeds you add will show up here.</div>`;
     return;
   }
 
-  elements.foldersList.innerHTML = folders
-    .map(([folder, count]) => `
-      <button class="nav-item ${state.folder === folder ? "active" : ""}" data-folder="${escapeHtml(folder)}">
-        ${folderIcon}
-        ${escapeHtml(folder)}
+  elements.feedGroupList.innerHTML = feedGroups
+    .map(([feedGroup, count]) => `
+      <button class="nav-item ${state.feedGroup === feedGroup ? "active" : ""}" data-feed-group="${escapeHtml(feedGroup)}">
+        ${feedGroupIcon}
+        ${escapeHtml(feedGroup)}
         <span class="nav-item-count">${count}</span>
       </button>
     `)
@@ -611,16 +643,16 @@ const renderSidebar = () => {
 const renderArticleList = () => {
   elements.listTitle.textContent = listTitle();
   elements.markAllReadButton.disabled = state.articles.length === 0;
-  elements.removeOrganizationButton.hidden = !state.folder;
-  elements.removeOrganizationButton.disabled = !state.folder;
-  elements.removeOrganizationButton.textContent = state.folder
-    ? `Remove ${state.folder}`
-    : "Remove organization";
+  elements.removeFeedGroupButton.hidden = !state.feedGroup;
+  elements.removeFeedGroupButton.disabled = !state.feedGroup;
+  elements.removeFeedGroupButton.textContent = state.feedGroup
+    ? `Remove ${state.feedGroup}`
+    : "Remove feed";
 
   if (state.articles.length === 0) {
     elements.articleList.innerHTML = `
       <div class="empty-state">
-        No articles match this view yet. Add a feed or wait for the next scheduled sync.
+        No articles match this view yet. Add a feed, paste an article URL, or wait for the next scheduled sync.
       </div>
     `;
     return;
@@ -633,7 +665,7 @@ const renderArticleList = () => {
   elements.articleList.innerHTML = `
     ${state.articles
       .map((article) => `
-        <div class="article-item ${article.id === state.selectedArticleId ? "active" : ""}" data-article-id="${article.id}" role="button" tabindex="0" aria-label="${escapeHtml(article.title)}">
+        <button class="article-item ${article.id === state.selectedArticleId ? "active" : ""} ${article.isRead ? "" : "is-unread"}" data-article-id="${article.id}" type="button" aria-label="${escapeHtml(article.title)}">
           <div class="item-meta">
             <div class="item-source">
               ${article.isRead ? "" : '<span class="unread-dot"></span>'}
@@ -643,7 +675,7 @@ const renderArticleList = () => {
           </div>
           <div class="item-title">${escapeHtml(article.title)}</div>
           <div class="item-preview">${escapeHtml(article.previewText || "No preview available.")}</div>
-        </div>
+        </button>
       `)
       .join("")}
     ${statusMarkup}
@@ -661,6 +693,7 @@ const renderArticle = () => {
     (selectedIndex === -1 && !state.hasMore) ||
     (selectedIndex >= state.articles.length - 1 && !state.hasMore);
   elements.saveArticleButton.disabled = !article;
+  elements.deleteArticleButton.disabled = !article;
   elements.shareArticleButton.disabled = !article;
   elements.openArticleButton.disabled = !article;
 
@@ -678,7 +711,7 @@ const renderArticle = () => {
   if (!article) {
     elements.articleView.innerHTML = `
       <div class="empty-state">
-        Select an article to start reading. New feeds sync through Convex every 15 minutes.
+        Select an article to start reading. New feeds sync through Convex every 15 minutes, and pasted article URLs show up here right away.
       </div>
     `;
     return;
@@ -708,6 +741,10 @@ const renderArticle = () => {
   for (const link of elements.articleView.querySelectorAll(".article-body a[href]")) {
     link.setAttribute("rel", "noopener noreferrer");
     link.setAttribute("target", "_blank");
+  }
+
+  for (const img of elements.articleView.querySelectorAll(".article-body img")) {
+    img.setAttribute("loading", "lazy");
   }
 };
 
@@ -747,7 +784,7 @@ const bootstrap = async () => {
   );
   articleRequestToken += 1;
   state.articles = payload.articles || [];
-  state.counts = payload.counts || { all: 0, saved: 0, today: 0, folders: {} };
+  state.counts = payload.counts || { all: 0, feedGroups: {}, manual: 0, saved: 0, today: 0 };
   state.hasMore = Boolean(payload.hasMore);
   state.nextCursor = payload.nextCursor || null;
   state.selectedArticle = null;
@@ -830,13 +867,37 @@ const toggleSave = async () => {
     await bootstrap();
   } else {
     state.counts.saved += updated.isSaved ? 1 : -1;
+    if (state.scope === "manual" && !updated.isSaved) {
+      render();
+      return;
+    }
     render();
   }
 };
 
+const deleteSelectedArticle = async () => {
+  if (!state.selectedArticle) {
+    return;
+  }
+
+  const articleTitle = state.selectedArticle.title;
+  const confirmed = window.confirm(`Delete "${articleTitle}" from Reader?`);
+  if (!confirmed) {
+    return;
+  }
+
+  await convexRequest("mutation", "reader:deleteArticle", {
+    articleId: state.selectedArticle.id
+  });
+
+  clearSelection();
+  await bootstrap();
+  showToast(`Deleted "${articleTitle}".`);
+};
+
 const markAllRead = async () => {
   await convexRequest("action", "reader:markAllRead", {
-    folder: state.folder,
+    feedGroup: state.feedGroup,
     scope: state.scope,
     timezoneOffsetMinutes: new Date().getTimezoneOffset()
   });
@@ -847,7 +908,7 @@ const markAllRead = async () => {
 };
 
 const openDialog = () => {
-  organizationEditedManually = false;
+  feedGroupEditedManually = false;
   elements.feedDialog.showModal();
   elements.feedUrlInput.focus();
 };
@@ -855,24 +916,43 @@ const openDialog = () => {
 const closeDialog = () => {
   elements.feedDialog.close();
   elements.feedForm.reset();
-  organizationEditedManually = false;
+  feedGroupEditedManually = false;
 };
 
-const openRemoveOrganizationDialog = (folder) => {
-  state.pendingOrganizationRemoval = folder;
-  elements.removeOrganizationCopy.textContent = `This will permanently delete all feeds and articles in ${folder}.`;
-  elements.removeOrganizationDialog.showModal();
-  elements.removeOrganizationConfirmButton.focus();
+const openArticleDialog = () => {
+  elements.articleDialog.showModal();
+  elements.articleUrlInput.focus();
 };
 
-const closeRemoveOrganizationDialog = () => {
-  state.pendingOrganizationRemoval = "";
-  elements.removeOrganizationDialog.close();
+const closeArticleDialog = () => {
+  elements.articleDialog.close();
+  elements.articleForm.reset();
+};
+
+const openRemoveFeedGroupDialog = (feedGroup) => {
+  state.pendingFeedGroupRemoval = feedGroup;
+  elements.removeFeedGroupCopy.textContent = `This will permanently delete all RSS feeds and articles in ${feedGroup}.`;
+  elements.removeFeedGroupDialog.showModal();
+  elements.removeFeedGroupConfirmButton.focus();
+};
+
+const closeRemoveFeedGroupDialog = () => {
+  state.pendingFeedGroupRemoval = "";
+  elements.removeFeedGroupDialog.close();
+};
+
+const setFormSubmitting = (form, submitting) => {
+  const submitBtn = form.querySelector("[type='submit']");
+  if (submitBtn) {
+    submitBtn.disabled = submitting;
+    submitBtn.dataset.originalText = submitBtn.dataset.originalText || submitBtn.textContent;
+    submitBtn.textContent = submitting ? "Adding…" : submitBtn.dataset.originalText;
+  }
 };
 
 const submitFeed = async () => {
   await convexRequest("action", "feeds:add", {
-    folder: elements.feedOrganizationInput.value,
+    feedGroup: elements.feedGroupInput.value,
     inputUrl: elements.feedUrlInput.value
   });
 
@@ -882,32 +962,72 @@ const submitFeed = async () => {
   await bootstrap();
 };
 
-const removeOrganization = async () => {
-  const folder = state.pendingOrganizationRemoval;
-  if (!folder) {
+const submitArticle = async () => {
+  const result = await convexRequest("action", "articles:addFromUrl", {
+    url: elements.articleUrlInput.value
+  });
+
+  closeArticleDialog();
+  state.scope = "manual";
+  state.feedGroup = "";
+  clearSelection();
+  await bootstrap();
+
+  const existing = state.articles.find((article) => article.id === result.articleId);
+  if (!existing) {
+    const article = await convexRequest("query", "reader:getArticle", { articleId: result.articleId });
+    state.articles = [
+      {
+        author: article.author,
+        feedGroup: article.feedGroup,
+        feedIconUrl: article.feedIconUrl,
+        feedId: article.feedId,
+        feedTitle: article.feedTitle,
+        id: article.id,
+        isRead: article.isRead,
+        isSaved: article.isSaved,
+        previewText: article.previewText,
+        publishedAt: article.publishedAt,
+        readTimeMinutes: article.readTimeMinutes,
+        sourceType: article.sourceType,
+        thumbnailUrl: article.thumbnailUrl,
+        title: article.title,
+        url: article.url
+      },
+      ...state.articles.filter((entry) => entry.id !== article.id)
+    ];
+  }
+
+  await selectArticle(result.articleId);
+  showToast(result.deduped ? "Article already existed. Opened the saved copy." : "Article added.");
+};
+
+const removeFeedGroup = async () => {
+  const feedGroup = state.pendingFeedGroupRemoval;
+  if (!feedGroup) {
     return;
   }
 
-  const removedCurrentFolder = state.folder === folder;
+  const removedCurrentFeedGroup = state.feedGroup === feedGroup;
   const removedSelectedArticle =
-    state.selectedArticle?.feedFolder === folder ||
-    state.articles.find((article) => article.id === state.selectedArticleId)?.feedFolder === folder;
+    state.selectedArticle?.feedGroup === feedGroup ||
+    state.articles.find((article) => article.id === state.selectedArticleId)?.feedGroup === feedGroup;
 
-  const result = await convexRequest("action", "feeds:removeOrganization", { folder });
+  const result = await convexRequest("action", "feeds:removeFeedGroup", { feedGroup });
 
-  closeRemoveOrganizationDialog();
+  closeRemoveFeedGroupDialog();
 
-  if (removedCurrentFolder) {
+  if (removedCurrentFeedGroup) {
     state.scope = "all";
-    state.folder = "";
+    state.feedGroup = "";
   }
 
-  if (removedCurrentFolder || removedSelectedArticle) {
+  if (removedCurrentFeedGroup || removedSelectedArticle) {
     clearSelection();
   }
 
   await bootstrap();
-  showToast(`Removed ${result.removedFeeds} feed${result.removedFeeds === 1 ? "" : "s"} from ${folder}.`);
+  showToast(`Removed ${result.removedFeeds} feed${result.removedFeeds === 1 ? "" : "s"} from ${feedGroup}.`);
 };
 
 const shareArticle = async () => {
@@ -959,33 +1079,40 @@ const maybeLoadMoreFromScroll = async () => {
 
 elements.navToday.addEventListener("click", async () => {
   state.scope = "today";
-  state.folder = "";
+  state.feedGroup = "";
   clearSelection();
   await bootstrap();
 });
 
 elements.navAll.addEventListener("click", async () => {
   state.scope = "all";
-  state.folder = "";
+  state.feedGroup = "";
   clearSelection();
   await bootstrap();
 });
 
 elements.navSaved.addEventListener("click", async () => {
   state.scope = "saved";
-  state.folder = "";
+  state.feedGroup = "";
   clearSelection();
   await bootstrap();
 });
 
-elements.foldersList.addEventListener("click", async (event) => {
-  const anchor = event.target.closest("[data-folder]");
+elements.navManualArticles.addEventListener("click", async () => {
+  state.scope = "manual";
+  state.feedGroup = "";
+  clearSelection();
+  await bootstrap();
+});
+
+elements.feedGroupList.addEventListener("click", async (event) => {
+  const anchor = event.target.closest("[data-feed-group]");
   if (!anchor) {
     return;
   }
 
   state.scope = "all";
-  state.folder = anchor.dataset.folder;
+  state.feedGroup = anchor.dataset.feedGroup;
   clearSelection();
   await bootstrap();
 });
@@ -999,16 +1126,6 @@ elements.articleList.addEventListener("click", async (event) => {
   await selectArticle(item.dataset.articleId);
 });
 
-elements.articleList.addEventListener("keydown", async (event) => {
-  if (event.key === "Enter" || event.key === " ") {
-    const item = event.target.closest("[data-article-id]");
-    if (item) {
-      event.preventDefault();
-      await selectArticle(item.dataset.articleId);
-    }
-  }
-});
-
 elements.articleList.addEventListener("scroll", () => {
   maybeLoadMoreFromScroll().catch((error) => {
     showToast(error.message, { error: true });
@@ -1020,9 +1137,35 @@ elements.listMenuButton.addEventListener("click", (event) => {
   toggleListMenu();
 });
 
+elements.listMenu.addEventListener("keydown", (event) => {
+  const items = Array.from(elements.listMenu.querySelectorAll(".list-menu-item:not([hidden]):not(:disabled)"));
+  const currentIndex = items.indexOf(document.activeElement);
+
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    const next = items[(currentIndex + 1) % items.length];
+    if (next) next.focus();
+  } else if (event.key === "ArrowUp") {
+    event.preventDefault();
+    const prev = items[(currentIndex - 1 + items.length) % items.length];
+    if (prev) prev.focus();
+  } else if (event.key === "Escape") {
+    event.preventDefault();
+    closeListMenu();
+  }
+});
+
 elements.saveArticleButton.addEventListener("click", async () => {
   try {
     await toggleSave();
+  } catch (error) {
+    showToast(error.message, { error: true });
+  }
+});
+
+elements.deleteArticleButton.addEventListener("click", async () => {
+  try {
+    await deleteSelectedArticle();
   } catch (error) {
     showToast(error.message, { error: true });
   }
@@ -1037,49 +1180,67 @@ elements.markAllReadButton.addEventListener("click", async () => {
   }
 });
 
-elements.removeOrganizationButton.addEventListener("click", () => {
-  if (!state.folder) {
+elements.removeFeedGroupButton.addEventListener("click", () => {
+  if (!state.feedGroup) {
     return;
   }
 
   closeListMenu();
-  openRemoveOrganizationDialog(state.folder);
+  openRemoveFeedGroupDialog(state.feedGroup);
 });
 
 elements.addFeedButton.addEventListener("click", openDialog);
+elements.addManualArticleButton.addEventListener("click", openArticleDialog);
 elements.sidebarToggleButton.addEventListener("click", () => {
   state.sidebarCollapsed = !state.sidebarCollapsed;
   syncSidebarState();
   persistSidebarCollapsed();
 });
 elements.feedCancelButton.addEventListener("click", closeDialog);
-elements.removeOrganizationCancelButton.addEventListener("click", closeRemoveOrganizationDialog);
+elements.articleCancelButton.addEventListener("click", closeArticleDialog);
+elements.removeFeedGroupCancelButton.addEventListener("click", closeRemoveFeedGroupDialog);
 elements.feedUrlInput.addEventListener("input", () => {
-  if (organizationEditedManually && elements.feedOrganizationInput.value.trim()) {
+  if (feedGroupEditedManually && elements.feedGroupInput.value.trim()) {
     return;
   }
 
-  const organization = deriveOrganizationFromUrl(elements.feedUrlInput.value);
-  elements.feedOrganizationInput.value = organization;
+  const feedGroup = deriveFeedGroupFromUrl(elements.feedUrlInput.value);
+  elements.feedGroupInput.value = feedGroup;
 });
-elements.feedOrganizationInput.addEventListener("input", () => {
-  organizationEditedManually = true;
+elements.feedGroupInput.addEventListener("input", () => {
+  feedGroupEditedManually = true;
 });
 elements.feedForm.addEventListener("submit", async (event) => {
   event.preventDefault();
 
+  setFormSubmitting(elements.feedForm, true);
   try {
     await submitFeed();
   } catch (error) {
     showToast(error.message, { error: true });
+  } finally {
+    setFormSubmitting(elements.feedForm, false);
   }
 });
 
-elements.removeOrganizationForm.addEventListener("submit", async (event) => {
+elements.articleForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  setFormSubmitting(elements.articleForm, true);
+  try {
+    await submitArticle();
+  } catch (error) {
+    showToast(error.message, { error: true });
+  } finally {
+    setFormSubmitting(elements.articleForm, false);
+  }
+});
+
+elements.removeFeedGroupForm.addEventListener("submit", async (event) => {
   event.preventDefault();
 
   try {
-    await removeOrganization();
+    await removeFeedGroup();
   } catch (error) {
     showToast(error.message, { error: true });
   }
@@ -1101,6 +1262,10 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && isListMenuOpen) {
     closeListMenu();
   }
+});
+
+document.querySelector("#shortcuts-close-button").addEventListener("click", () => {
+  document.querySelector("#shortcuts-dialog").close();
 });
 
 elements.previousArticleButton.addEventListener("click", async () => {
@@ -1166,11 +1331,66 @@ document.addEventListener("keydown", async (event) => {
         break;
       case "m":
         event.preventDefault();
-        await markAllRead();
+        if (state.articles.length > 0 && window.confirm("Mark all articles in this view as read?")) {
+          await markAllRead();
+        }
+        break;
+      case "?":
+        event.preventDefault();
+        document.querySelector("#shortcuts-dialog").showModal();
         break;
     }
   } catch (error) {
     showToast(error.message, { error: true });
+  }
+});
+
+const resolveTheme = (theme) => {
+  if (theme === "light" || theme === "dark") {
+    return theme;
+  }
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+};
+
+const applyTheme = () => {
+  const resolved = resolveTheme(state.theme);
+  document.documentElement.setAttribute("data-theme", resolved);
+  elements.themeToggleButton.innerHTML = resolved === "dark" ? THEME_ICON_LIGHT : THEME_ICON_DARK;
+  elements.themeToggleButton.title = resolved === "dark" ? "Switch to light mode" : "Switch to dark mode";
+  elements.themeToggleButton.setAttribute(
+    "aria-label",
+    resolved === "dark" ? "Switch to light mode" : "Switch to dark mode"
+  );
+};
+
+const readStoredTheme = () => {
+  try {
+    return window.localStorage.getItem(THEME_STORAGE_KEY) || "auto";
+  } catch {
+    return "auto";
+  }
+};
+
+const persistTheme = () => {
+  try {
+    window.localStorage.setItem(THEME_STORAGE_KEY, state.theme);
+  } catch {
+    // Ignore unavailable storage.
+  }
+};
+
+const toggleTheme = () => {
+  const resolved = resolveTheme(state.theme);
+  state.theme = resolved === "dark" ? "light" : "dark";
+  applyTheme();
+  persistTheme();
+};
+
+elements.themeToggleButton.addEventListener("click", toggleTheme);
+
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  if (state.theme === "auto") {
+    applyTheme();
   }
 });
 
@@ -1181,6 +1401,8 @@ const start = async () => {
 
 state.sidebarCollapsed = readStoredSidebarCollapsed();
 syncSidebarState();
+state.theme = readStoredTheme();
+applyTheme();
 
 start().catch((error) => {
   render();

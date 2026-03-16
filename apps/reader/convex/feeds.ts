@@ -6,8 +6,10 @@ import { action, internalMutation, internalQuery } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { resolveFeedInput } from "../lib/feed-discovery.mjs";
 
+const getFeedGroup = (value) => (value.feedGroup || value.folder || "Uncategorized").trim() || "Uncategorized";
+
 const mapFeed = (feed: Doc<"feeds">) => ({
-  folder: feed.folder,
+  feedGroup: getFeedGroup(feed),
   iconUrl: feed.iconUrl || "",
   id: feed._id,
   isActive: feed.isActive,
@@ -27,18 +29,70 @@ export const getByFeedUrl = internalQuery({
     ctx.db.query("feeds").withIndex("by_feed_url", (q) => q.eq("feedUrl", args.feedUrl)).unique()
 });
 
-export const listByFolder = internalQuery({
+export const listByFeedGroup = internalQuery({
   args: {
-    folder: v.string()
+    feedGroup: v.string()
   },
   handler: async (ctx, args) =>
-    ctx.db.query("feeds").withIndex("by_folder", (q) => q.eq("folder", args.folder)).collect()
+    ctx.db
+      .query("feeds")
+      .withIndex("by_feed_group", (q) => q.eq("feedGroup", args.feedGroup))
+      .collect()
 });
+
+const removeFeedGroupHandler = async (ctx, rawFeedGroup) => {
+  const feedGroup = rawFeedGroup.trim();
+  if (!feedGroup) {
+    throw new Error("feedGroup is required");
+  }
+
+  const feeds = await ctx.runQuery(internal.feeds.listByFeedGroup, { feedGroup });
+  if (feeds.length === 0) {
+    throw new Error("Feed not found");
+  }
+
+  const feedIds = feeds.map((feed) => feed._id);
+  await ctx.runMutation(internal.feeds.markFeedsInactive, { feedIds });
+
+  let removedArticles = 0;
+  for (const feedId of feedIds) {
+    let cursor = null;
+
+    while (true) {
+      const batch = await ctx.runQuery(internal.feeds.articleIdBatchForFeed, {
+        cursor: cursor || undefined,
+        feedId,
+        limit: 100
+      });
+
+      if (batch.ids.length > 0) {
+        removedArticles += batch.ids.length;
+        await ctx.runMutation(internal.feeds.deleteArticleIds, {
+          articleIds: batch.ids
+        });
+      }
+
+      if (batch.isDone || !batch.nextCursor) {
+        break;
+      }
+
+      cursor = batch.nextCursor;
+    }
+  }
+
+  await ctx.runMutation(internal.feeds.deleteFeedIds, { feedIds });
+
+  return {
+    feedGroup,
+    removedArticles,
+    removedFeeds: feedIds.length
+  };
+};
 
 export const upsertResolvedFeed = internalMutation({
   args: {
     feedUrl: v.string(),
-    folder: v.string(),
+    feedGroup: v.string(),
     iconUrl: v.optional(v.string()),
     isActive: v.boolean(),
     siteUrl: v.optional(v.string()),
@@ -52,7 +106,8 @@ export const upsertResolvedFeed = internalMutation({
 
     if (existing) {
       await ctx.db.patch(existing._id, {
-        folder: args.folder,
+        feedGroup: args.feedGroup,
+        folder: undefined,
         iconUrl: args.iconUrl,
         isActive: args.isActive,
         lastSyncError: undefined,
@@ -66,7 +121,7 @@ export const upsertResolvedFeed = internalMutation({
 
     const feedId = await ctx.db.insert("feeds", {
       feedUrl: args.feedUrl,
-      folder: args.folder,
+      feedGroup: args.feedGroup,
       iconUrl: args.iconUrl,
       isActive: args.isActive,
       siteUrl: args.siteUrl,
@@ -154,6 +209,7 @@ export const deleteFeedIds = internalMutation({
 
 export const add = action({
   args: {
+    feedGroup: v.optional(v.string()),
     folder: v.optional(v.string()),
     inputUrl: v.string()
   },
@@ -161,7 +217,7 @@ export const add = action({
     const resolved = await resolveFeedInput(args.inputUrl);
     const feed = await ctx.runMutation(internal.feeds.upsertResolvedFeed, {
       feedUrl: resolved.feedUrl,
-      folder: (args.folder || "").trim() || "Uncategorized",
+      feedGroup: getFeedGroup(args),
       iconUrl: resolved.faviconUrl || undefined,
       isActive: true,
       siteUrl: resolved.siteUrl || undefined,
@@ -200,54 +256,14 @@ export const syncOne = action({
 
 export const removeOrganization = action({
   args: {
-    folder: v.string()
+    feedGroup: v.string()
   },
-  handler: async (ctx, args) => {
-    const folder = args.folder.trim();
-    if (!folder) {
-      throw new Error("folder is required");
-    }
+  handler: async (ctx, args) => removeFeedGroupHandler(ctx, args.feedGroup)
+});
 
-    const feeds = await ctx.runQuery(internal.feeds.listByFolder, { folder });
-    if (feeds.length === 0) {
-      throw new Error("Organization not found");
-    }
-
-    const feedIds = feeds.map((feed) => feed._id);
-    await ctx.runMutation(internal.feeds.markFeedsInactive, { feedIds });
-
-    let removedArticles = 0;
-    for (const feedId of feedIds) {
-      let cursor = null;
-
-      while (true) {
-        const batch = await ctx.runQuery(internal.feeds.articleIdBatchForFeed, {
-          cursor: cursor || undefined,
-          feedId,
-          limit: 100
-        });
-
-        if (batch.ids.length > 0) {
-          removedArticles += batch.ids.length;
-          await ctx.runMutation(internal.feeds.deleteArticleIds, {
-            articleIds: batch.ids
-          });
-        }
-
-        if (batch.isDone || !batch.nextCursor) {
-          break;
-        }
-
-        cursor = batch.nextCursor;
-      }
-    }
-
-    await ctx.runMutation(internal.feeds.deleteFeedIds, { feedIds });
-
-    return {
-      folder,
-      removedArticles,
-      removedFeeds: feedIds.length
-    };
-  }
+export const removeFeedGroup = action({
+  args: {
+    feedGroup: v.string()
+  },
+  handler: async (ctx, args) => removeFeedGroupHandler(ctx, args.feedGroup)
 });

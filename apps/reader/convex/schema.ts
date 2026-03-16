@@ -11,7 +11,8 @@ const syncStatus = v.union(
 export default defineSchema({
   feeds: defineTable({
     feedUrl: v.string(),
-    folder: v.string(),
+    feedGroup: v.optional(v.string()),
+    folder: v.optional(v.string()),
     iconUrl: v.optional(v.string()),
     isActive: v.boolean(),
     lastSyncError: v.optional(v.string()),
@@ -21,17 +22,20 @@ export default defineSchema({
     title: v.string()
   })
     .index("by_feed_url", ["feedUrl"])
-    .index("by_folder", ["folder"])
+    .index("by_feed_group", ["feedGroup"])
     .index("by_is_active", ["isActive"]),
 
   articles: defineTable({
     author: v.optional(v.string()),
     bodyHtml: v.string(),
     bodySource: v.union(v.literal("feed"), v.literal("fetched")),
+    canonicalUrl: v.optional(v.string()),
+    deletedAt: v.optional(v.number()),
     externalId: v.string(),
-    feedFolder: v.string(),
+    feedGroup: v.optional(v.string()),
+    feedFolder: v.optional(v.string()),
     feedIconUrl: v.optional(v.string()),
-    feedId: v.id("feeds"),
+    feedId: v.optional(v.id("feeds")),
     feedSiteUrl: v.optional(v.string()),
     feedTitle: v.string(),
     isRead: v.boolean(),
@@ -41,6 +45,7 @@ export default defineSchema({
     readAt: v.optional(v.number()),
     readTimeMinutes: v.number(),
     savedAt: v.optional(v.number()),
+    sourceType: v.optional(v.union(v.literal("feed"), v.literal("manual"))),
     summaryHtml: v.string(),
     thumbnailUrl: v.optional(v.string()),
     title: v.string(),
@@ -48,7 +53,8 @@ export default defineSchema({
   })
     .index("by_feed_and_external_id", ["feedId", "externalId"])
     .index("by_published_at", ["publishedAt"])
-    .index("by_feed_folder_and_published_at", ["feedFolder", "publishedAt"])
+    .index("by_feed_group_and_published_at", ["feedGroup", "publishedAt"])
     .index("by_saved_and_published_at", ["isSaved", "publishedAt"])
     .index("by_feed_id_and_published_at", ["feedId", "publishedAt"])
+    .index("by_canonical_url", ["canonicalUrl"])
 });

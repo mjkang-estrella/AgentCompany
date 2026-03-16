@@ -7,18 +7,29 @@ import type { Doc, Id } from "./_generated/dataModel";
 
 const defaultCounts = () => ({
   all: 0,
-  folders: {} as Record<string, number>,
+  feedGroups: {} as Record<string, number>,
+  manual: 0,
   saved: 0,
   today: 0
 });
 
-const scopeValidator = v.union(v.literal("all"), v.literal("saved"), v.literal("today"));
+const scopeValidator = v.union(
+  v.literal("all"),
+  v.literal("manual"),
+  v.literal("saved"),
+  v.literal("today")
+);
+
+const getFeedGroup = (value: { feedGroup?: string; feedFolder?: string; folder?: string }) =>
+  value.feedGroup || value.feedFolder || value.folder || "";
+
+const getSourceType = (article: Doc<"articles">) => article.sourceType || "feed";
 
 const articleSummary = (article: Doc<"articles">) => ({
   author: article.author || "",
-  feedFolder: article.feedFolder,
+  feedGroup: getFeedGroup(article),
   feedIconUrl: article.feedIconUrl || "",
-  feedId: article.feedId,
+  feedId: article.feedId || null,
   feedTitle: article.feedTitle,
   id: article._id,
   isRead: article.isRead,
@@ -26,6 +37,7 @@ const articleSummary = (article: Doc<"articles">) => ({
   previewText: article.previewText,
   publishedAt: new Date(article.publishedAt).toISOString(),
   readTimeMinutes: article.readTimeMinutes,
+  sourceType: getSourceType(article),
   thumbnailUrl: article.thumbnailUrl || "",
   title: article.title,
   url: article.url
@@ -35,11 +47,13 @@ const articleDetail = (article: Doc<"articles">) => ({
   ...articleSummary(article),
   bodyHtml: article.bodyHtml,
   bodySource: article.bodySource,
+  canonicalUrl: article.canonicalUrl || "",
   feedSiteUrl: article.feedSiteUrl || "",
   summaryHtml: article.summaryHtml
 });
 
-const normalizeScope = (scope: "all" | "saved" | "today") => scope;
+const withoutDeleted = (query: any) =>
+  query.filter((q: any) => q.eq(q.field("deletedAt"), undefined));
 
 const getTodayRange = (timezoneOffsetMinutes: number) => {
   const localNowMs = Date.now() - timezoneOffsetMinutes * 60_000;
@@ -55,29 +69,42 @@ const getTodayRange = (timezoneOffsetMinutes: number) => {
 const buildArticleQuery = (
   ctx: any,
   args: {
-    folder?: string;
-    scope: "all" | "saved" | "today";
+    feedGroup?: string;
+    scope: "all" | "manual" | "saved" | "today";
     timezoneOffsetMinutes: number;
   }
 ) => {
   let articleQuery;
 
-  if (args.folder) {
+  if (args.feedGroup) {
     articleQuery = ctx.db
       .query("articles")
-      .withIndex("by_feed_folder_and_published_at", (q: any) => q.eq("feedFolder", args.folder))
-      .order("desc");
+      .withIndex("by_feed_group_and_published_at", (q: any) => q.eq("feedGroup", args.feedGroup))
+      .order("desc")
+      .filter((q: any) => q.eq(q.field("sourceType"), "feed"));
   } else if (args.scope === "saved") {
     articleQuery = ctx.db
       .query("articles")
       .withIndex("by_saved_and_published_at", (q: any) => q.eq("isSaved", true))
       .order("desc");
+  } else if (args.scope === "manual") {
+    articleQuery = ctx.db
+      .query("articles")
+      .withIndex("by_published_at")
+      .order("desc")
+      .filter((q: any) => q.eq(q.field("sourceType"), "manual"));
   } else {
     articleQuery = ctx.db.query("articles").withIndex("by_published_at").order("desc");
   }
 
-  if (args.scope === "saved" && args.folder) {
-    articleQuery = articleQuery.filter((q: any) => q.eq(q.field("isSaved"), true));
+  if (args.scope === "saved" && args.feedGroup) {
+    articleQuery = articleQuery.filter((q: any) =>
+      q.and(
+        q.eq(q.field("isSaved"), true),
+        q.eq(q.field("sourceType"), "feed"),
+        q.eq(q.field("feedGroup"), args.feedGroup)
+      )
+    );
   }
 
   if (args.scope === "today") {
@@ -90,29 +117,41 @@ const buildArticleQuery = (
     );
   }
 
-  return articleQuery;
+  return withoutDeleted(articleQuery);
 };
 
-const buildCounts = async (
-  ctx: any,
-  timezoneOffsetMinutes: number
-) => {
+const buildCounts = async (ctx: any, timezoneOffsetMinutes: number) => {
   const counts = defaultCounts();
   const feeds = await ctx.db.query("feeds").collect();
   const range = getTodayRange(timezoneOffsetMinutes);
 
   for (const feed of feeds) {
-    if (!(feed.folder in counts.folders)) {
-      counts.folders[feed.folder] = 0;
+    const feedGroup = getFeedGroup(feed);
+    if (feedGroup && !(feedGroup in counts.feedGroups)) {
+      counts.feedGroups[feedGroup] = 0;
     }
   }
 
   const articles = await ctx.db.query("articles").collect();
   for (const article of articles) {
+    if (article.deletedAt) {
+      continue;
+    }
+
     counts.all += 1;
-    counts.folders[article.feedFolder] = (counts.folders[article.feedFolder] || 0) + 1;
+
+    if (getSourceType(article) === "feed") {
+      const feedGroup = getFeedGroup(article);
+      if (feedGroup) {
+        counts.feedGroups[feedGroup] = (counts.feedGroups[feedGroup] || 0) + 1;
+      }
+    }
+
     if (article.isSaved) {
       counts.saved += 1;
+    }
+    if (getSourceType(article) === "manual") {
+      counts.manual += 1;
     }
     if (article.publishedAt >= range.start && article.publishedAt < range.end) {
       counts.today += 1;
@@ -122,8 +161,12 @@ const buildCounts = async (
   return counts;
 };
 
+const normalizeFeedGroupArg = (args: { feedGroup?: string; folder?: string }) =>
+  args.feedGroup || args.folder || "";
+
 export const bootstrap = query({
   args: {
+    feedGroup: v.optional(v.string()),
     folder: v.optional(v.string()),
     limit: v.optional(v.number()),
     scope: scopeValidator,
@@ -132,8 +175,8 @@ export const bootstrap = query({
   },
   handler: async (ctx, args) => {
     const pagination = await buildArticleQuery(ctx, {
-      folder: args.folder || "",
-      scope: normalizeScope(args.scope),
+      feedGroup: normalizeFeedGroupArg(args),
+      scope: args.scope,
       timezoneOffsetMinutes: args.timezoneOffsetMinutes
     }).paginate({
       cursor: null,
@@ -158,6 +201,7 @@ export const bootstrap = query({
 export const listArticles = query({
   args: {
     cursor: v.optional(v.string()),
+    feedGroup: v.optional(v.string()),
     folder: v.optional(v.string()),
     limit: v.optional(v.number()),
     scope: scopeValidator,
@@ -165,8 +209,8 @@ export const listArticles = query({
   },
   handler: async (ctx, args) => {
     const pagination = await buildArticleQuery(ctx, {
-      folder: args.folder || "",
-      scope: normalizeScope(args.scope),
+      feedGroup: normalizeFeedGroupArg(args),
+      scope: args.scope,
       timezoneOffsetMinutes: args.timezoneOffsetMinutes
     }).paginate({
       cursor: args.cursor ?? null,
@@ -187,7 +231,7 @@ export const getArticle = query({
   },
   handler: async (ctx, args) => {
     const article = await ctx.db.get(args.articleId);
-    if (!article) {
+    if (!article || article.deletedAt) {
       throw new Error("Article not found");
     }
 
@@ -203,7 +247,7 @@ export const updateArticle = mutation({
   },
   handler: async (ctx, args) => {
     const article = await ctx.db.get(args.articleId);
-    if (!article) {
+    if (!article || article.deletedAt) {
       throw new Error("Article not found");
     }
 
@@ -227,9 +271,34 @@ export const updateArticle = mutation({
   }
 });
 
+export const deleteArticle = mutation({
+  args: {
+    articleId: v.id("articles")
+  },
+  handler: async (ctx, args) => {
+    const article = await ctx.db.get(args.articleId);
+    if (!article || article.deletedAt) {
+      throw new Error("Article not found");
+    }
+
+    await ctx.db.patch(args.articleId, {
+      deletedAt: Date.now(),
+      isRead: false,
+      isSaved: false,
+      readAt: undefined,
+      savedAt: undefined
+    });
+
+    return {
+      articleId: args.articleId
+    };
+  }
+});
+
 export const matchingArticleIdPage = internalQuery({
   args: {
     cursor: v.optional(v.string()),
+    feedGroup: v.optional(v.string()),
     folder: v.optional(v.string()),
     limit: v.optional(v.number()),
     scope: scopeValidator,
@@ -237,8 +306,8 @@ export const matchingArticleIdPage = internalQuery({
   },
   handler: async (ctx, args) => {
     const pagination = await buildArticleQuery(ctx, {
-      folder: args.folder || "",
-      scope: normalizeScope(args.scope),
+      feedGroup: normalizeFeedGroupArg(args),
+      scope: args.scope,
       timezoneOffsetMinutes: args.timezoneOffsetMinutes
     }).paginate({
       cursor: args.cursor ?? null,
@@ -272,6 +341,7 @@ export const markArticleIdsRead = internalMutation({
 
 export const markAllRead = action({
   args: {
+    feedGroup: v.optional(v.string()),
     folder: v.optional(v.string()),
     scope: scopeValidator,
     timezoneOffsetMinutes: v.number()
@@ -283,7 +353,7 @@ export const markAllRead = action({
     while (true) {
       const page = await ctx.runQuery(internal.reader.matchingArticleIdPage, {
         cursor: cursor || undefined,
-        folder: args.folder || "",
+        feedGroup: normalizeFeedGroupArg(args),
         limit: 100,
         scope: args.scope,
         timezoneOffsetMinutes: args.timezoneOffsetMinutes

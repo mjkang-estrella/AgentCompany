@@ -101,6 +101,32 @@ export const estimateReadTime = (html) => {
   return Math.max(1, Math.round(words / 200));
 };
 
+export const canonicalizeUrl = (value) => {
+  if (!value) {
+    return "";
+  }
+
+  try {
+    const url = new URL(String(value));
+    url.hash = "";
+
+    if (
+      (url.protocol === "https:" && url.port === "443") ||
+      (url.protocol === "http:" && url.port === "80")
+    ) {
+      url.port = "";
+    }
+
+    if (url.pathname !== "/" && url.pathname.endsWith("/")) {
+      url.pathname = url.pathname.replace(/\/+$/u, "");
+    }
+
+    return `${url.origin}${url.pathname}${url.search}`;
+  } catch {
+    return String(value).trim();
+  }
+};
+
 const PREFERRED_CONTENT_SELECTORS = [
   "article",
   "main",
@@ -171,6 +197,72 @@ export const discoverFeedLinks = (html, pageUrl) => {
       root.querySelector("title")?.textContent?.trim() ||
       "",
     faviconUrl: favicon ? new URL(favicon, pageUrl).toString() : ""
+  };
+};
+
+const metaContent = (root, selector) => root.querySelector(selector)?.getAttribute("content")?.trim() || "";
+
+const firstNonEmpty = (...values) => values.find((value) => value && value.trim()) || "";
+
+const resolveMaybeUrl = (value, pageUrl) => {
+  if (!value) {
+    return "";
+  }
+
+  try {
+    return new URL(value, pageUrl).toString();
+  } catch {
+    return "";
+  }
+};
+
+export const extractPageMetadata = (html, pageUrl) => {
+  const root = parse(html);
+  const title = firstNonEmpty(
+    metaContent(root, "meta[property='og:title']"),
+    metaContent(root, "meta[name='twitter:title']"),
+    root.querySelector("h1")?.textContent?.trim() || "",
+    root.querySelector("title")?.textContent?.trim() || ""
+  );
+
+  const siteName = firstNonEmpty(
+    metaContent(root, "meta[property='og:site_name']"),
+    metaContent(root, "meta[name='application-name']"),
+    root.querySelector("title")?.textContent?.trim() || ""
+  );
+
+  const author = firstNonEmpty(
+    metaContent(root, "meta[name='author']"),
+    metaContent(root, "meta[property='article:author']"),
+    root.querySelector("[rel='author']")?.textContent?.trim() || ""
+  );
+
+  const publishedAt = firstNonEmpty(
+    metaContent(root, "meta[property='article:published_time']"),
+    metaContent(root, "meta[name='pubdate']"),
+    metaContent(root, "meta[name='publish_date']"),
+    root.querySelector("time[datetime]")?.getAttribute("datetime")?.trim() || ""
+  );
+
+  const thumbnailUrl = firstNonEmpty(
+    resolveMaybeUrl(metaContent(root, "meta[property='og:image']"), pageUrl),
+    resolveMaybeUrl(metaContent(root, "meta[name='twitter:image']"), pageUrl),
+    resolveMaybeUrl(root.querySelector("article img")?.getAttribute("src") || "", pageUrl),
+    resolveMaybeUrl(root.querySelector("main img")?.getAttribute("src") || "", pageUrl),
+    resolveMaybeUrl(root.querySelector("img")?.getAttribute("src") || "", pageUrl)
+  );
+
+  return {
+    author,
+    description: firstNonEmpty(
+      metaContent(root, "meta[name='description']"),
+      metaContent(root, "meta[property='og:description']"),
+      metaContent(root, "meta[name='twitter:description']")
+    ),
+    publishedAt,
+    siteName,
+    thumbnailUrl,
+    title
   };
 };
 
