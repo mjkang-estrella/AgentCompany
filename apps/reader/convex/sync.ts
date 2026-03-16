@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import { action, internalAction, internalMutation, internalQuery } from "./_generated/server";
 
 import { parseFeed } from "../lib/feed-utils.mjs";
+import { hashArticleContent } from "../lib/content-hash.mjs";
 import {
   canonicalizeUrl,
   estimateReadTime,
@@ -16,6 +17,8 @@ import {
 const DEFAULT_HEADERS = {
   "user-agent": "AgentCompany Reader/1.0 (+https://agent.company)"
 };
+const MAX_SYNC_ENTRIES = 50;
+const RECENT_RECHECK_LIMIT = 5;
 
 const resolveUrl = (value: string, baseUrl: string) => {
   if (!value) {
@@ -104,11 +107,120 @@ const maybeFetchArticleBody = async (url: string, existingHtml: string, markdown
   };
 };
 
+const statsDeltaForArticle = (article: {
+  feedGroup: string;
+  isSaved?: boolean;
+  sourceType: "feed" | "manual";
+}) => {
+  const delta = {
+    all: 1,
+    feedGroups: {} as Record<string, number>,
+    manual: 0,
+    saved: article.isSaved ? 1 : 0
+  };
+
+  if (article.sourceType === "manual") {
+    delta.manual = 1;
+  } else if (article.feedGroup) {
+    delta.feedGroups[article.feedGroup] = 1;
+  }
+
+  return delta;
+};
+
+const negateDelta = (delta: ReturnType<typeof statsDeltaForArticle>) => ({
+  all: -delta.all,
+  feedGroups: Object.fromEntries(
+    Object.entries(delta.feedGroups).map(([feedGroup, count]) => [feedGroup, -count])
+  ),
+  manual: -delta.manual,
+  saved: -delta.saved
+});
+
+const clampCount = (value: number) => Math.max(0, value || 0);
+
+const mergeFeedGroupCounts = (
+  current: Record<string, number>,
+  delta: Record<string, number>
+) => {
+  const next = { ...current };
+
+  for (const [feedGroup, change] of Object.entries(delta)) {
+    const candidate = clampCount((next[feedGroup] || 0) + change);
+    if (candidate === 0) {
+      delete next[feedGroup];
+      continue;
+    }
+
+    next[feedGroup] = candidate;
+  }
+
+  return next;
+};
+
+const applyStatsDeltaInDb = async (
+  ctx: { db: any },
+  delta: {
+    all: number;
+    feedGroups: Record<string, number>;
+    manual: number;
+    saved: number;
+  }
+) => {
+  const existing = await ctx.db
+    .query("readerStats")
+    .withIndex("by_name", (q: any) => q.eq("name", "global"))
+    .unique();
+
+  const current = existing ? {
+    all: existing.all,
+    feedGroups: existing.feedGroups,
+    manual: existing.manual,
+    saved: existing.saved
+  } : {
+    all: 0,
+    feedGroups: {} as Record<string, number>,
+    manual: 0,
+    saved: 0
+  };
+
+  const next = {
+    all: clampCount(current.all + delta.all),
+    feedGroups: mergeFeedGroupCounts(current.feedGroups, delta.feedGroups),
+    manual: clampCount(current.manual + delta.manual),
+    saved: clampCount(current.saved + delta.saved)
+  };
+
+  if (existing) {
+    await ctx.db.patch(existing._id, next);
+    return existing._id;
+  }
+
+  return ctx.db.insert("readerStats", {
+    ...next,
+    name: "global"
+  });
+};
+
 export const getFeed = internalQuery({
   args: {
     feedId: v.id("feeds")
   },
   handler: async (ctx, args) => ctx.db.get(args.feedId)
+});
+
+export const getSyncArticleMeta = internalQuery({
+  args: {
+    externalId: v.string(),
+    feedId: v.id("feeds")
+  },
+  handler: async (ctx, args) =>
+    ctx.db
+      .query("articles")
+      .withIndex("by_feed_and_external_id", (q) =>
+        q.eq("feedId", args.feedId).eq("externalId", args.externalId)
+      )
+      .unique()
 });
 
 export const ensureFeedActive = internalQuery({
@@ -154,14 +266,28 @@ export const markFeedSuccess = internalMutation({
     title: v.string()
   },
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.feedId, {
-      iconUrl: args.iconUrl,
+    const feed = await ctx.db.get(args.feedId);
+    if (!feed) {
+      return;
+    }
+
+    const patch: Record<string, unknown> = {
       lastSyncError: undefined,
       lastSyncedAt: args.lastSyncedAt,
-      siteUrl: args.siteUrl,
-      syncStatus: "idle",
-      title: args.title
-    });
+      syncStatus: "idle"
+    };
+
+    if ((feed.iconUrl || "") !== (args.iconUrl || "")) {
+      patch.iconUrl = args.iconUrl;
+    }
+    if ((feed.siteUrl || "") !== (args.siteUrl || "")) {
+      patch.siteUrl = args.siteUrl;
+    }
+    if (feed.title !== args.title) {
+      patch.title = args.title;
+    }
+
+    await ctx.db.patch(args.feedId, patch);
   }
 });
 
@@ -186,6 +312,7 @@ export const upsertArticles = internalMutation({
         bodyHtml: v.string(),
         bodySource: v.union(v.literal("feed"), v.literal("fetched")),
         canonicalUrl: v.optional(v.string()),
+        contentHash: v.string(),
         externalId: v.string(),
         feedGroup: v.string(),
         feedIconUrl: v.optional(v.string()),
@@ -204,6 +331,10 @@ export const upsertArticles = internalMutation({
     )
   },
   handler: async (ctx, args) => {
+    let inserted = 0;
+    let updated = 0;
+    let skipped = 0;
+
     for (const article of args.articles) {
       const existing = await ctx.db
         .query("articles")
@@ -212,12 +343,57 @@ export const upsertArticles = internalMutation({
         )
         .unique();
 
+      if (existing?.deletedAt) {
+        skipped += 1;
+        continue;
+      }
+
       if (existing) {
+        const metadataChanged =
+          existing.author !== article.author ||
+          (existing.canonicalUrl || "") !== (article.canonicalUrl || "") ||
+          getFeedGroup(existing) !== article.feedGroup ||
+          (existing.feedIconUrl || "") !== (article.feedIconUrl || "") ||
+          (existing.feedSiteUrl || "") !== (article.feedSiteUrl || "") ||
+          existing.feedTitle !== article.feedTitle ||
+          existing.previewText !== article.previewText ||
+          existing.publishedAt !== article.publishedAt ||
+          existing.readTimeMinutes !== article.readTimeMinutes ||
+          getSourceType(existing) !== article.sourceType ||
+          (existing.thumbnailUrl || "") !== (article.thumbnailUrl || "") ||
+          existing.title !== article.title ||
+          existing.url !== article.url;
+
+        const contentChanged = (existing.contentHash || "") !== article.contentHash;
+
+        if (!metadataChanged && !contentChanged) {
+          skipped += 1;
+          continue;
+        }
+
+        const statsDelta = {
+          all: 0,
+          feedGroups: {} as Record<string, number>,
+          manual: 0,
+          saved: 0
+        };
+        const previousFeedGroup = getFeedGroup(existing);
+        if (previousFeedGroup !== article.feedGroup && getSourceType(existing) === "feed") {
+          if (previousFeedGroup) {
+            statsDelta.feedGroups[previousFeedGroup] = -1;
+          }
+          if (article.feedGroup) {
+            statsDelta.feedGroups[article.feedGroup] =
+              (statsDelta.feedGroups[article.feedGroup] || 0) + 1;
+          }
+        }
+
         await ctx.db.patch(existing._id, {
           author: article.author,
-          bodyHtml: article.bodyHtml,
-          bodySource: article.bodySource,
+          bodyHtml: undefined,
+          bodySource: undefined,
           canonicalUrl: article.canonicalUrl,
+          contentHash: article.contentHash,
           feedGroup: article.feedGroup,
           feedFolder: undefined,
           feedIconUrl: article.feedIconUrl,
@@ -227,22 +403,131 @@ export const upsertArticles = internalMutation({
           publishedAt: article.publishedAt,
           readTimeMinutes: article.readTimeMinutes,
           sourceType: article.sourceType,
-          summaryHtml: article.summaryHtml,
+          summaryHtml: undefined,
           thumbnailUrl: article.thumbnailUrl,
           title: article.title,
           url: article.url
         });
+
+        if (contentChanged) {
+          const body = await ctx.db
+            .query("articleBodies")
+            .withIndex("by_article_id", (q) => q.eq("articleId", existing._id))
+            .unique();
+
+          if (body) {
+            await ctx.db.patch(body._id, {
+              bodyHtml: article.bodyHtml,
+              bodySource: article.bodySource,
+              summaryHtml: article.summaryHtml
+            });
+          } else {
+            await ctx.db.insert("articleBodies", {
+              articleId: existing._id,
+              bodyHtml: article.bodyHtml,
+              bodySource: article.bodySource,
+              summaryHtml: article.summaryHtml
+            });
+          }
+        }
+
+        if (Object.keys(statsDelta.feedGroups).length > 0) {
+          await applyStatsDeltaInDb(ctx, statsDelta);
+        }
+
+        updated += 1;
         continue;
       }
 
-      await ctx.db.insert("articles", {
-        ...article,
+      const articleId = await ctx.db.insert("articles", {
+        author: article.author,
+        bodyHtml: undefined,
+        bodySource: undefined,
+        canonicalUrl: article.canonicalUrl,
+        contentHash: article.contentHash,
+        deletedAt: undefined,
+        externalId: article.externalId,
+        feedGroup: article.feedGroup,
+        feedIconUrl: article.feedIconUrl,
+        feedId: article.feedId,
+        feedSiteUrl: article.feedSiteUrl,
+        feedTitle: article.feedTitle,
         isRead: false,
-        isSaved: false
+        isSaved: false,
+        previewText: article.previewText,
+        publishedAt: article.publishedAt,
+        readTimeMinutes: article.readTimeMinutes,
+        sourceType: article.sourceType,
+        summaryHtml: undefined,
+        thumbnailUrl: article.thumbnailUrl,
+        title: article.title,
+        url: article.url
       });
+
+      await ctx.db.insert("articleBodies", {
+        articleId,
+        bodyHtml: article.bodyHtml,
+        bodySource: article.bodySource,
+        summaryHtml: article.summaryHtml
+      });
+
+      await applyStatsDeltaInDb(
+        ctx,
+        statsDeltaForArticle({
+          feedGroup: article.feedGroup,
+          sourceType: article.sourceType
+        })
+      );
+
+      inserted += 1;
     }
+
+    return {
+      inserted,
+      skipped,
+      updated
+    };
   }
 });
+
+const getFeedGroup = (value: { feedGroup?: string; folder?: string }) =>
+  value.feedGroup || value.folder || "Uncategorized";
+
+const getSourceType = (article: { sourceType?: "feed" | "manual" }) => article.sourceType || "feed";
+
+const shouldStopSync = ({
+  existing,
+  feedLastSyncedAt,
+  index,
+  publishedAt
+}: {
+  existing: any;
+  feedLastSyncedAt?: number;
+  index: number;
+  publishedAt: number;
+}) =>
+  Boolean(
+    existing &&
+    feedLastSyncedAt &&
+    index >= RECENT_RECHECK_LIMIT &&
+    publishedAt < feedLastSyncedAt
+  );
+
+const shouldProcessEntry = ({
+  existing,
+  feedLastSyncedAt,
+  index,
+  publishedAt
+}: {
+  existing: any;
+  feedLastSyncedAt?: number;
+  index: number;
+  publishedAt: number;
+}) =>
+  !existing ||
+  !feedLastSyncedAt ||
+  index < RECENT_RECHECK_LIMIT ||
+  publishedAt >= feedLastSyncedAt;
 
 export const runFeed = internalAction({
   args: {
@@ -260,8 +545,45 @@ export const runFeed = internalAction({
       const response = await fetchText(feed.feedUrl);
       const parsed = parseFeed(response.text, response.url).feed;
       const articles = [];
+      const entries = parsed.entries.slice(0, MAX_SYNC_ENTRIES);
 
-      for (const entry of parsed.entries.slice(0, 50)) {
+      for (let index = 0; index < entries.length; index += 1) {
+        const entry = entries[index];
+        const publishedAt = normalizePublishedAt(entry.publishedAt);
+        const existing = await ctx.runQuery(internal.sync.getSyncArticleMeta, {
+          externalId: entry.externalId,
+          feedId: feed._id
+        });
+
+        if (existing?.deletedAt) {
+          if (shouldStopSync({
+            existing,
+            feedLastSyncedAt: feed.lastSyncedAt,
+            index,
+            publishedAt
+          })) {
+            break;
+          }
+          continue;
+        }
+
+        if (!shouldProcessEntry({
+          existing,
+          feedLastSyncedAt: feed.lastSyncedAt,
+          index,
+          publishedAt
+        })) {
+          if (shouldStopSync({
+            existing,
+            feedLastSyncedAt: feed.lastSyncedAt,
+            index,
+            publishedAt
+          })) {
+            break;
+          }
+          continue;
+        }
+
         const fetchedBody = await maybeFetchArticleBody(
           entry.url,
           entry.bodyHtml || entry.summaryHtml,
@@ -269,27 +591,40 @@ export const runFeed = internalAction({
         );
         const bodyHtml = fetchedBody.bodyHtml || sanitizeFragment(entry.summaryHtml || "");
         const summaryHtml = sanitizeFragment(entry.summaryHtml || bodyHtml);
+        const previewText = stripHtml(summaryHtml || bodyHtml).slice(0, 220);
+        const thumbnailUrl =
+          entry.thumbnailUrl ||
+          findFirstImageUrl(bodyHtml || summaryHtml, entry.url || parsed.siteUrl || response.url) ||
+          undefined;
 
         articles.push({
           author: entry.author || undefined,
           bodyHtml,
           bodySource: fetchedBody.bodySource,
           canonicalUrl: canonicalizeUrl(entry.url),
+          contentHash: hashArticleContent({
+            author: entry.author || "",
+            bodyHtml,
+            canonicalUrl: canonicalizeUrl(entry.url),
+            previewText,
+            publishedAt,
+            summaryHtml,
+            thumbnailUrl,
+            title: entry.title,
+            url: entry.url
+          }),
           externalId: entry.externalId,
           feedGroup: feed.feedGroup || feed.folder || "Uncategorized",
           feedIconUrl: feed.iconUrl || undefined,
           feedId: feed._id,
           feedSiteUrl: parsed.siteUrl || feed.siteUrl || undefined,
           feedTitle: parsed.title || feed.title,
-          previewText: stripHtml(summaryHtml || bodyHtml).slice(0, 220),
-          publishedAt: normalizePublishedAt(entry.publishedAt),
+          previewText,
+          publishedAt,
           readTimeMinutes: estimateReadTime(bodyHtml),
-          sourceType: "feed",
+          sourceType: "feed" as const,
           summaryHtml,
-          thumbnailUrl:
-            entry.thumbnailUrl ||
-            findFirstImageUrl(bodyHtml || summaryHtml, entry.url || parsed.siteUrl || response.url) ||
-            undefined,
+          thumbnailUrl,
           title: entry.title,
           url: entry.url
         });
@@ -302,9 +637,9 @@ export const runFeed = internalAction({
         return { feedId: feed._id, ok: false, error: "Feed removed during sync" };
       }
 
-      if (articles.length > 0) {
-        await ctx.runMutation(internal.sync.upsertArticles, { articles });
-      }
+      const upsertResult = articles.length > 0
+        ? await ctx.runMutation(internal.sync.upsertArticles, { articles })
+        : { inserted: 0, skipped: 0, updated: 0 };
 
       const iconUrl = parsed.siteUrl
         ? new URL("/favicon.ico", parsed.siteUrl).toString()
@@ -325,7 +660,14 @@ export const runFeed = internalAction({
         title: parsed.title || feed.title
       });
 
-      return { feedId: feed._id, ok: true, syncedArticles: articles.length };
+      return {
+        feedId: feed._id,
+        inserted: upsertResult.inserted,
+        ok: true,
+        skipped: upsertResult.skipped,
+        syncedArticles: articles.length,
+        updated: upsertResult.updated
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await ctx.runMutation(internal.sync.markFeedError, {

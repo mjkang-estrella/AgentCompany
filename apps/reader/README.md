@@ -2,7 +2,7 @@
 
 Reader is a standalone private RSS reader app with a lightweight HTML client, static hosting, and a Convex backend for persistence, pagination, and scheduled syncing.
 
-The reader is page-based by default: it loads exact sidebar counts plus the newest 50 summaries first, fetches the selected article body separately, and appends older summaries with infinite scroll.
+The reader is page-based by default: it loads exact sidebar counts plus the newest 50 summaries first, fetches the selected article body separately, and appends older summaries with infinite scroll. Article summaries and article bodies are stored separately in Convex so list queries do not read full HTML blobs.
 
 Adding a feed is asynchronous: the app creates the feed immediately, makes it visible in the feed list, and queues the first sync in Convex.
 
@@ -12,7 +12,7 @@ Reader also has a separate `Articles` section in the sidebar. It accepts a singl
 
 Individual articles can be deleted from the top-right actions in the reading pane. Deletions are soft for feed-backed items so they stay gone on later syncs.
 
-During sync, the reader prefers richer feed-provided sources when available. For example, if an RSS item exposes a custom markdown source URL, the sync job uses that instead of scraping the public article page.
+During sync, the reader prefers richer feed-provided sources when available. For example, if an RSS item exposes a custom markdown source URL, the sync job uses that instead of scraping the public article page. Scheduled sync runs every 30 minutes and only rewrites feed items when their content hash changes.
 
 When a feed exposes article imagery, the sync job stores `thumbnail_url` on the article and the reader uses it as a hero image at the top of the opened document when appropriate.
 

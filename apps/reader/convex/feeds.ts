@@ -8,6 +8,71 @@ import { resolveFeedInput } from "../lib/feed-discovery.mjs";
 
 const getFeedGroup = (value) => (value.feedGroup || value.folder || "Uncategorized").trim() || "Uncategorized";
 
+const clampCount = (value: number) => Math.max(0, value || 0);
+
+const mergeFeedGroupCounts = (
+  current: Record<string, number>,
+  delta: Record<string, number>
+) => {
+  const next = { ...current };
+
+  for (const [feedGroup, change] of Object.entries(delta)) {
+    const candidate = clampCount((next[feedGroup] || 0) + change);
+    if (candidate === 0) {
+      delete next[feedGroup];
+      continue;
+    }
+
+    next[feedGroup] = candidate;
+  }
+
+  return next;
+};
+
+const applyStatsDeltaInDb = async (
+  ctx: { db: any },
+  delta: {
+    all: number;
+    feedGroups: Record<string, number>;
+    manual: number;
+    saved: number;
+  }
+) => {
+  const existing = await ctx.db
+    .query("readerStats")
+    .withIndex("by_name", (q: any) => q.eq("name", "global"))
+    .unique();
+
+  const current = existing ? {
+    all: existing.all,
+    feedGroups: existing.feedGroups,
+    manual: existing.manual,
+    saved: existing.saved
+  } : {
+    all: 0,
+    feedGroups: {} as Record<string, number>,
+    manual: 0,
+    saved: 0
+  };
+
+  const next = {
+    all: clampCount(current.all + delta.all),
+    feedGroups: mergeFeedGroupCounts(current.feedGroups, delta.feedGroups),
+    manual: clampCount(current.manual + delta.manual),
+    saved: clampCount(current.saved + delta.saved)
+  };
+
+  if (existing) {
+    await ctx.db.patch(existing._id, next);
+    return existing._id;
+  }
+
+  return ctx.db.insert("readerStats", {
+    ...next,
+    name: "global"
+  });
+};
+
 const mapFeed = (feed: Doc<"feeds">) => ({
   feedGroup: getFeedGroup(feed),
   iconUrl: feed.iconUrl || "",
@@ -190,8 +255,49 @@ export const deleteArticleIds = internalMutation({
     articleIds: v.array(v.id("articles"))
   },
   handler: async (ctx, args) => {
+    const delta = {
+      all: 0,
+      feedGroups: {} as Record<string, number>,
+      manual: 0,
+      saved: 0
+    };
+
     for (const articleId of args.articleIds) {
+      const article = await ctx.db.get(articleId);
+      const body = await ctx.db
+        .query("articleBodies")
+        .withIndex("by_article_id", (q) => q.eq("articleId", articleId))
+        .unique();
+
+      if (body) {
+        await ctx.db.delete(body._id);
+      }
+
+      if (article && !article.deletedAt) {
+        delta.all -= 1;
+        if (article.isSaved) {
+          delta.saved -= 1;
+        }
+        if ((article.sourceType || "feed") === "manual") {
+          delta.manual -= 1;
+        } else {
+          const feedGroup = getFeedGroup(article);
+          if (feedGroup) {
+            delta.feedGroups[feedGroup] = (delta.feedGroups[feedGroup] || 0) - 1;
+          }
+        }
+      }
+
       await ctx.db.delete(articleId);
+    }
+
+    if (
+      delta.all !== 0 ||
+      delta.saved !== 0 ||
+      delta.manual !== 0 ||
+      Object.keys(delta.feedGroups).length > 0
+    ) {
+      await applyStatsDeltaInDb(ctx, delta);
     }
   }
 });

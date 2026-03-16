@@ -27,9 +27,10 @@ export default defineSchema({
 
   articles: defineTable({
     author: v.optional(v.string()),
-    bodyHtml: v.string(),
-    bodySource: v.union(v.literal("feed"), v.literal("fetched")),
     canonicalUrl: v.optional(v.string()),
+    bodyHtml: v.optional(v.string()),
+    bodySource: v.optional(v.union(v.literal("feed"), v.literal("fetched"))),
+    contentHash: v.optional(v.string()),
     deletedAt: v.optional(v.number()),
     externalId: v.string(),
     feedGroup: v.optional(v.string()),
@@ -46,7 +47,7 @@ export default defineSchema({
     readTimeMinutes: v.number(),
     savedAt: v.optional(v.number()),
     sourceType: v.optional(v.union(v.literal("feed"), v.literal("manual"))),
-    summaryHtml: v.string(),
+    summaryHtml: v.optional(v.string()),
     thumbnailUrl: v.optional(v.string()),
     title: v.string(),
     url: v.string()
@@ -56,5 +57,20 @@ export default defineSchema({
     .index("by_feed_group_and_published_at", ["feedGroup", "publishedAt"])
     .index("by_saved_and_published_at", ["isSaved", "publishedAt"])
     .index("by_feed_id_and_published_at", ["feedId", "publishedAt"])
-    .index("by_canonical_url", ["canonicalUrl"])
+    .index("by_canonical_url", ["canonicalUrl"]),
+
+  articleBodies: defineTable({
+    articleId: v.id("articles"),
+    bodyHtml: v.string(),
+    bodySource: v.union(v.literal("feed"), v.literal("fetched")),
+    summaryHtml: v.string()
+  }).index("by_article_id", ["articleId"]),
+
+  readerStats: defineTable({
+    all: v.number(),
+    feedGroups: v.record(v.string(), v.number()),
+    manual: v.number(),
+    name: v.string(),
+    saved: v.number()
+  }).index("by_name", ["name"])
 });
