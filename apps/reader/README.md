@@ -12,7 +12,7 @@ Reader also has a separate `Articles` section in the sidebar. It accepts a singl
 
 Individual articles can be deleted from the top-right actions in the reading pane. Deletions are soft for feed-backed items so they stay gone on later syncs.
 
-During sync, the reader prefers richer feed-provided sources when available. For example, if an RSS item exposes a custom markdown source URL, the sync job uses that instead of scraping the public article page. Scheduled sync runs every 30 minutes and only rewrites feed items when their content hash changes.
+During sync and manual article import, the reader uses Defuddle with a Node DOM shim to extract readable article bodies from fetched pages. A server-side body normalizer removes duplicated lead metadata, utility links, and promo/footer chrome before the article is stored. If an RSS item exposes a richer custom markdown source URL, the sync job still prefers that over page extraction. Scheduled sync runs every 30 minutes and only rewrites feed items when their content hash changes.
 
 When a feed exposes article imagery, the sync job stores `thumbnail_url` on the article and the reader uses it as a hero image at the top of the opened document when appropriate.
 

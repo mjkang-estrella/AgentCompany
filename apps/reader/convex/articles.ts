@@ -4,14 +4,9 @@ import { internal } from "./_generated/api";
 import { action, internalMutation, internalQuery } from "./_generated/server";
 
 import { hashArticleContent } from "../lib/content-hash.mjs";
-import {
-  canonicalizeUrl,
-  estimateReadTime,
-  extractPageMetadata,
-  extractReadableContent,
-  sanitizeFragment,
-  stripHtml
-} from "../lib/html.mjs";
+import { extractPageWithDefuddle } from "../lib/page-extractor.mjs";
+import { normalizeArticleContent } from "../lib/article-body-normalizer.mjs";
+import { canonicalizeUrl, stripHtml } from "../lib/html.mjs";
 
 const DEFAULT_HEADERS = {
   "user-agent": "AgentCompany Reader/1.0 (+https://agent.company)"
@@ -141,6 +136,27 @@ const isRicherArticle = (existing: any, existingBody: any, incoming: any) => {
   );
 };
 
+const shouldUpdateExistingExtraction = (existing: any, existingBody: any, incoming: any) => {
+  const existingBodyHtml = existingBody?.bodyHtml || existing.bodyHtml || "";
+  const existingSummaryHtml = existingBody?.summaryHtml || existing.summaryHtml || "";
+  const existingLength = stripHtml(existingBodyHtml || existingSummaryHtml).length;
+  const incomingLength = stripHtml(incoming.bodyHtml || incoming.summaryHtml).length;
+
+  return (
+    incomingLength > existingLength + 120 ||
+    (incomingLength >= Math.max(120, existingLength - 40) && (
+      existingBodyHtml !== incoming.bodyHtml ||
+      existingSummaryHtml !== incoming.summaryHtml ||
+      (existing.subtitle || "") !== (incoming.subtitle || "") ||
+      (existing.thumbnailUrl || "") !== (incoming.thumbnailUrl || "") ||
+      (existing.author || "") !== (incoming.author || "") ||
+      (existing.canonicalUrl || "") !== (incoming.canonicalUrl || "")
+    )) ||
+    (!existing.thumbnailUrl && Boolean(incoming.thumbnailUrl)) ||
+    (!existing.author && Boolean(incoming.author))
+  );
+};
+
 export const getByCanonicalUrl = internalQuery({
   args: {
     canonicalUrl: v.string()
@@ -150,6 +166,188 @@ export const getByCanonicalUrl = internalQuery({
       .query("articles")
       .withIndex("by_canonical_url", (q) => q.eq("canonicalUrl", args.canonicalUrl))
       .unique()
+});
+
+export const listReextractBatch = internalQuery({
+  args: {
+    cursor: v.optional(v.string()),
+    limit: v.optional(v.number())
+  },
+  handler: async (ctx, args) => {
+    const pagination = await ctx.db
+      .query("articles")
+      .withIndex("by_published_at")
+      .order("desc")
+      .filter((q) => q.eq(q.field("deletedAt"), undefined))
+      .paginate({
+        cursor: args.cursor ?? null,
+        numItems: Math.min(Math.max(args.limit || 25, 1), 100)
+      });
+
+    return {
+      articles: pagination.page.map((article) => ({
+        _id: article._id,
+        author: article.author || "",
+        canonicalUrl: article.canonicalUrl || "",
+        feedTitle: article.feedTitle,
+        publishedAt: article.publishedAt,
+        readTimeMinutes: article.readTimeMinutes,
+        sourceType: article.sourceType || "feed",
+        subtitle: article.subtitle || "",
+        thumbnailUrl: article.thumbnailUrl || "",
+        title: article.title,
+        url: article.url
+      })),
+      isDone: pagination.isDone,
+      nextCursor: pagination.isDone ? null : pagination.continueCursor
+    };
+  }
+});
+
+export const getArticleForReextract = internalQuery({
+  args: {
+    articleId: v.id("articles")
+  },
+  handler: async (ctx, args) => {
+    const article = await ctx.db.get(args.articleId);
+    if (!article || article.deletedAt) {
+      return null;
+    }
+
+    const body = await getBodyDoc(ctx, args.articleId);
+    return {
+      article,
+      body
+    };
+  }
+});
+
+export const applyReextractedArticle = internalMutation({
+  args: {
+    articleId: v.id("articles"),
+    extraction: v.object({
+      author: v.optional(v.string()),
+      bodyHtml: v.string(),
+      bodySource: v.union(v.literal("feed"), v.literal("fetched")),
+      canonicalUrl: v.string(),
+      contentHash: v.string(),
+      previewText: v.string(),
+      readTimeMinutes: v.number(),
+      summaryHtml: v.string(),
+      subtitle: v.optional(v.string()),
+      thumbnailUrl: v.optional(v.string()),
+      title: v.optional(v.string())
+    })
+  },
+  handler: async (ctx, args) => {
+    const current = await ctx.db.get(args.articleId);
+    if (!current || current.deletedAt) {
+      return { updated: false, reason: "missing" as const };
+    }
+
+    const currentBody = await getBodyDoc(ctx, args.articleId);
+    const next = {
+      author: args.extraction.author || current.author,
+      bodyHtml: args.extraction.bodyHtml,
+      canonicalUrl: args.extraction.canonicalUrl || current.canonicalUrl || canonicalizeUrl(current.url),
+      previewText: args.extraction.previewText,
+      readTimeMinutes: args.extraction.readTimeMinutes,
+      summaryHtml: args.extraction.summaryHtml,
+      subtitle: args.extraction.subtitle || current.subtitle,
+      thumbnailUrl: args.extraction.thumbnailUrl || current.thumbnailUrl,
+      title: current.title || args.extraction.title || current.title
+    };
+
+    if (!shouldUpdateExistingExtraction(current, currentBody, next)) {
+      return { updated: false, reason: "unchanged" as const };
+    }
+
+    await ctx.db.patch(args.articleId, {
+      author: next.author,
+      bodyHtml: undefined,
+      bodySource: undefined,
+      canonicalUrl: next.canonicalUrl,
+      contentHash: args.extraction.contentHash,
+      previewText: next.previewText,
+      readTimeMinutes: next.readTimeMinutes,
+      summaryHtml: undefined,
+      subtitle: next.subtitle,
+      thumbnailUrl: next.thumbnailUrl,
+      title: next.title
+    });
+
+    if (currentBody) {
+      await ctx.db.patch(currentBody._id, {
+        bodyHtml: args.extraction.bodyHtml,
+        bodySource: args.extraction.bodySource,
+        summaryHtml: args.extraction.summaryHtml
+      });
+    } else {
+      await ctx.db.insert("articleBodies", {
+        articleId: args.articleId,
+        bodyHtml: args.extraction.bodyHtml,
+        bodySource: args.extraction.bodySource,
+        summaryHtml: args.extraction.summaryHtml
+      });
+    }
+
+    return { updated: true };
+  }
+});
+
+export const applyNormalizedStoredBody = internalMutation({
+  args: {
+    articleId: v.id("articles"),
+    bodyHtml: v.string(),
+    contentHash: v.string(),
+    previewText: v.string(),
+    readTimeMinutes: v.number(),
+    summaryHtml: v.string(),
+    subtitle: v.optional(v.string())
+  },
+  handler: async (ctx, args) => {
+    const current = await ctx.db.get(args.articleId);
+    if (!current || current.deletedAt) {
+      return { updated: false, reason: "missing" as const };
+    }
+
+    const body = await getBodyDoc(ctx, args.articleId);
+    const currentBodyHtml = body?.bodyHtml || current.bodyHtml || "";
+    const currentSummaryHtml = body?.summaryHtml || current.summaryHtml || "";
+
+    if (
+      currentBodyHtml === args.bodyHtml &&
+      currentSummaryHtml === args.summaryHtml &&
+      (current.previewText || "") === args.previewText &&
+      (current.readTimeMinutes || 0) === args.readTimeMinutes &&
+      (current.subtitle || "") === (args.subtitle || "")
+    ) {
+      return { updated: false, reason: "unchanged" as const };
+    }
+
+    await ctx.db.patch(args.articleId, {
+      contentHash: args.contentHash,
+      previewText: args.previewText,
+      readTimeMinutes: args.readTimeMinutes,
+      subtitle: args.subtitle
+    });
+
+    if (body) {
+      await ctx.db.patch(body._id, {
+        bodyHtml: args.bodyHtml,
+        summaryHtml: args.summaryHtml
+      });
+    } else {
+      await ctx.db.insert("articleBodies", {
+        articleId: args.articleId,
+        bodyHtml: args.bodyHtml,
+        bodySource: "feed",
+        summaryHtml: args.summaryHtml
+      });
+    }
+
+    return { updated: true };
+  }
 });
 
 export const upsertManualArticle = internalMutation({
@@ -168,6 +366,7 @@ export const upsertManualArticle = internalMutation({
       publishedAt: v.number(),
       readTimeMinutes: v.number(),
       summaryHtml: v.string(),
+      subtitle: v.optional(v.string()),
       thumbnailUrl: v.optional(v.string()),
       title: v.string(),
       url: v.string()
@@ -201,6 +400,7 @@ export const upsertManualArticle = internalMutation({
         readTimeMinutes: args.article.readTimeMinutes,
         sourceType: "manual",
         summaryHtml: undefined,
+        subtitle: args.article.subtitle,
         thumbnailUrl: args.article.thumbnailUrl,
         title: args.article.title,
         url: args.article.url
@@ -245,6 +445,7 @@ export const upsertManualArticle = internalMutation({
         readTimeMinutes: args.article.readTimeMinutes,
         savedAt: shouldRestore ? undefined : existing.savedAt,
         summaryHtml: undefined,
+        subtitle: args.article.subtitle || existing.subtitle,
         thumbnailUrl: args.article.thumbnailUrl || existing.thumbnailUrl,
         title: existing.title || args.article.title,
         url: args.article.url
@@ -301,48 +502,256 @@ export const addFromUrl = action({
     }
 
     const page = await fetchText(requestedUrl);
-    const canonicalUrl = canonicalizeUrl(page.url);
-    const metadata = extractPageMetadata(page.text, page.url);
-    const extractedBody = extractReadableContent(page.text);
-    const fallbackSummary = metadata.description ? `<p>${metadata.description}</p>` : "";
-    const bodyHtml = sanitizeFragment(extractedBody || fallbackSummary);
-    const summaryHtml = sanitizeFragment(fallbackSummary || bodyHtml);
-    const title = metadata.title || deriveSiteTitle(page.url, metadata.siteName);
-    const previewText = stripHtml(summaryHtml || bodyHtml).slice(0, 220);
+    const extracted = await extractPageWithDefuddle(page.text, page.url);
+    const canonicalUrl = extracted.canonicalUrl || canonicalizeUrl(page.url);
+    const title = extracted.title || deriveSiteTitle(page.url, extracted.siteName);
+    const normalizedArticle = normalizeArticleContent({
+      author: extracted.author || "",
+      bodyHtml: extracted.bodyHtml,
+      feedTitle: deriveSiteTitle(page.url, extracted.siteName),
+      publishedAt: extracted.publishedAt,
+      summaryHtml: extracted.summaryHtml || extracted.bodyHtml,
+      thumbnailUrl: extracted.thumbnailUrl || "",
+      title
+    });
+    const bodyHtml = normalizedArticle.bodyHtml;
+    const summaryHtml = normalizedArticle.summaryHtml;
+    const subtitle = normalizedArticle.subtitle || undefined;
+    const previewText = normalizedArticle.previewText || stripHtml(summaryHtml || bodyHtml).slice(0, 220);
 
-    if (!title || stripHtml(bodyHtml || summaryHtml).length < 40) {
+    if (
+      extracted.quality !== "usable" ||
+      !title ||
+      stripHtml(bodyHtml || summaryHtml).length < 40
+    ) {
       throw new Error("Could not extract a readable article body from that URL");
     }
 
     return ctx.runMutation(internal.articles.upsertManualArticle, {
       article: {
-        author: metadata.author || undefined,
+        author: extracted.author || undefined,
         bodyHtml,
         bodySource: "fetched",
         canonicalUrl,
         contentHash: hashArticleContent({
-          author: metadata.author || "",
+          author: extracted.author || "",
           bodyHtml,
           canonicalUrl,
           previewText,
-          publishedAt: normalizePublishedAt(metadata.publishedAt),
+          publishedAt: normalizePublishedAt(extracted.publishedAt),
           summaryHtml,
-          thumbnailUrl: metadata.thumbnailUrl || "",
+          subtitle,
+          thumbnailUrl: extracted.thumbnailUrl || "",
           title,
           url: page.url
         }),
         externalId: canonicalUrl,
         feedIconUrl: undefined,
         feedSiteUrl: new URL(page.url).origin,
-        feedTitle: deriveSiteTitle(page.url, metadata.siteName),
+        feedTitle: deriveSiteTitle(page.url, extracted.siteName),
         previewText,
-        publishedAt: normalizePublishedAt(metadata.publishedAt),
-        readTimeMinutes: estimateReadTime(bodyHtml),
+        publishedAt: normalizePublishedAt(extracted.publishedAt),
+        readTimeMinutes: Math.max(extracted.readTimeMinutes || 0, normalizedArticle.readTimeMinutes),
         summaryHtml,
-        thumbnailUrl: metadata.thumbnailUrl || undefined,
+        subtitle,
+        thumbnailUrl: extracted.thumbnailUrl || undefined,
         title,
         url: page.url
       }
     });
+  }
+});
+
+export const reextractExistingArticles = action({
+  args: {
+    limit: v.optional(v.number())
+  },
+  handler: async (ctx, args) => {
+    const perPage = Math.min(Math.max(args.limit || 25, 1), 100);
+    let cursor = null;
+    let scanned = 0;
+    let updated = 0;
+    let failed = 0;
+    const errors = [];
+
+    while (true) {
+      const batch = await ctx.runQuery(internal.articles.listReextractBatch, {
+        cursor: cursor || undefined,
+        limit: perPage
+      });
+
+      for (const summary of batch.articles) {
+        scanned += 1;
+
+        try {
+          const page = await fetchText(summary.url);
+          const extracted = await extractPageWithDefuddle(page.text, page.url);
+          const normalizedArticle = normalizeArticleContent({
+            author: extracted.author || summary.author || "",
+            bodyHtml: extracted.bodyHtml,
+            publishedAt: summary.publishedAt,
+            summaryHtml: extracted.summaryHtml || extracted.bodyHtml,
+            thumbnailUrl: extracted.thumbnailUrl || summary.thumbnailUrl || "",
+            title: extracted.title || summary.title
+          });
+          const bodyHtml = normalizedArticle.bodyHtml;
+          const summaryHtml = normalizedArticle.summaryHtml;
+          const subtitle = normalizedArticle.subtitle || undefined;
+          const previewText = normalizedArticle.previewText || stripHtml(summaryHtml || bodyHtml).slice(0, 220);
+
+          if (
+            extracted.quality !== "usable" ||
+            stripHtml(bodyHtml || summaryHtml).length < 40
+          ) {
+            failed += 1;
+            if (errors.length < 10) {
+              errors.push(`Too little content for ${summary.url}`);
+            }
+            continue;
+          }
+
+          const result = await ctx.runMutation(internal.articles.applyReextractedArticle, {
+            articleId: summary._id,
+            extraction: {
+              author: extracted.author || undefined,
+              bodyHtml,
+              bodySource: "fetched",
+              canonicalUrl: extracted.canonicalUrl || canonicalizeUrl(page.url),
+              contentHash: hashArticleContent({
+                author: extracted.author || summary.author || "",
+                bodyHtml,
+                canonicalUrl: extracted.canonicalUrl || canonicalizeUrl(page.url),
+                previewText,
+                publishedAt: summary.publishedAt,
+                summaryHtml,
+                subtitle,
+                thumbnailUrl: extracted.thumbnailUrl || summary.thumbnailUrl || "",
+                title: summary.title,
+                url: page.url
+              }),
+              previewText,
+              readTimeMinutes: Math.max(
+                extracted.readTimeMinutes || 0,
+                normalizedArticle.readTimeMinutes || summary.readTimeMinutes || 1
+              ),
+              summaryHtml,
+              subtitle,
+              thumbnailUrl: extracted.thumbnailUrl || undefined,
+              title: extracted.title || summary.title
+            }
+          });
+
+          if (result.updated) {
+            updated += 1;
+          }
+        } catch (error) {
+          failed += 1;
+          if (errors.length < 10) {
+            errors.push(`${summary.url}: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+      }
+
+      if (batch.isDone || !batch.nextCursor) {
+        break;
+      }
+
+      cursor = batch.nextCursor;
+    }
+
+    return {
+      failed,
+      scanned,
+      updated,
+      errors
+    };
+  }
+});
+
+export const normalizeStoredBodies = action({
+  args: {
+    limit: v.optional(v.number())
+  },
+  handler: async (ctx, args) => {
+    const perPage = Math.min(Math.max(args.limit || 25, 1), 100);
+    let cursor = null;
+    let scanned = 0;
+    let updated = 0;
+    let skipped = 0;
+
+    while (true) {
+      const batch = await ctx.runQuery(internal.articles.listReextractBatch, {
+        cursor: cursor || undefined,
+        limit: perPage
+      });
+
+      for (const summary of batch.articles) {
+        scanned += 1;
+
+        const current = await ctx.runQuery(internal.articles.getArticleForReextract, {
+          articleId: summary._id
+        });
+        if (!current) {
+          skipped += 1;
+          continue;
+        }
+
+        const currentBodyHtml = current.body?.bodyHtml || current.article.bodyHtml || "";
+        const currentSummaryHtml = current.body?.summaryHtml || current.article.summaryHtml || "";
+        if (!currentBodyHtml && !currentSummaryHtml) {
+          skipped += 1;
+          continue;
+        }
+
+        const normalizedArticle = normalizeArticleContent({
+          author: current.article.author || "",
+          bodyHtml: currentBodyHtml,
+          feedTitle: current.article.feedTitle || "",
+          publishedAt: new Date(current.article.publishedAt).toISOString(),
+          summaryHtml: currentSummaryHtml,
+          thumbnailUrl: current.article.thumbnailUrl || "",
+          title: current.article.title
+        });
+
+        const result = await ctx.runMutation(internal.articles.applyNormalizedStoredBody, {
+          articleId: current.article._id,
+          bodyHtml: normalizedArticle.bodyHtml,
+          contentHash: hashArticleContent({
+            author: current.article.author || "",
+            bodyHtml: normalizedArticle.bodyHtml,
+            canonicalUrl: current.article.canonicalUrl || canonicalizeUrl(current.article.url),
+            previewText: normalizedArticle.previewText,
+            publishedAt: current.article.publishedAt,
+            summaryHtml: normalizedArticle.summaryHtml,
+            subtitle: normalizedArticle.subtitle || current.article.subtitle || "",
+            thumbnailUrl: current.article.thumbnailUrl || "",
+            title: current.article.title,
+            url: current.article.url
+          }),
+          previewText: normalizedArticle.previewText,
+          readTimeMinutes: normalizedArticle.readTimeMinutes || current.article.readTimeMinutes || 1,
+          summaryHtml: normalizedArticle.summaryHtml,
+          subtitle: normalizedArticle.subtitle || undefined
+        });
+
+        if (result.updated) {
+          updated += 1;
+        } else {
+          skipped += 1;
+        }
+      }
+
+      if (batch.isDone || !batch.nextCursor) {
+        break;
+      }
+
+      cursor = batch.nextCursor;
+    }
+
+    return {
+      scanned,
+      skipped,
+      updated
+    };
   }
 });

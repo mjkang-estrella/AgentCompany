@@ -21,6 +21,7 @@ export const hashArticleContent = ({
   previewText = "",
   publishedAt = 0,
   summaryHtml = "",
+  subtitle = "",
   thumbnailUrl = "",
   title = "",
   url = ""
@@ -28,6 +29,7 @@ export const hashArticleContent = ({
   simpleHash(
     [
       normalizePart(title),
+      normalizePart(subtitle),
       normalizePart(author),
       normalizePart(canonicalUrl || url),
       String(publishedAt || 0),

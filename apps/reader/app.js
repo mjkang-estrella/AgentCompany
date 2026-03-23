@@ -727,6 +727,7 @@ const renderArticle = () => {
         ${escapeHtml(article.feedTitle)}
       </div>
       <h1 class="article-h1">${escapeHtml(article.title)}</h1>
+      ${article.subtitle ? `<div class="article-subtitle">${escapeHtml(article.subtitle)}</div>` : ""}
       <div class="article-meta-row">
         <span>By <span class="article-author">${escapeHtml(article.author || "Unknown author")}</span></span>
         <span>•</span>

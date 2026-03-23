@@ -48,6 +48,7 @@ export default defineSchema({
     savedAt: v.optional(v.number()),
     sourceType: v.optional(v.union(v.literal("feed"), v.literal("manual"))),
     summaryHtml: v.optional(v.string()),
+    subtitle: v.optional(v.string()),
     thumbnailUrl: v.optional(v.string()),
     title: v.string(),
     url: v.string()

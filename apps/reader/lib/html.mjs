@@ -254,6 +254,11 @@ export const extractPageMetadata = (html, pageUrl) => {
 
   return {
     author,
+    canonicalUrl: firstNonEmpty(
+      resolveMaybeUrl(root.querySelector("link[rel='canonical']")?.getAttribute("href") || "", pageUrl),
+      resolveMaybeUrl(metaContent(root, "meta[property='og:url']"), pageUrl),
+      canonicalizeUrl(pageUrl)
+    ),
     description: firstNonEmpty(
       metaContent(root, "meta[name='description']"),
       metaContent(root, "meta[property='og:description']"),

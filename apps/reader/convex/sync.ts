@@ -5,10 +5,11 @@ import { action, internalAction, internalMutation, internalQuery } from "./_gene
 
 import { parseFeed } from "../lib/feed-utils.mjs";
 import { hashArticleContent } from "../lib/content-hash.mjs";
+import { extractPageWithDefuddle } from "../lib/page-extractor.mjs";
+import { normalizeArticleContent } from "../lib/article-body-normalizer.mjs";
 import {
   canonicalizeUrl,
   estimateReadTime,
-  extractReadableContent,
   renderMarkdownFragment,
   sanitizeFragment,
   stripHtml
@@ -63,11 +64,24 @@ const normalizePublishedAt = (value: string) => {
   return Number.isNaN(parsed.valueOf()) ? Date.now() : parsed.valueOf();
 };
 
-const maybeFetchArticleBody = async (url: string, existingHtml: string, markdownUrl = "") => {
+const maybeFetchArticleBody = async (
+  url: string,
+  existingHtml: string,
+  markdownUrl = ""
+) => {
   if (stripHtml(existingHtml).length >= 400 || (!url && !markdownUrl)) {
     return {
+      author: "",
       bodyHtml: sanitizeFragment(existingHtml),
-      bodySource: "feed" as const
+      bodySource: "feed" as const,
+      canonicalUrl: canonicalizeUrl(url),
+      publishedAt: "",
+      quality: "usable" as const,
+      readTimeMinutes: estimateReadTime(existingHtml),
+      rejectionReason: "",
+      siteName: "",
+      thumbnailUrl: "",
+      title: ""
     };
   }
 
@@ -77,8 +91,17 @@ const maybeFetchArticleBody = async (url: string, existingHtml: string, markdown
       const rendered = renderMarkdownFragment(markdown.text);
       if (stripHtml(rendered).length > stripHtml(existingHtml).length) {
         return {
+          author: "",
           bodyHtml: rendered,
-          bodySource: "fetched" as const
+          bodySource: "fetched" as const,
+          canonicalUrl: canonicalizeUrl(url),
+          publishedAt: "",
+          quality: "usable" as const,
+          readTimeMinutes: estimateReadTime(rendered),
+          rejectionReason: "",
+          siteName: "",
+          thumbnailUrl: "",
+          title: ""
         };
       }
     } catch {
@@ -89,11 +112,23 @@ const maybeFetchArticleBody = async (url: string, existingHtml: string, markdown
   if (url) {
     try {
       const page = await fetchText(url);
-      const extracted = extractReadableContent(page.text);
-      if (stripHtml(extracted).length > stripHtml(existingHtml).length) {
+      const extracted = await extractPageWithDefuddle(page.text, page.url);
+      if (
+        extracted.quality === "usable" &&
+        stripHtml(extracted.bodyHtml).length > stripHtml(existingHtml).length
+      ) {
         return {
-          bodyHtml: extracted,
-          bodySource: "fetched" as const
+          author: extracted.author,
+          bodyHtml: extracted.bodyHtml,
+          bodySource: "fetched" as const,
+          canonicalUrl: extracted.canonicalUrl,
+          publishedAt: extracted.publishedAt,
+          quality: extracted.quality,
+          readTimeMinutes: extracted.readTimeMinutes,
+          rejectionReason: extracted.rejectionReason,
+          siteName: extracted.siteName,
+          thumbnailUrl: extracted.thumbnailUrl,
+          title: extracted.title
         };
       }
     } catch {
@@ -102,8 +137,17 @@ const maybeFetchArticleBody = async (url: string, existingHtml: string, markdown
   }
 
   return {
+    author: "",
     bodyHtml: sanitizeFragment(existingHtml),
-    bodySource: "feed" as const
+    bodySource: "feed" as const,
+    canonicalUrl: canonicalizeUrl(url),
+    publishedAt: "",
+    quality: "weak" as const,
+    readTimeMinutes: estimateReadTime(existingHtml),
+    rejectionReason: "feed-body-retained",
+    siteName: "",
+    thumbnailUrl: "",
+    title: ""
   };
 };
 
@@ -324,6 +368,7 @@ export const upsertArticles = internalMutation({
         readTimeMinutes: v.number(),
         sourceType: v.union(v.literal("feed"), v.literal("manual")),
         summaryHtml: v.string(),
+        subtitle: v.optional(v.string()),
         thumbnailUrl: v.optional(v.string()),
         title: v.string(),
         url: v.string()
@@ -360,6 +405,7 @@ export const upsertArticles = internalMutation({
           existing.publishedAt !== article.publishedAt ||
           existing.readTimeMinutes !== article.readTimeMinutes ||
           getSourceType(existing) !== article.sourceType ||
+          (existing.subtitle || "") !== (article.subtitle || "") ||
           (existing.thumbnailUrl || "") !== (article.thumbnailUrl || "") ||
           existing.title !== article.title ||
           existing.url !== article.url;
@@ -404,6 +450,7 @@ export const upsertArticles = internalMutation({
           readTimeMinutes: article.readTimeMinutes,
           sourceType: article.sourceType,
           summaryHtml: undefined,
+          subtitle: article.subtitle,
           thumbnailUrl: article.thumbnailUrl,
           title: article.title,
           url: article.url
@@ -459,6 +506,7 @@ export const upsertArticles = internalMutation({
         readTimeMinutes: article.readTimeMinutes,
         sourceType: article.sourceType,
         summaryHtml: undefined,
+        subtitle: article.subtitle,
         thumbnailUrl: article.thumbnailUrl,
         title: article.title,
         url: article.url
@@ -589,28 +637,45 @@ export const runFeed = internalAction({
           entry.bodyHtml || entry.summaryHtml,
           entry.markdownUrl
         );
-        const bodyHtml = fetchedBody.bodyHtml || sanitizeFragment(entry.summaryHtml || "");
-        const summaryHtml = sanitizeFragment(entry.summaryHtml || bodyHtml);
-        const previewText = stripHtml(summaryHtml || bodyHtml).slice(0, 220);
+        const normalizedArticle = normalizeArticleContent({
+          author: fetchedBody.author || entry.author || "",
+          bodyHtml: fetchedBody.bodyHtml || sanitizeFragment(entry.summaryHtml || ""),
+          feedTitle: parsed.title || feed.title,
+          publishedAt: fetchedBody.publishedAt || entry.publishedAt,
+          summaryHtml: sanitizeFragment(entry.summaryHtml || fetchedBody.bodyHtml || ""),
+          thumbnailUrl: fetchedBody.thumbnailUrl || entry.thumbnailUrl || "",
+          title: fetchedBody.title || entry.title
+        });
+        const bodyHtml = normalizedArticle.bodyHtml;
+        const summaryHtml = normalizedArticle.summaryHtml;
+        const previewText = normalizedArticle.previewText;
         const thumbnailUrl =
+          fetchedBody.thumbnailUrl ||
           entry.thumbnailUrl ||
           findFirstImageUrl(bodyHtml || summaryHtml, entry.url || parsed.siteUrl || response.url) ||
           undefined;
+        const canonicalUrl = fetchedBody.canonicalUrl || canonicalizeUrl(entry.url);
+        const title = fetchedBody.title || entry.title;
+        const subtitle = normalizedArticle.subtitle || undefined;
+        const author = fetchedBody.author || entry.author || undefined;
+        const publishedValue = fetchedBody.publishedAt || entry.publishedAt;
+        const publishedAtValue = normalizePublishedAt(publishedValue);
 
         articles.push({
-          author: entry.author || undefined,
+          author,
           bodyHtml,
           bodySource: fetchedBody.bodySource,
-          canonicalUrl: canonicalizeUrl(entry.url),
+          canonicalUrl,
           contentHash: hashArticleContent({
-            author: entry.author || "",
+            author: author || "",
             bodyHtml,
-            canonicalUrl: canonicalizeUrl(entry.url),
+            canonicalUrl,
             previewText,
-            publishedAt,
+            publishedAt: publishedAtValue,
             summaryHtml,
+            subtitle,
             thumbnailUrl,
-            title: entry.title,
+            title,
             url: entry.url
           }),
           externalId: entry.externalId,
@@ -620,12 +685,16 @@ export const runFeed = internalAction({
           feedSiteUrl: parsed.siteUrl || feed.siteUrl || undefined,
           feedTitle: parsed.title || feed.title,
           previewText,
-          publishedAt,
-          readTimeMinutes: estimateReadTime(bodyHtml),
+          publishedAt: publishedAtValue,
+          readTimeMinutes: Math.max(
+            fetchedBody.readTimeMinutes || 0,
+            normalizedArticle.readTimeMinutes || estimateReadTime(bodyHtml)
+          ),
           sourceType: "feed" as const,
           summaryHtml,
+          subtitle,
           thumbnailUrl,
-          title: entry.title,
+          title,
           url: entry.url
         });
       }

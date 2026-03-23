@@ -250,6 +250,7 @@ test("extractPageMetadata reads article metadata from common meta tags", () => {
     <html>
       <head>
         <title>Ignored title</title>
+        <link rel="canonical" href="/posts/canonical-title">
         <meta property="og:title" content="Real title">
         <meta property="og:site_name" content="Example Site">
         <meta property="article:published_time" content="2026-03-14T08:30:00Z">
@@ -263,6 +264,7 @@ test("extractPageMetadata reads article metadata from common meta tags", () => {
   assert.equal(metadata.title, "Real title");
   assert.equal(metadata.siteName, "Example Site");
   assert.equal(metadata.author, "Jane Writer");
+  assert.equal(metadata.canonicalUrl, "https://example.com/posts/canonical-title");
   assert.equal(metadata.description, "Useful summary");
   assert.equal(metadata.publishedAt, "2026-03-14T08:30:00Z");
   assert.equal(metadata.thumbnailUrl, "https://example.com/hero.jpg");

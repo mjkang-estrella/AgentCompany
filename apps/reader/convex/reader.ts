@@ -53,6 +53,7 @@ const articleSummary = (article: Doc<"articles">) => ({
   publishedAt: new Date(article.publishedAt).toISOString(),
   readTimeMinutes: article.readTimeMinutes,
   sourceType: getSourceType(article),
+  subtitle: article.subtitle || "",
   thumbnailUrl: article.thumbnailUrl || "",
   title: article.title,
   url: article.url

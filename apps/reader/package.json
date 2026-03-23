@@ -13,8 +13,10 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.99.1",
     "convex": "^1.33.0",
+    "defuddle": "^0.7.0",
     "fast-xml-parser": "^5.5.3",
     "he": "^1.2.0",
+    "linkedom": "^0.18.12",
     "marked": "^17.0.4",
     "node-html-parser": "^7.1.0",
     "sanitize-html": "^2.17.1"
