@@ -4,6 +4,8 @@ Reader is a standalone private RSS reader app with a lightweight HTML client, st
 
 The reader is page-based by default: it loads exact sidebar counts plus the newest 50 summaries first, fetches the selected article body separately, and appends older summaries with infinite scroll. Article summaries and article bodies are stored separately in Convex so list queries do not read full HTML blobs.
 
+The `Today` view is a cached Daily Digest. Each morning, Convex generates one AI-written digest grouped by feed for the current digest timezone. Opening `Today` loads that digest directly instead of auto-opening the first article body, and the digest header can navigate across previously generated digest dates.
+
 Adding a feed is asynchronous: the app creates the feed immediately, makes it visible in the feed list, and queues the first sync in Convex.
 
 Feeds can be removed from the article-list overflow menu while a feed is selected. Removing a feed permanently deletes all RSS feeds in that feed group and all synced articles attached to them.
@@ -51,6 +53,12 @@ Copy [apps/reader/.env.example](/Users/mjkang/Develop/AgentCompany/apps/reader/.
 
 The Reader host only serves static assets and exposes `CONVEX_URL` to the browser through `/api/config`.
 
+If you want Daily Digest generation:
+
+- `OPENAI_API_KEY`
+- `READER_DIGEST_MODEL` (optional, defaults to `gpt-4.1-mini`)
+- `READER_DIGEST_TIMEZONE` (optional, defaults to `America/Los_Angeles`)
+
 If you want to import existing feed definitions from Supabase one time, also set:
 
 - `SUPABASE_URL`
@@ -77,7 +85,7 @@ Do not set `PORT` on Vercel. The deployed app uses static files plus the public 
 - Configure the app against your deployment URL, for example `https://quixotic-condor-161.convex.cloud`.
 - Run `npm run convex:dev` once in [apps/reader](/Users/mjkang/Develop/AgentCompany/apps/reader) to generate Convex types and link the project locally.
 - Deploy the backend with `npm run convex:deploy`.
-- Cron syncing is defined in [apps/reader/convex/crons.ts](/Users/mjkang/Develop/AgentCompany/apps/reader/convex/crons.ts).
+- Cron syncing and Daily Digest scheduling are defined in [apps/reader/convex/crons.ts](/Users/mjkang/Develop/AgentCompany/apps/reader/convex/crons.ts).
 
 ## One-off Supabase feed import
 

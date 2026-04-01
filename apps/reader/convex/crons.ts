@@ -11,4 +11,11 @@ crons.interval(
   {}
 );
 
+crons.interval(
+  "reader-daily-digest-hourly-check",
+  { hours: 1 },
+  internal.digestNode.ensureScheduledDigest,
+  {}
+);
+
 export default crons;

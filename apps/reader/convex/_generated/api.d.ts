@@ -10,6 +10,8 @@
 
 import type * as articles from "../articles.js";
 import type * as crons from "../crons.js";
+import type * as digest from "../digest.js";
+import type * as digestNode from "../digestNode.js";
 import type * as feeds from "../feeds.js";
 import type * as migration from "../migration.js";
 import type * as reader from "../reader.js";
@@ -24,6 +26,8 @@ import type {
 declare const fullApi: ApiFromModules<{
   articles: typeof articles;
   crons: typeof crons;
+  digest: typeof digest;
+  digestNode: typeof digestNode;
   feeds: typeof feeds;
   migration: typeof migration;
   reader: typeof reader;

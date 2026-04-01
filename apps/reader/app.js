@@ -7,6 +7,14 @@ const PAGE_LIMIT = 50;
 const LOAD_MORE_THRESHOLD = 240;
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "reader.sidebarCollapsed";
 const THEME_STORAGE_KEY = "reader.theme";
+const DIGEST_DATE_LABEL = "Today";
+const emptyCounts = {
+  all: 0,
+  feedGroups: {},
+  manual: 0,
+  saved: 0,
+  today: 0
+};
 const THEME_ICON_LIGHT = `
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
@@ -30,15 +38,18 @@ const SIDEBAR_EXPAND_ICON = `
 
 const state = {
   articles: [],
-  counts: { all: 0, feedGroups: {}, manual: 0, saved: 0, today: 0 },
+  counts: { ...emptyCounts },
   convexUrl: "",
+  digest: null,
+  digestDate: "",
   feedGroup: "",
   hasMore: false,
   isLoadingArticle: false,
+  isLoadingDigest: false,
   isLoadingMore: false,
   nextCursor: null,
   pendingFeedGroupRemoval: "",
-  scope: "all",
+  scope: "today",
   sidebarCollapsed: false,
   theme: "auto",
   selectedArticle: null,
@@ -150,13 +161,28 @@ const formatArticleDate = (isoString) =>
     year: "numeric"
   }).format(new Date(isoString));
 
+const shiftLocalDate = (localDate, dayOffset) => {
+  const [year, month, day] = String(localDate || "").split("-").map(Number);
+  if (!year || !month || !day || !Number.isFinite(dayOffset)) {
+    return localDate;
+  }
+
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + dayOffset);
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+};
+
 const listTitle = () => {
   if (state.feedGroup) {
     return state.feedGroup;
   }
 
   if (state.scope === "today") {
-    return "Today";
+    if (state.digestDate && state.digest?.todayLocalDate && state.digestDate !== state.digest.todayLocalDate) {
+      return formatArticleDate(`${state.digestDate}T00:00:00.000Z`);
+    }
+
+    return "Daily Digest";
   }
 
   if (state.scope === "saved") {
@@ -169,6 +195,8 @@ const listTitle = () => {
 
   return "All Articles";
 };
+
+const isTodayDigestMode = () => state.scope === "today" && !state.feedGroup;
 
 const showToast = (message, options = {}) => {
   elements.toast.textContent = message;
@@ -242,6 +270,10 @@ const syncSidebarState = () => {
     "aria-pressed",
     state.sidebarCollapsed ? "true" : "false"
   );
+};
+
+const syncLayoutMode = () => {
+  elements.appLayout.classList.toggle("is-digest-view", isTodayDigestMode());
 };
 
 const articleIndex = () =>
@@ -642,6 +674,7 @@ const renderSidebar = () => {
 
 const renderArticleList = () => {
   elements.listTitle.textContent = listTitle();
+  elements.listActions.hidden = isTodayDigestMode();
   elements.markAllReadButton.disabled = state.articles.length === 0;
   elements.removeFeedGroupButton.hidden = !state.feedGroup;
   elements.removeFeedGroupButton.disabled = !state.feedGroup;
@@ -682,6 +715,94 @@ const renderArticleList = () => {
   `;
 };
 
+const renderDigestView = () => {
+  if (state.isLoadingDigest) {
+    elements.articleView.innerHTML = `
+      <div class="digest-state">
+        Loading today’s digest…
+      </div>
+    `;
+    return;
+  }
+
+  if (!state.digest) {
+    elements.articleView.innerHTML = `
+      <div class="digest-state">
+        Today’s digest is not ready yet.
+      </div>
+    `;
+    return;
+  }
+
+  if (state.digest.status === "failed") {
+    elements.articleView.innerHTML = `
+      <div class="digest-state">
+        Today’s digest is unavailable right now.
+        ${state.digest.error ? `<div style="margin-top:8px;">${escapeHtml(state.digest.error)}</div>` : ""}
+      </div>
+    `;
+    return;
+  }
+
+  if (state.digest.status !== "ready") {
+    elements.articleView.innerHTML = `
+      <div class="digest-state">
+        Today’s digest is being prepared.
+      </div>
+    `;
+    return;
+  }
+
+  const sections = state.digest.sections || [];
+  const isTodayDigest = Boolean(state.digest.isToday);
+  elements.articleView.innerHTML = `
+    <div class="digest-view">
+      <header class="digest-header">
+        <button class="digest-eyebrow digest-eyebrow-button" data-digest-reset-today="true" type="button">
+          ${DIGEST_DATE_LABEL}
+        </button>
+        <div class="digest-title">Daily Digest</div>
+        <div class="digest-meta">
+          <button class="inline-link digest-date-nav" data-digest-date-offset="-1" type="button">
+            Previous day
+          </button>
+          <button class="inline-link digest-date-pill" data-digest-reset-today="true" type="button">
+            ${escapeHtml(state.digest.localDateLabel || "")}
+          </button>
+          <button class="inline-link digest-date-nav" data-digest-date-offset="1" type="button" ${isTodayDigest ? "disabled" : ""}>
+            Next day
+          </button>
+          ${state.digest.generatedAt ? ` • Generated ${escapeHtml(formatListTime(state.digest.generatedAt))}` : ""}
+        </div>
+        <div class="digest-intro">${escapeHtml(state.digest.intro || "No new feed articles arrived for this morning’s digest.")}</div>
+      </header>
+      ${sections.length === 0 ? `
+        <div class="digest-state">
+          No feed-backed articles made it into today’s digest.
+        </div>
+      ` : sections.map((section) => `
+        <section class="digest-section">
+          <div class="digest-section-header">
+            ${feedIconMarkup(section.feedIconUrl)}
+            <div class="digest-section-title">${escapeHtml(section.feedTitle)}</div>
+          </div>
+          <div class="digest-section-summary">${escapeHtml(section.summary)}</div>
+          <div class="digest-article-list">
+            ${section.articles.map((article) => `
+              <button class="digest-article-button" data-digest-article-id="${article.id}" type="button">
+                <div class="digest-article-meta">${escapeHtml(formatListTime(article.publishedAt))}${article.author ? ` • ${escapeHtml(article.author)}` : ""}</div>
+                <div class="digest-article-title">${escapeHtml(article.title)}</div>
+                ${article.subtitle ? `<div class="digest-article-subtitle">${escapeHtml(article.subtitle)}</div>` : ""}
+                ${article.previewText ? `<div class="digest-article-preview">${escapeHtml(article.previewText)}</div>` : ""}
+              </button>
+            `).join("")}
+          </div>
+        </section>
+      `).join("")}
+    </div>
+  `;
+};
+
 const renderArticle = () => {
   const article = state.selectedArticle;
   const selectedIndex = articleIndex();
@@ -699,6 +820,11 @@ const renderArticle = () => {
 
   elements.saveArticleButton.classList.toggle("is-active", Boolean(article?.isSaved));
 
+  if (isTodayDigestMode() && !state.selectedArticleId) {
+    renderDigestView();
+    return;
+  }
+
   if (state.isLoadingArticle && state.selectedArticleId) {
     elements.articleView.innerHTML = `
       <div class="article-loading-state">
@@ -711,7 +837,7 @@ const renderArticle = () => {
   if (!article) {
     elements.articleView.innerHTML = `
       <div class="empty-state">
-        Select an article to start reading. New feeds sync through Convex every 15 minutes, and pasted article URLs show up here right away.
+        Select an article to start reading. New feeds sync through Convex every 30 minutes, and pasted article URLs show up here right away.
       </div>
     `;
     return;
@@ -750,6 +876,7 @@ const renderArticle = () => {
 };
 
 const render = () => {
+  syncLayoutMode();
   renderSidebar();
   renderArticleList();
   renderArticle();
@@ -777,6 +904,77 @@ const loadArticle = async (articleId) => {
   }
 };
 
+const pollTodayDigest = async (attempts = 6) => {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    await new Promise((resolve) => window.setTimeout(resolve, 1500));
+    const payload = await convexRequest("query", "digest:getToday", {
+      timezoneOffsetMinutes: new Date().getTimezoneOffset()
+    });
+
+    state.counts = payload.counts || { ...emptyCounts };
+    state.digest = payload.digest
+      ? {
+        ...payload.digest,
+        isToday: payload.isToday,
+        localDateLabel: payload.localDateLabel || payload.digest.localDate,
+        todayLocalDate: payload.todayLocalDate
+      }
+      : null;
+    state.digestDate = payload.localDate || "";
+    state.isLoadingDigest = false;
+    render();
+
+    if (payload.status === "ready" || payload.status === "failed") {
+      return;
+    }
+  }
+};
+
+const ensureTodayDigest = async () => {
+  state.isLoadingDigest = true;
+  render();
+
+  await convexRequest("action", "digest:ensureToday", {});
+  await pollTodayDigest();
+};
+
+const loadDigestForDate = async (localDate = "") => {
+  articleRequestToken += 1;
+  state.articles = [];
+  state.hasMore = false;
+  state.nextCursor = null;
+  state.isLoadingArticle = false;
+  state.isLoadingMore = false;
+  state.isLoadingDigest = true;
+  state.selectedArticle = null;
+  state.selectedArticleId = "";
+  state.digestDate = localDate;
+  render();
+
+  const payload = localDate
+    ? await convexRequest("query", "digest:getForDate", { localDate })
+    : await convexRequest("query", "digest:getToday", {
+      timezoneOffsetMinutes: new Date().getTimezoneOffset()
+    });
+
+  state.counts = payload.counts || { ...emptyCounts };
+  state.digest = payload.digest
+    ? {
+      ...payload.digest,
+      isToday: payload.isToday,
+      localDateLabel: payload.localDateLabel || payload.digest.localDate,
+      todayLocalDate: payload.todayLocalDate
+    }
+    : null;
+  state.digestDate = payload.localDate || localDate || "";
+  state.isLoadingDigest = false;
+  render();
+
+  if (!localDate && payload.status === "missing") {
+    await ensureTodayDigest();
+  }
+};
+
 const bootstrap = async () => {
   const payload = await convexRequest(
     "query",
@@ -785,7 +983,7 @@ const bootstrap = async () => {
   );
   articleRequestToken += 1;
   state.articles = payload.articles || [];
-  state.counts = payload.counts || { all: 0, feedGroups: {}, manual: 0, saved: 0, today: 0 };
+  state.counts = payload.counts || { ...emptyCounts };
   state.hasMore = Boolean(payload.hasMore);
   state.nextCursor = payload.nextCursor || null;
   state.selectedArticle = null;
@@ -798,6 +996,15 @@ const bootstrap = async () => {
   if (state.selectedArticleId) {
     await loadArticle(state.selectedArticleId);
   }
+};
+
+const refreshCurrentView = async () => {
+  if (isTodayDigestMode()) {
+    await loadDigestForDate(state.digestDate);
+    return;
+  }
+
+  await bootstrap();
 };
 
 const appendArticles = (articles) => {
@@ -892,7 +1099,7 @@ const deleteSelectedArticle = async () => {
   });
 
   clearSelection();
-  await bootstrap();
+  await refreshCurrentView();
   showToast(`Deleted "${articleTitle}".`);
 };
 
@@ -904,7 +1111,7 @@ const markAllRead = async () => {
   });
 
   clearSelection();
-  await bootstrap();
+  await refreshCurrentView();
   showToast("Marked the current list as read.");
 };
 
@@ -960,7 +1167,7 @@ const submitFeed = async () => {
   closeDialog();
   showToast("Feed added. Initial sync queued.");
   clearSelection();
-  await bootstrap();
+  await refreshCurrentView();
 };
 
 const submitArticle = async () => {
@@ -1027,7 +1234,7 @@ const removeFeedGroup = async () => {
     clearSelection();
   }
 
-  await bootstrap();
+  await refreshCurrentView();
   showToast(`Removed ${result.removedFeeds} feed${result.removedFeeds === 1 ? "" : "s"} from ${feedGroup}.`);
 };
 
@@ -1082,7 +1289,7 @@ elements.navToday.addEventListener("click", async () => {
   state.scope = "today";
   state.feedGroup = "";
   clearSelection();
-  await bootstrap();
+  await loadDigestForDate("");
 });
 
 elements.navAll.addEventListener("click", async () => {
@@ -1125,6 +1332,43 @@ elements.articleList.addEventListener("click", async (event) => {
   }
 
   await selectArticle(item.dataset.articleId);
+});
+
+elements.articleView.addEventListener("click", async (event) => {
+  const item = event.target.closest("[data-digest-article-id]");
+  if (item) {
+    await selectArticle(item.dataset.digestArticleId);
+    return;
+  }
+
+  const resetButton = event.target.closest("[data-digest-reset-today='true']");
+  if (resetButton) {
+    clearSelection();
+    await loadDigestForDate("");
+    return;
+  }
+
+  const offsetButton = event.target.closest("[data-digest-date-offset]");
+  if (!offsetButton) {
+    return;
+  }
+
+  const offset = Number(offsetButton.dataset.digestDateOffset || "0");
+  if (!Number.isFinite(offset) || offset === 0) {
+    return;
+  }
+
+  if (offset > 0 && state.digest?.isToday) {
+    return;
+  }
+
+  const baseDate = state.digestDate || state.digest?.localDate || "";
+  if (!baseDate) {
+    return;
+  }
+
+  clearSelection();
+  await loadDigestForDate(shiftLocalDate(baseDate, offset));
 });
 
 elements.articleList.addEventListener("scroll", () => {
@@ -1397,7 +1641,7 @@ window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () 
 
 const start = async () => {
   await loadConfig();
-  await bootstrap();
+  await refreshCurrentView();
 };
 
 state.sidebarCollapsed = readStoredSidebarCollapsed();

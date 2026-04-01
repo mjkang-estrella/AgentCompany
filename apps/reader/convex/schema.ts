@@ -8,6 +8,13 @@ const syncStatus = v.union(
   v.literal("error")
 );
 
+const digestStatus = v.union(
+  v.literal("pending"),
+  v.literal("running"),
+  v.literal("ready"),
+  v.literal("failed")
+);
+
 export default defineSchema({
   feeds: defineTable({
     feedUrl: v.string(),
@@ -73,5 +80,36 @@ export default defineSchema({
     manual: v.number(),
     name: v.string(),
     saved: v.number()
-  }).index("by_name", ["name"])
+  }).index("by_name", ["name"]),
+
+  dailyDigests: defineTable({
+    articleCount: v.number(),
+    articleIds: v.array(v.id("articles")),
+    error: v.optional(v.string()),
+    generatedAt: v.optional(v.number()),
+    intro: v.string(),
+    localDate: v.string(),
+    sections: v.array(
+      v.object({
+        articles: v.array(
+          v.object({
+            author: v.optional(v.string()),
+            id: v.id("articles"),
+            previewText: v.string(),
+            publishedAt: v.string(),
+            subtitle: v.optional(v.string()),
+            title: v.string(),
+            url: v.string()
+          })
+        ),
+        feedGroup: v.optional(v.string()),
+        feedIconUrl: v.optional(v.string()),
+        feedKey: v.string(),
+        feedTitle: v.string(),
+        summary: v.string()
+      })
+    ),
+    status: digestStatus,
+    timezone: v.string()
+  }).index("by_date_and_timezone", ["localDate", "timezone"])
 });

@@ -282,6 +282,7 @@ const countTodayArticles = async (ctx: any, timezoneOffsetMinutes: number) => {
       .order("desc")
       .filter((q: any) =>
         q.and(
+          q.eq(q.field("sourceType"), "feed"),
           q.gte(q.field("publishedAt"), range.start),
           q.lt(q.field("publishedAt"), range.end)
         )
