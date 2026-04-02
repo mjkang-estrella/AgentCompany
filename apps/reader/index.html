@@ -111,61 +111,60 @@
             background: var(--scrollbar-thumb-hover);
         }
 
-        .sidebar {
-            width: clamp(200px, 18vw, 260px);
+        .icon-rail {
+            width: 48px;
             background-color: var(--bg-body);
             border-right: 1px solid var(--border-light);
             display: flex;
             flex-direction: column;
+            align-items: center;
             flex-shrink: 0;
-            overflow: hidden;
-            transition: width 0.2s ease;
+            padding: 12px 0;
         }
 
-        .sidebar-header {
-            padding: 16px 20px;
-            border-bottom: 1px solid var(--border-light);
+        .icon-rail-top {
             display: flex;
-            justify-content: space-between;
+            flex-direction: column;
             align-items: center;
-            height: 60px;
+            gap: 2px;
+            flex: 1;
         }
 
-        .sidebar-header-brand {
+        .icon-rail-bottom {
             display: flex;
+            flex-direction: column;
             align-items: center;
-            gap: 8px;
-            min-width: 0;
+            gap: 2px;
+            padding-top: 8px;
+            border-top: 1px solid var(--border-light);
         }
 
-        .sidebar-title {
-            font-size: var(--font-size-sm);
-            font-weight: 600;
+        .icon-rail-btn {
+            background: none;
+            border: none;
             color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-
-        .app-layout.sidebar-collapsed .sidebar {
-            width: 60px;
-        }
-
-        .app-layout.sidebar-collapsed .sidebar-header {
-            padding-left: 12px;
-            padding-right: 12px;
+            cursor: pointer;
+            width: 36px;
+            height: 36px;
+            border-radius: var(--radius-sm);
+            display: flex;
+            align-items: center;
             justify-content: center;
         }
 
-        .app-layout.sidebar-collapsed .sidebar-header-brand {
-            width: 100%;
-            justify-content: center;
+        .icon-rail-btn:hover {
+            background-color: var(--bg-hover);
+            color: var(--text-primary);
         }
 
-        .app-layout.sidebar-collapsed .sidebar-title,
-        .app-layout.sidebar-collapsed #add-feed-button,
-        .app-layout.sidebar-collapsed .sidebar-content,
-        .app-layout.sidebar-collapsed .sidebar-footer {
-            display: none;
+        .icon-rail-btn.is-active {
+            background-color: var(--accent-orange-light);
+            color: var(--accent-orange);
+        }
+
+        .icon-rail-btn:focus-visible {
+            outline: 2px solid var(--accent-blue);
+            outline-offset: 2px;
         }
 
         .icon-btn {
@@ -214,43 +213,7 @@
             outline-offset: 2px;
         }
 
-        .sidebar-content {
-            flex: 1;
-            overflow-y: auto;
-            padding: 12px 8px;
-        }
 
-        .sidebar-footer {
-            padding: 8px 12px;
-            border-top: 1px solid var(--border-light);
-        }
-
-        .nav-group {
-            margin-bottom: 24px;
-        }
-
-        .nav-label {
-            font-size: var(--font-size-xs);
-            color: var(--text-secondary);
-            margin: 0 12px 8px;
-            font-weight: 500;
-        }
-
-        .nav-group-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin: 0 8px 8px;
-        }
-
-        .nav-group-header .nav-label {
-            margin: 0 4px;
-        }
-
-        .nav-section-button {
-            flex: 1;
-            margin-bottom: 0;
-        }
 
         .nav-item {
             display: flex;
@@ -300,13 +263,20 @@
             color: var(--accent-blue);
         }
 
-        .article-list {
-            width: clamp(280px, 25vw, 360px);
+        .article-list-panel {
+            width: 0;
+            min-width: 0;
             background-color: var(--bg-panel);
             border-right: 1px solid var(--border-light);
             display: flex;
             flex-direction: column;
             flex-shrink: 0;
+            overflow: hidden;
+            transition: width 0.2s ease;
+        }
+
+        .article-list-panel.is-open {
+            width: clamp(280px, 25vw, 360px);
         }
 
         .list-header {
@@ -468,13 +438,7 @@
             min-width: 0;
         }
 
-        .app-layout.is-digest-view .article-list {
-            display: none;
-        }
 
-        .app-layout.is-digest-view .reading-pane {
-            flex: 1;
-        }
 
         .pane-header {
             padding: 0 32px;
@@ -543,26 +507,24 @@
         }
 
         .highlights-rail {
-            width: 280px;
+            width: 260px;
             flex-shrink: 0;
             position: sticky;
             top: 0;
             align-self: flex-start;
-            border: 1px solid var(--border-light);
-            border-radius: 14px;
             background: var(--bg-panel);
-            padding: 16px;
+            border: 1px solid var(--border-light);
+            border-radius: 12px;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
         }
 
-        .highlights-rail[hidden] {
-            display: none;
-        }
-
-        .highlights-title {
-            font-size: var(--font-size-base);
+        .highlights-rail-header {
+            font-size: var(--font-size-sm);
             font-weight: 600;
             color: var(--text-heading);
-            margin-bottom: 12px;
         }
 
         .highlights-empty {
@@ -574,15 +536,16 @@
         .highlights-list {
             display: flex;
             flex-direction: column;
-            gap: 10px;
+            gap: 6px;
         }
 
         .highlight-item {
             width: 100%;
-            border: 1px solid var(--border-light);
-            border-radius: 10px;
-            background: var(--bg-body);
-            padding: 10px 12px;
+            border: none;
+            border-left: 3px solid var(--highlight-bg);
+            border-radius: 0;
+            background: none;
+            padding: 6px 10px;
             text-align: left;
             cursor: pointer;
             font: inherit;
@@ -591,25 +554,19 @@
 
         .highlight-item:hover,
         .highlight-item:focus-visible {
-            border-color: var(--border-medium);
             background: var(--bg-hover);
             outline: none;
         }
 
         .highlight-item.is-unresolved {
-            opacity: 0.72;
+            opacity: 0.5;
+            border-left-color: var(--border-medium);
         }
 
         .highlight-item-text {
-            font-size: var(--font-size-sm);
-            color: var(--text-primary);
-            line-height: 1.55;
-        }
-
-        .highlight-item-meta {
-            margin-top: 6px;
             font-size: var(--font-size-xs);
             color: var(--text-secondary);
+            line-height: 1.5;
         }
 
         .article-hero {
@@ -996,21 +953,33 @@
             line-height: 1.7;
         }
 
-        .highlight-popover {
+        .highlight-remove-popover {
             position: fixed;
             z-index: 60;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px;
+            padding: 4px;
             border: 1px solid var(--border-light);
-            border-radius: 12px;
+            border-radius: 8px;
             background: var(--bg-body);
-            box-shadow: 0 12px 30px var(--shadow-overlay);
+            box-shadow: 0 4px 16px var(--shadow-overlay);
         }
 
-        .highlight-popover[hidden] {
+        .highlight-remove-popover[hidden] {
             display: none;
+        }
+
+        .highlight-remove-btn {
+            border: none;
+            background: none;
+            color: var(--danger-hover-text, #DC2626);
+            font: inherit;
+            font-size: var(--font-size-sm);
+            padding: 6px 14px;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+        }
+
+        .highlight-remove-btn:hover {
+            background: var(--danger-hover-bg);
         }
 
         .inline-link {
@@ -1237,58 +1206,14 @@
         }
 
         @media (max-width: 960px) {
-            body {
-                height: auto;
-                overflow: auto;
-            }
-
-            .app-layout {
-                min-height: 100vh;
-                flex-direction: column;
-            }
-
-            .sidebar,
-            .article-list {
-                width: 100%;
-            }
-
-            .sidebar,
-            .article-list {
-                border-right: none;
-                border-bottom: 1px solid var(--border-light);
-            }
-
-            .app-layout.sidebar-collapsed .sidebar {
-                width: 100%;
-            }
-
-            .app-layout.sidebar-collapsed .sidebar-header {
-                padding-left: 20px;
-                padding-right: 20px;
-                justify-content: space-between;
-            }
-
-            .app-layout.sidebar-collapsed .sidebar-header-brand {
-                width: auto;
-                justify-content: flex-start;
-            }
-
-            .app-layout.sidebar-collapsed .sidebar-title,
-            .app-layout.sidebar-collapsed #add-feed-button {
-                display: inline-flex;
-            }
-
-            .app-layout.sidebar-collapsed .sidebar-footer {
-                display: block;
-            }
-
             .pane-header,
             .pane-content-scroll {
                 padding-left: 20px;
                 padding-right: 20px;
             }
 
-            .icon-btn {
+            .icon-btn,
+            .icon-rail-btn {
                 min-width: 44px;
                 min-height: 44px;
             }
@@ -1314,70 +1239,41 @@
 <a class="skip-link" href="#article-view">Skip to content</a>
 <noscript><p style="padding:24px;color:#6B7280;">This app requires JavaScript to run.</p></noscript>
 <div class="app-layout">
-    <aside class="sidebar">
-        <div class="sidebar-header">
-            <div class="sidebar-header-brand">
-                <button class="icon-btn" id="sidebar-toggle-button" title="Collapse sidebar" aria-label="Collapse sidebar">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
-                </button>
-                <h1 class="sidebar-title">Reader</h1>
-            </div>
-            <button class="icon-btn" id="add-feed-button" title="Add Feed" aria-label="Add Feed">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+    <nav class="icon-rail" aria-label="Navigation">
+        <div class="icon-rail-top">
+            <button class="icon-rail-btn is-active" id="nav-today" title="Today" aria-label="Today" type="button">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+            </button>
+            <button class="icon-rail-btn" id="nav-all" title="All Articles" aria-label="All Articles" type="button">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11a9 9 0 0 1 9 9"></path><path d="M4 4a16 16 0 0 1 16 16"></path><circle cx="5" cy="19" r="1"></circle></svg>
+            </button>
+            <button class="icon-rail-btn" id="nav-saved" title="Saved" aria-label="Saved" type="button">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>
+            </button>
+            <button class="icon-rail-btn" id="nav-feeds" title="Feeds" aria-label="Feeds" type="button">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+            </button>
+            <button class="icon-rail-btn" id="nav-manual-articles" title="Articles" aria-label="Articles" type="button">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><line x1="10" y1="9" x2="8" y2="9"></line></svg>
             </button>
         </div>
-
-        <div class="sidebar-content">
-            <div class="nav-group">
-                <button class="nav-item active" data-scope="today" id="nav-today">
-                    <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
-                    Today
-                    <span class="nav-item-count" id="count-today">0</span>
-                </button>
-                <button class="nav-item" data-scope="all" id="nav-all">
-                    <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11a9 9 0 0 1 9 9"></path><path d="M4 4a16 16 0 0 1 16 16"></path><circle cx="5" cy="19" r="1"></circle></svg>
-                    All Articles
-                    <span class="nav-item-count" id="count-all">0</span>
-                </button>
-                <button class="nav-item" data-scope="saved" id="nav-saved">
-                    <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>
-                    Saved
-                    <span class="nav-item-count" id="count-saved">0</span>
-                </button>
-            </div>
-
-            <div class="nav-group">
-                <div class="nav-label">Feeds</div>
-                <div id="feed-groups-list">
-                    <div class="empty-state">Feeds you add will show up here.</div>
-                </div>
-            </div>
-
-            <div class="nav-group">
-                <div class="nav-group-header">
-                    <button class="nav-item nav-section-button" id="nav-manual-articles" type="button">
-                        <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><line x1="10" y1="9" x2="8" y2="9"></line></svg>
-                        Articles
-                        <span class="nav-item-count" id="count-manual">0</span>
-                    </button>
-                    <button class="icon-btn" id="add-manual-article-button" title="Add article" aria-label="Add article" type="button">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                    </button>
-                </div>
-                <div class="empty-state">Paste a single article URL to save it without subscribing to RSS.</div>
-            </div>
-        </div>
-        <div class="sidebar-footer">
-            <button class="icon-btn" id="theme-toggle-button" title="Toggle theme" aria-label="Toggle theme" type="button">
+        <div class="icon-rail-bottom">
+            <button class="icon-rail-btn" id="add-feed-button" title="Add Feed" aria-label="Add Feed" type="button">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            </button>
+            <button class="icon-rail-btn" id="theme-toggle-button" title="Toggle theme" aria-label="Toggle theme" type="button">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
             </button>
         </div>
-    </aside>
+    </nav>
 
-    <section class="article-list" aria-label="Article list">
+    <section class="article-list-panel" id="article-list-panel" aria-label="Article list">
         <div class="list-header">
             <span class="list-title" id="list-title">All Articles</span>
             <div class="list-actions">
+                <button class="icon-btn" id="add-manual-article-button" title="Add article" aria-label="Add article" type="button" hidden>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                </button>
                 <button class="icon-btn" id="list-menu-button" title="More actions" aria-label="More actions" aria-expanded="false" aria-haspopup="menu" type="button">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5" r="1.5"></circle><circle cx="12" cy="12" r="1.5"></circle><circle cx="12" cy="19" r="1.5"></circle></svg>
                 </button>
@@ -1387,7 +1283,7 @@
                 </div>
             </div>
         </div>
-
+        <div class="list-content" id="feed-groups-list" hidden></div>
         <div class="list-content" id="article-list">
             <div class="empty-state" id="article-list-initial">Loading articles…</div>
         </div>
@@ -1496,8 +1392,8 @@
     </div>
 </dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<div class="highlight-popover" id="highlight-popover" hidden>
-    <button class="btn-outline" id="highlight-create-button" type="button">Highlight</button>
+<div class="highlight-remove-popover" id="highlight-remove-popover" hidden>
+    <button class="highlight-remove-btn" id="highlight-remove-btn" type="button">Remove</button>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"></script>
 <script type="module" src="/app.js"></script>
