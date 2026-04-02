@@ -43,6 +43,9 @@
             --error-bg: #991B1B;
             --danger-hover-bg: #FEF2F2;
             --danger-hover-text: #DC2626;
+            --highlight-bg: #FDE68A;
+            --highlight-bg-hover: #FCD34D;
+            --highlight-text: #111827;
             --font-size-article: 0.9375rem;
             --font-size-article-h2: 1.125rem;
         }
@@ -523,8 +526,90 @@
         }
 
         .article-container {
-            max-width: 680px;
+            max-width: 1100px;
             margin: 0 auto;
+        }
+
+        .article-layout {
+            display: flex;
+            align-items: flex-start;
+            gap: 32px;
+        }
+
+        .article-main {
+            flex: 1;
+            min-width: 0;
+            max-width: 680px;
+        }
+
+        .highlights-rail {
+            width: 280px;
+            flex-shrink: 0;
+            position: sticky;
+            top: 0;
+            align-self: flex-start;
+            border: 1px solid var(--border-light);
+            border-radius: 14px;
+            background: var(--bg-panel);
+            padding: 16px;
+        }
+
+        .highlights-rail[hidden] {
+            display: none;
+        }
+
+        .highlights-title {
+            font-size: var(--font-size-base);
+            font-weight: 600;
+            color: var(--text-heading);
+            margin-bottom: 12px;
+        }
+
+        .highlights-empty {
+            font-size: var(--font-size-sm);
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        .highlights-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .highlight-item {
+            width: 100%;
+            border: 1px solid var(--border-light);
+            border-radius: 10px;
+            background: var(--bg-body);
+            padding: 10px 12px;
+            text-align: left;
+            cursor: pointer;
+            font: inherit;
+            color: inherit;
+        }
+
+        .highlight-item:hover,
+        .highlight-item:focus-visible {
+            border-color: var(--border-medium);
+            background: var(--bg-hover);
+            outline: none;
+        }
+
+        .highlight-item.is-unresolved {
+            opacity: 0.72;
+        }
+
+        .highlight-item-text {
+            font-size: var(--font-size-sm);
+            color: var(--text-primary);
+            line-height: 1.55;
+        }
+
+        .highlight-item-meta {
+            margin-top: 6px;
+            font-size: var(--font-size-xs);
+            color: var(--text-secondary);
         }
 
         .article-hero {
@@ -728,6 +813,20 @@
             vertical-align: top;
         }
 
+        .article-highlight {
+            background: var(--highlight-bg);
+            color: var(--highlight-text);
+            padding: 0 0.08em;
+            border-radius: 0.18em;
+            cursor: pointer;
+        }
+
+        .article-highlight:hover,
+        .article-highlight:focus-visible {
+            background: var(--highlight-bg-hover);
+            outline: none;
+        }
+
         .digest-view {
             display: flex;
             flex-direction: column;
@@ -895,6 +994,23 @@
             max-width: 40rem;
             color: var(--text-secondary);
             line-height: 1.7;
+        }
+
+        .highlight-popover {
+            position: fixed;
+            z-index: 60;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px;
+            border: 1px solid var(--border-light);
+            border-radius: 12px;
+            background: var(--bg-body);
+            box-shadow: 0 12px 30px var(--shadow-overlay);
+        }
+
+        .highlight-popover[hidden] {
+            display: none;
         }
 
         .inline-link {
@@ -1080,6 +1196,9 @@
                 --error-bg: #DC2626;
                 --danger-hover-bg: #451A1A;
                 --danger-hover-text: #FCA5A5;
+                --highlight-bg: #F59E0B;
+                --highlight-bg-hover: #FBBF24;
+                --highlight-text: #111827;
         }
 
         .shortcuts-list {
@@ -1177,6 +1296,15 @@
             .pane-content-scroll {
                 padding-top: 24px;
                 padding-bottom: 24px;
+            }
+
+            .article-layout {
+                flex-direction: column;
+            }
+
+            .highlights-rail {
+                width: 100%;
+                position: static;
             }
         }
 
@@ -1368,6 +1496,9 @@
     </div>
 </dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="highlight-popover" id="highlight-popover" hidden>
+    <button class="btn-outline" id="highlight-create-button" type="button">Highlight</button>
+</div>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"></script>
 <script type="module" src="/app.js"></script>
 </body>

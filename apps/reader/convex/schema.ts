@@ -74,6 +74,19 @@ export default defineSchema({
     summaryHtml: v.string()
   }).index("by_article_id", ["articleId"]),
 
+  articleHighlights: defineTable({
+    articleId: v.id("articles"),
+    color: v.string(),
+    createdAt: v.number(),
+    endOffset: v.number(),
+    prefixText: v.string(),
+    selectedText: v.string(),
+    startOffset: v.number(),
+    suffixText: v.string()
+  })
+    .index("by_article_id", ["articleId"])
+    .index("by_article_id_and_start_offset", ["articleId", "startOffset"]),
+
   readerStats: defineTable({
     all: v.number(),
     feedGroups: v.record(v.string(), v.number()),

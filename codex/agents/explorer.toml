@@ -1,0 +1,5 @@
+model = "gpt-5.4"
+sandbox_mode = "read-only"
+developer_instructions = """
+Map relevant code paths, cite files and symbols, and avoid proposing fixes.
+"""

@@ -4,6 +4,12 @@ import { internal } from "./_generated/api";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 
 import type { Doc, Id } from "./_generated/dataModel";
+import {
+  DEFAULT_HIGHLIGHT_COLOR,
+  buildHighlightContext,
+  highlightsOverlap
+} from "../lib/highlight-anchors.mjs";
+import { stripHtml } from "../lib/html.mjs";
 
 const STATS_NAME = "global";
 const defaultCounts = () => ({
@@ -61,13 +67,24 @@ const articleSummary = (article: Doc<"articles">) => ({
 
 const articleDetail = (
   article: Doc<"articles">,
-  body: Doc<"articleBodies"> | null
+  body: Doc<"articleBodies"> | null,
+  highlights: Doc<"articleHighlights">[]
 ) => ({
   ...articleSummary(article),
   bodyHtml: body?.bodyHtml || article.bodyHtml || "",
   bodySource: body?.bodySource || article.bodySource || "feed",
   canonicalUrl: article.canonicalUrl || "",
   feedSiteUrl: article.feedSiteUrl || "",
+  highlights: highlights.map((highlight) => ({
+    color: highlight.color,
+    createdAt: new Date(highlight.createdAt).toISOString(),
+    endOffset: highlight.endOffset,
+    id: highlight._id,
+    prefixText: highlight.prefixText,
+    selectedText: highlight.selectedText,
+    startOffset: highlight.startOffset,
+    suffixText: highlight.suffixText
+  })),
   summaryHtml: body?.summaryHtml || article.summaryHtml || ""
 });
 
@@ -120,6 +137,13 @@ const getArticleBodyDocument = async (ctx: { db: any }, articleId: Id<"articles"
     .query("articleBodies")
     .withIndex("by_article_id", (q: any) => q.eq("articleId", articleId))
     .unique();
+
+const getArticleHighlightDocuments = async (ctx: { db: any }, articleId: Id<"articles">) =>
+  ctx.db
+    .query("articleHighlights")
+    .withIndex("by_article_id_and_start_offset", (q: any) => q.eq("articleId", articleId))
+    .order("asc")
+    .collect();
 
 const upsertArticleBodyDocument = async (
   ctx: { db: any },
@@ -438,8 +462,33 @@ export const getArticle = query({
     }
 
     const body = await getArticleBodyDocument(ctx, args.articleId);
+    const highlights = await getArticleHighlightDocuments(ctx, args.articleId);
 
-    return articleDetail(article, body);
+    return articleDetail(article, body, highlights);
+  }
+});
+
+export const listHighlights = query({
+  args: {
+    articleId: v.id("articles")
+  },
+  handler: async (ctx, args) => {
+    const article = await ctx.db.get(args.articleId);
+    if (!article || article.deletedAt) {
+      throw new Error("Article not found");
+    }
+
+    const highlights = await getArticleHighlightDocuments(ctx, args.articleId);
+    return highlights.map((highlight) => ({
+      color: highlight.color,
+      createdAt: new Date(highlight.createdAt).toISOString(),
+      endOffset: highlight.endOffset,
+      id: highlight._id,
+      prefixText: highlight.prefixText,
+      selectedText: highlight.selectedText,
+      startOffset: highlight.startOffset,
+      suffixText: highlight.suffixText
+    }));
   }
 });
 
@@ -484,8 +533,89 @@ export const updateArticle = mutation({
     }
 
     const body = await getArticleBodyDocument(ctx, args.articleId);
+    const highlights = await getArticleHighlightDocuments(ctx, args.articleId);
 
-    return articleDetail(updated, body);
+    return articleDetail(updated, body, highlights);
+  }
+});
+
+export const addHighlight = mutation({
+  args: {
+    articleId: v.id("articles"),
+    endOffset: v.number(),
+    prefixText: v.string(),
+    selectedText: v.string(),
+    startOffset: v.number(),
+    suffixText: v.string()
+  },
+  handler: async (ctx, args) => {
+    const article = await ctx.db.get(args.articleId);
+    if (!article || article.deletedAt) {
+      throw new Error("Article not found");
+    }
+
+    const body = await getArticleBodyDocument(ctx, args.articleId);
+    const fullText = stripHtml(body?.bodyHtml || article.bodyHtml || "");
+    const context = buildHighlightContext(fullText, args.startOffset, args.endOffset);
+    if (!context.selectedText) {
+      throw new Error("Highlight text is empty");
+    }
+
+    const existing = await getArticleHighlightDocuments(ctx, args.articleId);
+    const candidate = {
+      endOffset: context.endOffset,
+      startOffset: context.startOffset
+    };
+
+    for (const highlight of existing) {
+      if (
+        highlight.startOffset === candidate.startOffset &&
+        highlight.endOffset === candidate.endOffset
+      ) {
+        throw new Error("That text is already highlighted");
+      }
+
+      if (highlightsOverlap(highlight, candidate)) {
+        throw new Error("Overlapping highlights are not supported yet");
+      }
+    }
+
+    const highlightId = await ctx.db.insert("articleHighlights", {
+      articleId: args.articleId,
+      color: DEFAULT_HIGHLIGHT_COLOR,
+      createdAt: Date.now(),
+      endOffset: context.endOffset,
+      prefixText: context.prefixText,
+      selectedText: context.selectedText,
+      startOffset: context.startOffset,
+      suffixText: context.suffixText
+    });
+
+    return {
+      color: DEFAULT_HIGHLIGHT_COLOR,
+      createdAt: new Date().toISOString(),
+      endOffset: context.endOffset,
+      id: highlightId,
+      prefixText: context.prefixText,
+      selectedText: context.selectedText,
+      startOffset: context.startOffset,
+      suffixText: context.suffixText
+    };
+  }
+});
+
+export const removeHighlight = mutation({
+  args: {
+    highlightId: v.id("articleHighlights")
+  },
+  handler: async (ctx, args) => {
+    const highlight = await ctx.db.get(args.highlightId);
+    if (!highlight) {
+      throw new Error("Highlight not found");
+    }
+
+    await ctx.db.delete(args.highlightId);
+    return { highlightId: args.highlightId };
   }
 });
 

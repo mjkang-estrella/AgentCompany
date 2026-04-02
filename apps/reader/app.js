@@ -48,6 +48,7 @@ const state = {
   isLoadingDigest: false,
   isLoadingMore: false,
   nextCursor: null,
+  pendingHighlightSelection: null,
   pendingFeedGroupRemoval: "",
   scope: "today",
   sidebarCollapsed: false,
@@ -77,6 +78,8 @@ const elements = {
   feedForm: document.querySelector("#feed-form"),
   feedGroupInput: document.querySelector("#feed-group-input"),
   feedUrlInput: document.querySelector("#feed-url-input"),
+  highlightCreateButton: document.querySelector("#highlight-create-button"),
+  highlightPopover: document.querySelector("#highlight-popover"),
   listActions: document.querySelector(".list-actions"),
   listMenu: document.querySelector("#list-menu"),
   listMenuButton: document.querySelector("#list-menu-button"),
@@ -88,6 +91,7 @@ const elements = {
   navToday: document.querySelector("#nav-today"),
   nextArticleButton: document.querySelector("#next-article-button"),
   openArticleButton: document.querySelector("#open-article-button"),
+  paneContentScroll: document.querySelector(".pane-content-scroll"),
   previousArticleButton: document.querySelector("#previous-article-button"),
   removeFeedGroupButton: document.querySelector("#remove-feed-group-button"),
   removeFeedGroupCancelButton: document.querySelector("#remove-feed-group-cancel-button"),
@@ -170,6 +174,199 @@ const shiftLocalDate = (localDate, dayOffset) => {
   const date = new Date(Date.UTC(year, month - 1, day));
   date.setUTCDate(date.getUTCDate() + dayOffset);
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+};
+
+const getArticleBodyElement = () => elements.articleView.querySelector(".article-body");
+
+const hasActiveArticleSelection = () => {
+  const articleBody = getArticleBodyElement();
+  const selection = window.getSelection();
+  if (!articleBody || !selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    return false;
+  }
+
+  const range = selection.getRangeAt(0);
+  return articleBody.contains(range.startContainer) && articleBody.contains(range.endContainer);
+};
+
+const hideHighlightPopover = () => {
+  state.pendingHighlightSelection = null;
+  elements.highlightPopover.hidden = true;
+};
+
+const collectArticleTextNodes = (root) => {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      return node.textContent ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    }
+  });
+
+  const nodes = [];
+  let current = walker.nextNode();
+  while (current) {
+    nodes.push(current);
+    current = walker.nextNode();
+  }
+
+  return nodes;
+};
+
+const getRangeTextOffset = (root, container, offset) => {
+  const range = document.createRange();
+  range.setStart(root, 0);
+  range.setEnd(container, offset);
+  return range.cloneContents().textContent.length;
+};
+
+const createHighlightSelectionPayload = (root, range) => {
+  const startOffset = getRangeTextOffset(root, range.startContainer, range.startOffset);
+  const endOffset = getRangeTextOffset(root, range.endContainer, range.endOffset);
+  const fullText = root.textContent || "";
+
+  let start = Math.max(0, Math.min(startOffset, fullText.length));
+  let end = Math.max(start, Math.min(endOffset, fullText.length));
+
+  while (start < end && /\s/u.test(fullText[start] || "")) {
+    start += 1;
+  }
+  while (end > start && /\s/u.test(fullText[end - 1] || "")) {
+    end -= 1;
+  }
+
+  const selectedText = fullText.slice(start, end);
+  if (!selectedText) {
+    return null;
+  }
+
+  return {
+    endOffset: end,
+    prefixText: fullText.slice(Math.max(0, start - 48), start),
+    selectedText,
+    startOffset: start,
+    suffixText: fullText.slice(end, Math.min(fullText.length, end + 48))
+  };
+};
+
+const resolveHighlightOffsets = (fullText, highlight) => {
+  if (!fullText || !highlight.selectedText) {
+    return null;
+  }
+
+  if (
+    highlight.startOffset >= 0 &&
+    highlight.endOffset <= fullText.length &&
+    fullText.slice(highlight.startOffset, highlight.endOffset) === highlight.selectedText
+  ) {
+    return {
+      endOffset: highlight.endOffset,
+      startOffset: highlight.startOffset
+    };
+  }
+
+  let bestMatch = null;
+  let bestScore = -1;
+  let searchIndex = 0;
+
+  while (true) {
+    const matchIndex = fullText.indexOf(highlight.selectedText, searchIndex);
+    if (matchIndex === -1) {
+      break;
+    }
+
+    const before = fullText.slice(Math.max(0, matchIndex - (highlight.prefixText || "").length), matchIndex);
+    const after = fullText.slice(
+      matchIndex + highlight.selectedText.length,
+      matchIndex + highlight.selectedText.length + (highlight.suffixText || "").length
+    );
+    let score = 0;
+    if (highlight.prefixText && before.endsWith(highlight.prefixText)) {
+      score += highlight.prefixText.length + 20;
+    }
+    if (highlight.suffixText && after.startsWith(highlight.suffixText)) {
+      score += highlight.suffixText.length + 20;
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestMatch = {
+        endOffset: matchIndex + highlight.selectedText.length,
+        startOffset: matchIndex
+      };
+    }
+
+    searchIndex = matchIndex + Math.max(1, highlight.selectedText.length);
+  }
+
+  return bestMatch;
+};
+
+const wrapHighlightRange = (root, startOffset, endOffset, highlightId) => {
+  const textNodes = collectArticleTextNodes(root);
+  let cursor = 0;
+
+  for (const node of textNodes) {
+    const length = node.textContent.length;
+    const nodeStart = cursor;
+    const nodeEnd = cursor + length;
+    cursor = nodeEnd;
+
+    if (nodeEnd <= startOffset || nodeStart >= endOffset) {
+      continue;
+    }
+
+    const localStart = Math.max(0, startOffset - nodeStart);
+    const localEnd = Math.min(length, endOffset - nodeStart);
+    if (localStart >= localEnd) {
+      continue;
+    }
+
+    const text = node.textContent;
+    const fragment = document.createDocumentFragment();
+
+    if (localStart > 0) {
+      fragment.append(document.createTextNode(text.slice(0, localStart)));
+    }
+
+    const mark = document.createElement("mark");
+    mark.className = "article-highlight";
+    mark.dataset.highlightId = highlightId;
+    mark.tabIndex = 0;
+    mark.append(document.createTextNode(text.slice(localStart, localEnd)));
+    fragment.append(mark);
+
+    if (localEnd < length) {
+      fragment.append(document.createTextNode(text.slice(localEnd)));
+    }
+
+    node.parentNode.replaceChild(fragment, node);
+  }
+};
+
+const applyHighlightsToArticleBody = (root, highlights = []) => {
+  const fullText = root.textContent || "";
+  const resolvedHighlights = [];
+
+  for (const highlight of [...highlights].sort((left, right) => left.startOffset - right.startOffset)) {
+    const offsets = resolveHighlightOffsets(fullText, highlight);
+    if (!offsets || offsets.startOffset === offsets.endOffset) {
+      resolvedHighlights.push({ ...highlight, resolved: false });
+      continue;
+    }
+
+    wrapHighlightRange(root, offsets.startOffset, offsets.endOffset, highlight.id);
+    resolvedHighlights.push({
+      ...highlight,
+      resolved: true,
+      ...offsets
+    });
+  }
+
+  return resolvedHighlights;
+};
+
+const truncateHighlightText = (value) => {
+  const text = String(value || "").replace(/\s+/gu, " ").trim();
+  return text.length > 180 ? `${text.slice(0, 177)}...` : text;
 };
 
 const listTitle = () => {
@@ -821,11 +1018,13 @@ const renderArticle = () => {
   elements.saveArticleButton.classList.toggle("is-active", Boolean(article?.isSaved));
 
   if (isTodayDigestMode() && !state.selectedArticleId) {
+    hideHighlightPopover();
     renderDigestView();
     return;
   }
 
   if (state.isLoadingArticle && state.selectedArticleId) {
+    hideHighlightPopover();
     elements.articleView.innerHTML = `
       <div class="article-loading-state">
         Loading article…
@@ -835,6 +1034,7 @@ const renderArticle = () => {
   }
 
   if (!article) {
+    hideHighlightPopover();
     elements.articleView.innerHTML = `
       <div class="empty-state">
         Select an article to start reading. New feeds sync through Convex every 30 minutes, and pasted article URLs show up here right away.
@@ -846,24 +1046,60 @@ const renderArticle = () => {
   const articleHero = buildArticleHero(article.bodyHtml, article.thumbnailUrl, article.title);
 
   elements.articleView.innerHTML = `
-    ${articleHero.heroHtml ? `<div class="article-hero">${sanitizeHtml(articleHero.heroHtml)}</div>` : ""}
-    <header class="article-header">
-      <div class="article-feed-name">
-        ${feedIconMarkup(article.feedIconUrl)}
-        ${escapeHtml(article.feedTitle)}
+    <div class="article-layout">
+      <div class="article-main">
+        ${articleHero.heroHtml ? `<div class="article-hero">${sanitizeHtml(articleHero.heroHtml)}</div>` : ""}
+        <header class="article-header">
+          <div class="article-feed-name">
+            ${feedIconMarkup(article.feedIconUrl)}
+            ${escapeHtml(article.feedTitle)}
+          </div>
+          <h1 class="article-h1">${escapeHtml(article.title)}</h1>
+          ${article.subtitle ? `<div class="article-subtitle">${escapeHtml(article.subtitle)}</div>` : ""}
+          <div class="article-meta-row">
+            <span>By <span class="article-author">${escapeHtml(article.author || "Unknown author")}</span></span>
+            <span>•</span>
+            <span>${escapeHtml(formatArticleDate(article.publishedAt))}</span>
+            <span>•</span>
+            <span>${escapeHtml(`${article.readTimeMinutes} min read`)}</span>
+          </div>
+        </header>
+        <div class="article-body">${sanitizeHtml(articleHero.bodyHtml) || "<p>No article body available yet.</p>"}</div>
       </div>
-      <h1 class="article-h1">${escapeHtml(article.title)}</h1>
-      ${article.subtitle ? `<div class="article-subtitle">${escapeHtml(article.subtitle)}</div>` : ""}
-      <div class="article-meta-row">
-        <span>By <span class="article-author">${escapeHtml(article.author || "Unknown author")}</span></span>
-        <span>•</span>
-        <span>${escapeHtml(formatArticleDate(article.publishedAt))}</span>
-        <span>•</span>
-        <span>${escapeHtml(`${article.readTimeMinutes} min read`)}</span>
-      </div>
-    </header>
-    <div class="article-body">${sanitizeHtml(articleHero.bodyHtml) || "<p>No article body available yet.</p>"}</div>
+      <aside class="highlights-rail" ${article.highlights?.length === 0 ? "" : ""}>
+        <div class="highlights-title">Highlights</div>
+        <div class="highlights-empty">Select text in the article body to save a highlight.</div>
+      </aside>
+    </div>
   `;
+
+  const articleBody = elements.articleView.querySelector(".article-body");
+  const resolvedHighlights = articleBody
+    ? applyHighlightsToArticleBody(articleBody, article.highlights || [])
+    : [];
+  const highlightsRail = elements.articleView.querySelector(".highlights-rail");
+  if (highlightsRail) {
+    highlightsRail.hidden = false;
+    highlightsRail.innerHTML = `
+      <div class="highlights-title">Highlights</div>
+      ${(article.highlights || []).length === 0 ? `
+        <div class="highlights-empty">Select text in the article body to save a highlight.</div>
+      ` : `
+        <div class="highlights-list">
+          ${resolvedHighlights.map((highlight) => `
+            <button
+              class="highlight-item ${highlight.resolved ? "" : "is-unresolved"}"
+              data-highlight-jump-id="${highlight.id}"
+              type="button"
+            >
+              <div class="highlight-item-text">${escapeHtml(truncateHighlightText(highlight.selectedText))}</div>
+              <div class="highlight-item-meta">${highlight.resolved ? "Jump to highlight" : "Highlight location needs review"}</div>
+            </button>
+          `).join("")}
+        </div>
+      `}
+    `;
+  }
 
   for (const link of elements.articleView.querySelectorAll(".article-body a[href]")) {
     link.setAttribute("rel", "noopener noreferrer");
@@ -883,10 +1119,33 @@ const render = () => {
   syncListMenuState();
 };
 
-const loadArticle = async (articleId) => {
+const focusRenderedHighlight = (highlightId, fallbackScrollTop = null) => {
+  window.requestAnimationFrame(() => {
+    const mark = highlightId
+      ? elements.articleView.querySelector(`[data-highlight-id="${CSS.escape(highlightId)}"]`)
+      : null;
+
+    if (mark) {
+      mark.scrollIntoView({ behavior: "auto", block: "center" });
+      mark.focus({ preventScroll: true });
+      return;
+    }
+
+    if (fallbackScrollTop != null) {
+      elements.paneContentScroll.scrollTop = fallbackScrollTop;
+    }
+  });
+};
+
+const loadArticle = async (articleId, options = {}) => {
+  const {
+    focusHighlightId = "",
+    preserveScrollTop = null
+  } = options;
   const requestToken = ++articleRequestToken;
   state.isLoadingArticle = true;
   state.selectedArticle = null;
+  hideHighlightPopover();
   render();
 
   try {
@@ -900,8 +1159,85 @@ const loadArticle = async (articleId) => {
     if (requestToken === articleRequestToken && state.selectedArticleId === articleId) {
       state.isLoadingArticle = false;
       render();
+      focusRenderedHighlight(focusHighlightId, preserveScrollTop);
     }
   }
+};
+
+const syncHighlightPopover = () => {
+  if (!state.selectedArticle || state.isLoadingArticle || isTodayDigestMode()) {
+    hideHighlightPopover();
+    return;
+  }
+
+  const root = getArticleBodyElement();
+  const selection = window.getSelection();
+  if (!root || !selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    hideHighlightPopover();
+    return;
+  }
+
+  const range = selection.getRangeAt(0);
+  if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) {
+    hideHighlightPopover();
+    return;
+  }
+
+  const payload = createHighlightSelectionPayload(root, range);
+  if (!payload?.selectedText) {
+    hideHighlightPopover();
+    return;
+  }
+
+  const rect = range.getBoundingClientRect();
+  if (!rect || (!rect.width && !rect.height)) {
+    hideHighlightPopover();
+    return;
+  }
+
+  state.pendingHighlightSelection = payload;
+  elements.highlightPopover.hidden = false;
+  elements.highlightPopover.style.left = `${Math.max(12, Math.min(window.innerWidth - 140, rect.left + rect.width / 2 - 48))}px`;
+  elements.highlightPopover.style.top = `${Math.max(12, rect.top - 52)}px`;
+};
+
+const createHighlight = async () => {
+  if (!state.selectedArticle || !state.pendingHighlightSelection) {
+    return;
+  }
+
+  const currentArticleId = state.selectedArticle.id;
+  const payload = state.pendingHighlightSelection;
+  const preserveScrollTop = elements.paneContentScroll.scrollTop;
+  hideHighlightPopover();
+  window.getSelection()?.removeAllRanges();
+
+  const createdHighlight = await convexRequest("mutation", "reader:addHighlight", {
+    articleId: currentArticleId,
+    endOffset: payload.endOffset,
+    prefixText: payload.prefixText,
+    selectedText: payload.selectedText,
+    startOffset: payload.startOffset,
+    suffixText: payload.suffixText
+  });
+
+  await loadArticle(currentArticleId, {
+    focusHighlightId: createdHighlight.id,
+    preserveScrollTop
+  });
+  showToast("Highlight saved.");
+};
+
+const removeHighlight = async (highlightId) => {
+  const preserveScrollTop = elements.paneContentScroll.scrollTop;
+  await convexRequest("mutation", "reader:removeHighlight", { highlightId });
+  hideHighlightPopover();
+
+  if (state.selectedArticleId) {
+    await loadArticle(state.selectedArticleId, { preserveScrollTop });
+  }
+
+  showToast("Highlight removed.");
 };
 
 const pollTodayDigest = async (attempts = 6) => {
@@ -1335,6 +1671,26 @@ elements.articleList.addEventListener("click", async (event) => {
 });
 
 elements.articleView.addEventListener("click", async (event) => {
+  const highlightMark = event.target.closest("[data-highlight-id]");
+  if (highlightMark) {
+    event.preventDefault();
+    await removeHighlight(highlightMark.dataset.highlightId);
+    return;
+  }
+
+  const highlightJump = event.target.closest("[data-highlight-jump-id]");
+  if (highlightJump) {
+    const highlightId = highlightJump.dataset.highlightJumpId;
+    const mark = elements.articleView.querySelector(`[data-highlight-id="${CSS.escape(highlightId)}"]`);
+    if (mark) {
+      mark.scrollIntoView({ behavior: "smooth", block: "center" });
+      mark.focus({ preventScroll: true });
+    } else {
+      showToast("This highlight no longer maps cleanly to the article body.", { error: true });
+    }
+    return;
+  }
+
   const item = event.target.closest("[data-digest-article-id]");
   if (item) {
     await selectArticle(item.dataset.digestArticleId);
@@ -1369,6 +1725,18 @@ elements.articleView.addEventListener("click", async (event) => {
 
   clearSelection();
   await loadDigestForDate(shiftLocalDate(baseDate, offset));
+});
+
+elements.articleView.addEventListener("pointerup", () => {
+  window.requestAnimationFrame(() => {
+    syncHighlightPopover();
+  });
+});
+
+document.addEventListener("selectionchange", () => {
+  window.requestAnimationFrame(() => {
+    syncHighlightPopover();
+  });
 });
 
 elements.articleList.addEventListener("scroll", () => {
@@ -1436,6 +1804,13 @@ elements.removeFeedGroupButton.addEventListener("click", () => {
 
 elements.addFeedButton.addEventListener("click", openDialog);
 elements.addManualArticleButton.addEventListener("click", openArticleDialog);
+elements.highlightCreateButton.addEventListener("click", async () => {
+  try {
+    await createHighlight();
+  } catch (error) {
+    showToast(error.message, { error: true });
+  }
+});
 elements.sidebarToggleButton.addEventListener("click", () => {
   state.sidebarCollapsed = !state.sidebarCollapsed;
   syncSidebarState();
@@ -1492,6 +1867,15 @@ elements.removeFeedGroupForm.addEventListener("submit", async (event) => {
 });
 
 document.addEventListener("click", (event) => {
+  if (
+    !elements.highlightPopover.hidden &&
+    !elements.highlightPopover.contains(event.target) &&
+    !event.target.closest("[data-highlight-id]") &&
+    !hasActiveArticleSelection()
+  ) {
+    hideHighlightPopover();
+  }
+
   if (!isListMenuOpen) {
     return;
   }
@@ -1506,6 +1890,16 @@ document.addEventListener("click", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && isListMenuOpen) {
     closeListMenu();
+  }
+
+  if (event.key === "Escape" && !elements.highlightPopover.hidden) {
+    hideHighlightPopover();
+  }
+});
+
+elements.paneContentScroll.addEventListener("scroll", () => {
+  if (!elements.highlightPopover.hidden) {
+    hideHighlightPopover();
   }
 });
 
