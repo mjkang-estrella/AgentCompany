@@ -7,6 +7,7 @@ import { hashArticleContent } from "../lib/content-hash.mjs";
 import { extractPageWithDefuddle } from "../lib/page-extractor.mjs";
 import { normalizeArticleContent } from "../lib/article-body-normalizer.mjs";
 import { canonicalizeUrl, stripHtml } from "../lib/html.mjs";
+import { extractYouTubeArticleFromHtml, isYouTubeUrl } from "../lib/youtube-extractor.mjs";
 
 const DEFAULT_HEADERS = {
   "user-agent": "AgentCompany Reader/1.0 (+https://agent.company)"
@@ -502,6 +503,58 @@ export const addFromUrl = action({
     }
 
     const page = await fetchText(requestedUrl);
+    if (isYouTubeUrl(page.url)) {
+      const extracted = await extractYouTubeArticleFromHtml(page.text, page.url, {
+        fetchText: async (url: string) => {
+          const response = await fetchText(url);
+          return response.text;
+        }
+      });
+      const canonicalUrl = extracted.canonicalUrl || canonicalizeUrl(page.url);
+      const previewText = extracted.previewText || stripHtml(extracted.summaryHtml || extracted.bodyHtml).slice(0, 220);
+
+      if (
+        extracted.quality !== "usable" ||
+        !extracted.title ||
+        stripHtml(extracted.bodyHtml || extracted.summaryHtml).length < 40
+      ) {
+        throw new Error("Could not extract a readable transcript or description from that YouTube URL");
+      }
+
+      return ctx.runMutation(internal.articles.upsertManualArticle, {
+        article: {
+          author: extracted.author || undefined,
+          bodyHtml: extracted.bodyHtml,
+          bodySource: "fetched",
+          canonicalUrl,
+          contentHash: hashArticleContent({
+            author: extracted.author || "",
+            bodyHtml: extracted.bodyHtml,
+            canonicalUrl,
+            previewText,
+            publishedAt: normalizePublishedAt(extracted.publishedAt),
+            summaryHtml: extracted.summaryHtml,
+            subtitle: extracted.subtitle || "",
+            thumbnailUrl: extracted.thumbnailUrl || "",
+            title: extracted.title,
+            url: page.url
+          }),
+          externalId: canonicalUrl,
+          feedIconUrl: undefined,
+          feedSiteUrl: new URL(canonicalUrl).origin,
+          feedTitle: extracted.siteName || "YouTube",
+          previewText,
+          publishedAt: normalizePublishedAt(extracted.publishedAt),
+          readTimeMinutes: Math.max(extracted.readTimeMinutes || 0, 1),
+          summaryHtml: extracted.summaryHtml,
+          subtitle: extracted.subtitle || undefined,
+          thumbnailUrl: extracted.thumbnailUrl || undefined,
+          title: extracted.title,
+          url: canonicalUrl
+        }
+      });
+    }
+
     const extracted = await extractPageWithDefuddle(page.text, page.url);
     const canonicalUrl = extracted.canonicalUrl || canonicalizeUrl(page.url);
     const title = extracted.title || deriveSiteTitle(page.url, extracted.siteName);
