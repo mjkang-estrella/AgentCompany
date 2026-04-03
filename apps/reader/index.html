@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
     <title>RSS Feed Reader</title>
     <style>
         :root {
@@ -23,7 +26,7 @@
             --border-light: #E5E7EB;
             --border-medium: #D1D5DB;
 
-            --font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            --font-family: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             --font-size-xs: 0.75rem;
             --font-size-sm: 0.8125rem;
             --font-size-base: 0.875rem;
@@ -1351,11 +1354,11 @@
     <form class="feed-dialog-card" id="article-form" method="dialog">
         <div>
             <div class="dialog-title">Add article</div>
-            <p class="dialog-copy">Paste a single article URL and Reader will save it directly into your article list.</p>
+            <p class="dialog-copy">Paste a single article or YouTube URL and Reader will save it directly into your article list.</p>
         </div>
         <label class="form-field">
             <span class="form-label">Article URL</span>
-            <input class="text-input" id="article-url-input" name="url" required type="url" placeholder="https://example.com/post">
+            <input class="text-input" id="article-url-input" name="url" required type="url" placeholder="https://example.com/post or https://www.youtube.com/watch?v=...">
         </label>
         <div class="dialog-actions">
             <button class="btn-secondary" id="article-cancel-button" type="button">Cancel</button>

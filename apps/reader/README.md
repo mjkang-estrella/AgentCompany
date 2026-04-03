@@ -10,7 +10,7 @@ Adding a feed is asynchronous: the app creates the feed immediately, makes it vi
 
 Feeds can be removed from the article-list overflow menu while a feed is selected. Removing a feed permanently deletes all RSS feeds in that feed group and all synced articles attached to them.
 
-Reader also has a separate `Articles` section in the sidebar. It accepts a single pasted article URL, fetches the readable body directly, dedupes by canonical URL, and adds the article into `All Articles`, `Today`, and `Saved` without creating an RSS subscription.
+Reader also has a separate `Articles` section in the sidebar. It accepts a single pasted article or YouTube URL, dedupes by canonical URL, and adds the result into `All Articles`, `Today`, and `Saved` without creating an RSS subscription. Standard pages use the readable-body extractor directly. YouTube URLs are converted into transcript-backed articles when captions are available, and otherwise fall back to the video description.
 
 Individual articles can be deleted from the top-right actions in the reading pane. Deletions are soft for feed-backed items so they stay gone on later syncs.
 
