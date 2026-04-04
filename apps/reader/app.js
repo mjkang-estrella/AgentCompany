@@ -6,6 +6,7 @@ import {
   fallbackFeedIconHtml,
   feedGroupIconHtml,
   feedsIconHtml,
+  highlightsIconHtml,
   libraryIconHtml,
   menuIconHtml,
   nextIconHtml,
@@ -84,7 +85,6 @@ const elements = {
   feedForm: document.querySelector("#feed-form"),
   feedGroupInput: document.querySelector("#feed-group-input"),
   feedUrlInput: document.querySelector("#feed-url-input"),
-  highlightRemovePopover: document.querySelector("#highlight-remove-popover"),
   listActions: document.querySelector(".list-actions"),
   listBackButton: document.querySelector("#list-back-button"),
   listMenu: document.querySelector("#list-menu"),
@@ -146,7 +146,7 @@ const applyStaticIcons = () => {
   elements.nextArticleButton.innerHTML = nextIconHtml;
   elements.saveArticleButton.innerHTML = savedIconHtml.replace('width="18"', 'width="20"').replace('height="18"', 'height="20"');
   elements.shareArticleButton.innerHTML = shareIconHtml;
-  elements.toggleHighlightsButton.innerHTML = savedIconHtml;
+  elements.toggleHighlightsButton.innerHTML = highlightsIconHtml;
   elements.deleteArticleButton.innerHTML = deleteIconHtml;
   elements.openArticleButton.innerHTML = `Original ${externalLinkIconHtml}`;
   elements.settingsButton.innerHTML = settingsIconHtml;
@@ -276,11 +276,6 @@ const getArticleBodyElement = () => elements.articleView.querySelector(".article
 const HIGHLIGHT_CONTEXT_CHARS = 48;
 const HIGHLIGHT_MIN_LENGTH = 3;
 let isHighlightInProgress = false;
-
-const hideRemovePopover = () => {
-  elements.highlightRemovePopover.hidden = true;
-  elements.highlightRemovePopover.dataset.highlightId = "";
-};
 
 const collectArticleTextNodes = (root) => {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
@@ -517,21 +512,7 @@ const instantHighlight = async () => {
   }
 };
 
-const showRemovePopover = (markElement, highlightId) => {
-  elements.highlightRemovePopover.dataset.highlightId = highlightId;
-  elements.highlightRemovePopover.hidden = false;
-
-  const rect = markElement.getBoundingClientRect();
-  const popoverWidth = 100;
-  const left = Math.max(8, Math.min(window.innerWidth - popoverWidth - 8, rect.left + rect.width / 2 - popoverWidth / 2));
-  const top = rect.bottom + 6;
-  elements.highlightRemovePopover.style.left = `${left}px`;
-  elements.highlightRemovePopover.style.top = `${top}px`;
-};
-
 const removeHighlight = async (highlightId) => {
-  hideRemovePopover();
-
   const root = getArticleBodyElement();
   if (root) unwrapHighlightMarks(root, highlightId);
 
@@ -1356,13 +1337,11 @@ const renderArticle = () => {
   elements.toggleHighlightsButton.classList.toggle("is-active", Boolean(state.isHighlightsPanelOpen));
 
   if (isTodayDigestMode() && !state.selectedArticleId) {
-    hideRemovePopover();
     renderDigestView();
     return;
   }
 
   if (state.isLoadingArticle && state.selectedArticleId) {
-    hideRemovePopover();
     elements.articleView.innerHTML = `
       <div class="article-loading-state">
         Loading article…
@@ -1372,7 +1351,6 @@ const renderArticle = () => {
   }
 
   if (!article) {
-    hideRemovePopover();
     elements.articleView.innerHTML = `
       <div class="empty-state">
         Select an article to start reading. New feeds sync through Convex once an hour, and library saves show up here right away.
@@ -1408,7 +1386,6 @@ const renderArticle = () => {
     </div>
   `;
 
-  hideRemovePopover();
   const articleBody = elements.articleView.querySelector(".article-body");
   if (articleBody) {
     applyHighlightsToArticleBody(articleBody, article.highlights || []);
@@ -1438,7 +1415,6 @@ const loadArticle = async (articleId, options = {}) => {
   const requestToken = ++articleRequestToken;
   state.isLoadingArticle = true;
   state.selectedArticle = null;
-  hideRemovePopover();
   render();
 
   try {

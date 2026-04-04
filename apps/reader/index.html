@@ -1103,35 +1103,6 @@
             line-height: 1.7;
         }
 
-        .highlight-remove-popover {
-            position: fixed;
-            z-index: 60;
-            padding: 4px;
-            border: 1px solid var(--border-light);
-            border-radius: 8px;
-            background: var(--bg-body);
-            box-shadow: 0 4px 16px var(--shadow-overlay);
-        }
-
-        .highlight-remove-popover[hidden] {
-            display: none;
-        }
-
-        .highlight-remove-btn {
-            border: none;
-            background: none;
-            color: var(--danger-hover-text, #DC2626);
-            font: inherit;
-            font-size: var(--font-size-sm);
-            padding: 6px 14px;
-            border-radius: var(--radius-sm);
-            cursor: pointer;
-        }
-
-        .highlight-remove-btn:hover {
-            background: var(--danger-hover-bg);
-        }
-
         .inline-link {
             color: var(--accent-orange);
             text-decoration: none;
@@ -1597,7 +1568,6 @@
             <div class="shortcut-row"><kbd>k</kbd> <span>Previous article</span></div>
             <div class="shortcut-row"><kbd>s</kbd> <span>Save / unsave article</span></div>
             <div class="shortcut-row"><kbd>o</kbd> <span>Open in browser</span></div>
-            <div class="shortcut-row"><kbd>m</kbd> <span>Mark all as read</span></div>
             <div class="shortcut-row"><kbd>?</kbd> <span>Show this dialog</span></div>
         </div>
         <div class="dialog-actions">
@@ -1606,9 +1576,6 @@
     </div>
 </dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<div class="highlight-remove-popover" id="highlight-remove-popover" hidden>
-    <button class="highlight-remove-btn" id="highlight-remove-btn" type="button">Remove</button>
-</div>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"></script>
 <script type="module" src="/app.js"></script>
 </body>
