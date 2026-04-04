@@ -11,9 +11,8 @@ import {
   nextIconHtml,
   previousIconHtml,
   savedIconHtml,
+  settingsIconHtml,
   shareIconHtml,
-  themeDarkIconHtml,
-  themeLightIconHtml,
   todayIconHtml
 } from "./icons.js";
 import {
@@ -48,6 +47,7 @@ const state = {
   digestDate: "",
   feedGroup: "",
   hasMore: false,
+  isHighlightsPanelOpen: true,
   isSyncingNewsletters: false,
   isLoadingArticle: false,
   isLoadingDigest: false,
@@ -67,6 +67,7 @@ const state = {
 
 const elements = {
   addFeedButton: document.querySelector("#add-feed-button"),
+  addFeedMenuButton: document.querySelector("#add-feed-menu-button"),
   addManualArticleButton: document.querySelector("#add-manual-article-button"),
   appLayout: document.querySelector(".app-layout"),
   articleCancelButton: document.querySelector("#article-cancel-button"),
@@ -89,7 +90,6 @@ const elements = {
   listMenu: document.querySelector("#list-menu"),
   listMenuButton: document.querySelector("#list-menu-button"),
   listTitle: document.querySelector("#list-title"),
-  markAllReadButton: document.querySelector("#mark-all-read-button"),
   navAll: document.querySelector("#nav-all"),
   navFeeds: document.querySelector("#nav-feeds"),
   navManualArticles: document.querySelector("#nav-manual-articles"),
@@ -100,6 +100,7 @@ const elements = {
   newsletterSyncButton: document.querySelector("#newsletter-sync-button"),
   nextArticleButton: document.querySelector("#next-article-button"),
   openArticleButton: document.querySelector("#open-article-button"),
+  toggleHighlightsButton: document.querySelector("#toggle-highlights-button"),
 
   paneContentScroll: document.querySelector(".pane-content-scroll"),
   previousArticleButton: document.querySelector("#previous-article-button"),
@@ -115,8 +116,14 @@ const elements = {
   removeFeedGroupDialog: document.querySelector("#remove-feed-group-dialog"),
   removeFeedGroupForm: document.querySelector("#remove-feed-group-form"),
   saveArticleButton: document.querySelector("#save-article-button"),
+  settingsButton: document.querySelector("#settings-button"),
+  settingsCloseButton: document.querySelector("#settings-close-button"),
+  settingsDialog: document.querySelector("#settings-dialog"),
   shareArticleButton: document.querySelector("#share-article-button"),
-  themeToggleButton: document.querySelector("#theme-toggle-button"),
+  themeAutoButton: document.querySelector("#theme-auto-button"),
+  themeDarkButton: document.querySelector("#theme-dark-button"),
+  themeLightButton: document.querySelector("#theme-light-button"),
+  manualSyncButton: document.querySelector("#manual-sync-button"),
   toast: document.querySelector("#toast")
 };
 
@@ -132,7 +139,6 @@ const applyStaticIcons = () => {
   elements.navSaved.innerHTML = savedIconHtml;
   elements.navFeeds.innerHTML = feedsIconHtml;
   elements.navManualArticles.innerHTML = libraryIconHtml;
-  elements.addFeedButton.innerHTML = addIconHtml;
   elements.addManualArticleButton.innerHTML = addIconHtml;
   elements.listBackButton.innerHTML = previousIconHtml.replace('width="20"', 'width="18"').replace('height="20"', 'height="18"');
   elements.listMenuButton.innerHTML = menuIconHtml;
@@ -140,8 +146,10 @@ const applyStaticIcons = () => {
   elements.nextArticleButton.innerHTML = nextIconHtml;
   elements.saveArticleButton.innerHTML = savedIconHtml.replace('width="18"', 'width="20"').replace('height="18"', 'height="20"');
   elements.shareArticleButton.innerHTML = shareIconHtml;
+  elements.toggleHighlightsButton.innerHTML = savedIconHtml;
   elements.deleteArticleButton.innerHTML = deleteIconHtml;
   elements.openArticleButton.innerHTML = `Original ${externalLinkIconHtml}`;
+  elements.settingsButton.innerHTML = settingsIconHtml;
 };
 
 const escapeHtml = (value) =>
@@ -425,16 +433,27 @@ const renderHighlightsRail = () => {
   const highlights = state.selectedArticle?.highlights || [];
 
   rail.innerHTML = highlights.length === 0
-    ? `<div class="highlights-rail-header">Highlights</div>
+    ? `<div class="highlights-rail-header">
+         <span>Highlights</span>
+         <button class="icon-btn highlights-close-btn" data-toggle-highlights-panel="true" type="button" aria-label="Close highlights panel">×</button>
+       </div>
        <div class="highlights-empty">Select text in the article to highlight it.</div>`
-    : `<div class="highlights-rail-header">${highlights.length} Highlight${highlights.length === 1 ? "" : "s"}</div>
+    : `<div class="highlights-rail-header">
+         <span>${highlights.length} Highlight${highlights.length === 1 ? "" : "s"}</span>
+         <button class="icon-btn highlights-close-btn" data-toggle-highlights-panel="true" type="button" aria-label="Close highlights panel">×</button>
+       </div>
        <div class="highlights-list">
          ${highlights.map((h) => {
            const hasMark = Boolean(elements.articleView.querySelector(`[data-highlight-id="${CSS.escape(h.id)}"]`));
            return `
-             <button class="highlight-item ${hasMark ? "" : "is-unresolved"}" data-highlight-jump-id="${h.id}" type="button">
-               <div class="highlight-item-text">${escapeHtml(truncateHighlightText(h.selectedText))}</div>
-             </button>`;
+             <div class="highlight-item ${hasMark ? "" : "is-unresolved"}">
+               <div class="highlight-item-row">
+                 <button class="highlight-jump-btn" data-highlight-jump-id="${h.id}" type="button">
+                   <div class="highlight-item-text">${escapeHtml(truncateHighlightText(h.selectedText))}</div>
+                 </button>
+                 <button class="icon-btn highlight-remove-inline" data-highlight-remove-id="${h.id}" type="button" aria-label="Remove highlight">×</button>
+               </div>
+             </div>`;
          }).join("")}
        </div>`;
 };
@@ -702,7 +721,7 @@ const renderNewsletterStatus = () => {
     const syncedLabel = Number.isNaN(syncedAt.valueOf())
       ? status.lastSyncedAt
       : syncedAt.toLocaleString();
-    message = `Reader checks ${inboxEmail} every 15 minutes. Last sync: ${syncedLabel}.`;
+    message = `Reader checks ${inboxEmail} once an hour. Last sync: ${syncedLabel}.`;
 
     if (status.lastImportedCount > 0) {
       message += ` Imported ${status.lastImportedCount} newsletter${status.lastImportedCount === 1 ? "" : "s"} last run.`;
@@ -1165,14 +1184,20 @@ const renderArticleList = () => {
   if (state.browseFeedGroups) {
     elements.feedGroupList.hidden = false;
     elements.articleList.hidden = true;
-    elements.listActions.hidden = true;
+    elements.listActions.hidden = false;
+    elements.listMenuButton.hidden = false;
+    elements.addFeedMenuButton.hidden = false;
+    elements.renameFeedGroupButton.hidden = true;
+    elements.removeFeedGroupButton.hidden = true;
     return;
   }
 
   elements.feedGroupList.hidden = true;
   elements.articleList.hidden = false;
-  elements.listActions.hidden = false;
-  elements.markAllReadButton.disabled = state.articles.length === 0;
+  const showFeedSettings = state.browseFeedGroups || Boolean(state.feedGroup);
+  elements.listActions.hidden = !(showFeedSettings || state.scope === "manual");
+  elements.listMenuButton.hidden = !showFeedSettings;
+  elements.addFeedMenuButton.hidden = !showFeedSettings;
   elements.renameFeedGroupButton.hidden = !state.feedGroup;
   elements.renameFeedGroupButton.disabled = !state.feedGroup;
   elements.renameFeedGroupButton.textContent = state.feedGroup
@@ -1321,9 +1346,11 @@ const renderArticle = () => {
   elements.saveArticleButton.disabled = !article;
   elements.deleteArticleButton.disabled = !article;
   elements.shareArticleButton.disabled = !article || !hasExternalUrl;
+  elements.toggleHighlightsButton.disabled = !article;
   elements.openArticleButton.disabled = !article || !hasExternalUrl;
 
   elements.saveArticleButton.classList.toggle("is-active", Boolean(article?.isSaved));
+  elements.toggleHighlightsButton.classList.toggle("is-active", Boolean(state.isHighlightsPanelOpen));
 
   if (isTodayDigestMode() && !state.selectedArticleId) {
     hideRemovePopover();
@@ -1345,7 +1372,7 @@ const renderArticle = () => {
     hideRemovePopover();
     elements.articleView.innerHTML = `
       <div class="empty-state">
-        Select an article to start reading. New feeds sync through Convex every 30 minutes, and library saves show up here right away.
+        Select an article to start reading. New feeds sync through Convex once an hour, and library saves show up here right away.
       </div>
     `;
     return;
@@ -1374,7 +1401,7 @@ const renderArticle = () => {
         </header>
         <div class="article-body">${sanitizeHtml(articleHero.bodyHtml) || "<p>No article body available yet.</p>"}</div>
       </div>
-      <aside class="highlights-rail"></aside>
+      ${state.isHighlightsPanelOpen ? '<aside class="highlights-rail"></aside>' : ""}
     </div>
   `;
 
@@ -1674,6 +1701,14 @@ const closeDialog = () => {
   feedGroupEditedManually = false;
 };
 
+const openSettingsDialog = () => {
+  elements.settingsDialog.showModal();
+};
+
+const closeSettingsDialog = () => {
+  elements.settingsDialog.close();
+};
+
 const openArticleDialog = () => {
   elements.articleDialog.showModal();
   elements.articleUrlInput.focus();
@@ -1698,6 +1733,13 @@ const openRenameFeedGroupDialog = (feedGroup) => {
 const closeRenameFeedGroupDialog = () => {
   elements.renameFeedGroupDialog.close();
   elements.renameFeedGroupForm.reset();
+};
+
+const runManualSync = async () => {
+  await convexRequest("action", "sync:runAllNow", {});
+  await convexRequest("action", "newsletters:syncNow", {});
+  await loadNewsletterStatus().catch(() => {});
+  await refreshCurrentView();
 };
 
 const openRemoveFeedGroupDialog = (feedGroup) => {
@@ -2026,7 +2068,15 @@ elements.articleView.addEventListener("click", async (event) => {
   if (highlightMark) {
     event.preventDefault();
     event.stopPropagation();
-    showRemovePopover(highlightMark, highlightMark.dataset.highlightId);
+    if (!state.isHighlightsPanelOpen) {
+      state.isHighlightsPanelOpen = true;
+      render();
+    }
+    const jump = elements.articleView.querySelector(`[data-highlight-jump-id="${CSS.escape(highlightMark.dataset.highlightId)}"]`);
+    if (jump) {
+      jump.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      jump.focus({ preventScroll: true });
+    }
     return;
   }
 
@@ -2038,6 +2088,23 @@ elements.articleView.addEventListener("click", async (event) => {
       mark.scrollIntoView({ behavior: "smooth", block: "center" });
       mark.focus({ preventScroll: true });
     }
+    return;
+  }
+
+  const highlightRemove = event.target.closest("[data-highlight-remove-id]");
+  if (highlightRemove) {
+    event.preventDefault();
+    event.stopPropagation();
+    await removeHighlight(highlightRemove.dataset.highlightRemoveId);
+    return;
+  }
+
+  const toggleHighlights = event.target.closest("[data-toggle-highlights-panel='true']");
+  if (toggleHighlights) {
+    event.preventDefault();
+    event.stopPropagation();
+    state.isHighlightsPanelOpen = false;
+    render();
     return;
   }
 
@@ -2130,15 +2197,6 @@ elements.deleteArticleButton.addEventListener("click", async () => {
   }
 });
 
-elements.markAllReadButton.addEventListener("click", async () => {
-  try {
-    closeListMenu();
-    await markAllRead();
-  } catch (error) {
-    showToast(error.message, { error: true });
-  }
-});
-
 elements.renameFeedGroupButton.addEventListener("click", () => {
   if (!state.feedGroup) {
     return;
@@ -2157,12 +2215,26 @@ elements.removeFeedGroupButton.addEventListener("click", () => {
   openRemoveFeedGroupDialog(state.feedGroup);
 });
 
-elements.addFeedButton.addEventListener("click", openDialog);
+elements.addFeedMenuButton.addEventListener("click", () => {
+  closeListMenu();
+  openDialog();
+});
 elements.addManualArticleButton.addEventListener("click", openArticleDialog);
-
-document.querySelector("#highlight-remove-btn").addEventListener("click", async () => {
-  const highlightId = elements.highlightRemovePopover.dataset.highlightId;
-  if (highlightId) await removeHighlight(highlightId);
+elements.settingsButton.addEventListener("click", openSettingsDialog);
+elements.settingsCloseButton.addEventListener("click", closeSettingsDialog);
+elements.manualSyncButton.addEventListener("click", async () => {
+  try {
+    elements.manualSyncButton.disabled = true;
+    elements.manualSyncButton.textContent = "Syncing…";
+    await runManualSync();
+    closeSettingsDialog();
+    showToast("Manual sync complete.");
+  } catch (error) {
+    showToast(error.message, { error: true });
+  } finally {
+    elements.manualSyncButton.disabled = false;
+    elements.manualSyncButton.textContent = "Sync now";
+  }
 });
 
 elements.feedCancelButton.addEventListener("click", closeDialog);
@@ -2230,14 +2302,6 @@ elements.removeFeedGroupForm.addEventListener("submit", async (event) => {
 });
 
 document.addEventListener("click", (event) => {
-  if (
-    !elements.highlightRemovePopover.hidden &&
-    !elements.highlightRemovePopover.contains(event.target) &&
-    !event.target.closest("[data-highlight-id]")
-  ) {
-    hideRemovePopover();
-  }
-
   if (!isListMenuOpen) {
     return;
   }
@@ -2260,14 +2324,9 @@ document.addEventListener("keydown", (event) => {
     return;
   }
 
-  if (event.key === "Escape" && !elements.highlightRemovePopover.hidden) {
-    hideRemovePopover();
-  }
-});
-
-elements.paneContentScroll.addEventListener("scroll", () => {
-  if (!elements.highlightRemovePopover.hidden) {
-    hideRemovePopover();
+  if (event.key === "Escape" && state.isHighlightsPanelOpen && state.selectedArticle) {
+    state.isHighlightsPanelOpen = false;
+    render();
   }
 });
 
@@ -2297,6 +2356,15 @@ elements.shareArticleButton.addEventListener("click", async () => {
   } catch (error) {
     showToast(error.message, { error: true });
   }
+});
+
+elements.toggleHighlightsButton.addEventListener("click", () => {
+  if (!state.selectedArticle) {
+    return;
+  }
+
+  state.isHighlightsPanelOpen = !state.isHighlightsPanelOpen;
+  render();
 });
 
 elements.openArticleButton.addEventListener("click", () => {
@@ -2357,12 +2425,6 @@ document.addEventListener("keydown", async (event) => {
           window.open(state.selectedArticle.url, "_blank", "noopener,noreferrer");
         }
         break;
-      case "m":
-        event.preventDefault();
-        if (state.articles.length > 0 && window.confirm("Mark all articles in this view as read?")) {
-          await markAllRead();
-        }
-        break;
       case "?":
         event.preventDefault();
         document.querySelector("#shortcuts-dialog").showModal();
@@ -2383,12 +2445,9 @@ const resolveTheme = (theme) => {
 const applyTheme = () => {
   const resolved = resolveTheme(state.theme);
   document.documentElement.setAttribute("data-theme", resolved);
-  elements.themeToggleButton.innerHTML = resolved === "dark" ? themeLightIconHtml : themeDarkIconHtml;
-  elements.themeToggleButton.title = resolved === "dark" ? "Switch to light mode" : "Switch to dark mode";
-  elements.themeToggleButton.setAttribute(
-    "aria-label",
-    resolved === "dark" ? "Switch to light mode" : "Switch to dark mode"
-  );
+  elements.themeAutoButton.classList.toggle("is-active", state.theme === "auto");
+  elements.themeLightButton.classList.toggle("is-active", state.theme === "light");
+  elements.themeDarkButton.classList.toggle("is-active", state.theme === "dark");
 };
 
 const readStoredTheme = () => {
@@ -2407,14 +2466,14 @@ const persistTheme = () => {
   }
 };
 
-const toggleTheme = () => {
-  const resolved = resolveTheme(state.theme);
-  state.theme = resolved === "dark" ? "light" : "dark";
+const setTheme = (theme) => {
+  state.theme = theme;
   applyTheme();
   persistTheme();
 };
-
-elements.themeToggleButton.addEventListener("click", toggleTheme);
+elements.themeAutoButton.addEventListener("click", () => setTheme("auto"));
+elements.themeLightButton.addEventListener("click", () => setTheme("light"));
+elements.themeDarkButton.addEventListener("click", () => setTheme("dark"));
 
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
   if (state.theme === "auto") {

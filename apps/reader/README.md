@@ -14,11 +14,11 @@ Reader also has a separate `Library` section in the sidebar. It accepts a single
 
 Individual articles can be deleted from the top-right actions in the reading pane. Deletions are soft for feed-backed items so they stay gone on later syncs.
 
-During sync and manual article import, the reader uses Defuddle with a Node DOM shim to extract readable article bodies from fetched pages. A server-side body normalizer removes duplicated lead metadata, utility links, and promo/footer chrome before the article is stored. If an RSS item exposes a richer custom markdown source URL, the sync job still prefers that over page extraction. Scheduled sync runs every 30 minutes and only rewrites feed items when their content hash changes.
+During sync and manual article import, the reader uses Defuddle with a Node DOM shim to extract readable article bodies from fetched pages. A server-side body normalizer removes duplicated lead metadata, utility links, and promo/footer chrome before the article is stored. If an RSS item exposes a richer custom markdown source URL, the sync job still prefers that over page extraction. Scheduled sync runs once an hour and only rewrites feed items when their content hash changes.
 
 When a feed exposes article imagery, the sync job stores `thumbnail_url` on the article and the reader uses it as a hero image at the top of the opened document when appropriate.
 
-Reader can also ingest email newsletters through AgentMail. Newsletters sent to the configured inbox are polled into the app every 15 minutes, grouped under a synthetic `Newsletters` feed, and stored as normal Reader articles so they show up in `Today`, `All Articles`, and the digest pipeline.
+Reader can also ingest email newsletters through AgentMail. Newsletters sent to the configured inbox are polled into the app once an hour, grouped under sender-based feed groups, and stored as normal Reader articles so they show up in `Today`, `All Articles`, and the digest pipeline.
 
 ## Owns
 
@@ -66,7 +66,7 @@ If you want email newsletters inside Reader:
 - `AGENTMAIL_API_KEY`
 - `READER_NEWSLETTER_INBOX_EMAIL` (optional, defaults to `news@mj-kang.com`)
 
-Reader polls unread messages from that AgentMail inbox every 15 minutes. The first sync will try to create the inbox automatically if it does not already exist, which means the domain behind `READER_NEWSLETTER_INBOX_EMAIL` must already be verified in AgentMail.
+Reader polls unread messages from that AgentMail inbox once an hour. The first sync will try to create the inbox automatically if it does not already exist, which means the domain behind `READER_NEWSLETTER_INBOX_EMAIL` must already be verified in AgentMail.
 
 If you want to import existing feed definitions from Supabase one time, also set:
 

@@ -632,6 +632,10 @@
         }
 
         .highlights-rail-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
             font-size: var(--font-size-sm);
             font-weight: 600;
             color: var(--text-heading);
@@ -641,6 +645,12 @@
             font-size: var(--font-size-sm);
             color: var(--text-secondary);
             line-height: 1.6;
+        }
+
+        .highlights-close-btn {
+            min-width: 28px;
+            min-height: 28px;
+            padding: 4px;
         }
 
         .highlights-list {
@@ -677,6 +687,36 @@
             font-size: var(--font-size-xs);
             color: var(--text-secondary);
             line-height: 1.5;
+        }
+
+        .highlight-item-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+        }
+
+        .highlight-jump-btn {
+            flex: 1;
+            border: none;
+            background: none;
+            padding: 0;
+            text-align: left;
+            cursor: pointer;
+            font: inherit;
+            color: inherit;
+        }
+
+        .highlight-remove-inline {
+            min-width: 24px;
+            min-height: 24px;
+            padding: 2px;
+            color: var(--text-secondary);
+        }
+
+        .highlight-remove-inline:hover,
+        .highlight-remove-inline:focus-visible {
+            color: var(--danger-hover-text);
+            background: var(--danger-hover-bg);
         }
 
         .article-hero {
@@ -1177,6 +1217,18 @@
             flex-wrap: wrap;
         }
 
+        .settings-dialog-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .theme-mode-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
         .dialog-title {
             font-size: var(--font-size-lg);
             font-weight: 600;
@@ -1230,6 +1282,12 @@
             padding: 8px 12px;
             cursor: pointer;
             font: inherit;
+        }
+
+        .btn-secondary.is-active {
+            background: var(--bg-active);
+            border-color: var(--accent-blue);
+            color: var(--accent-blue);
         }
 
         .btn-primary {
@@ -1388,8 +1446,7 @@
             <button class="icon-rail-btn" id="nav-manual-articles" title="Library" aria-label="Library" type="button"></button>
         </div>
         <div class="icon-rail-bottom">
-            <button class="icon-rail-btn" id="add-feed-button" title="Add Feed" aria-label="Add Feed" type="button"></button>
-            <button class="icon-rail-btn" id="theme-toggle-button" title="Toggle theme" aria-label="Toggle theme" type="button"></button>
+            <button class="icon-rail-btn" id="settings-button" title="Settings" aria-label="Settings" type="button"></button>
         </div>
     </nav>
 
@@ -1403,7 +1460,7 @@
                 <button class="icon-btn" id="add-manual-article-button" title="Add article" aria-label="Add article" type="button" hidden></button>
                 <button class="icon-btn" id="list-menu-button" title="More actions" aria-label="More actions" aria-expanded="false" aria-haspopup="menu" type="button"></button>
                 <div class="list-menu" hidden id="list-menu" role="menu" aria-label="List actions">
-                    <button class="list-menu-item" id="mark-all-read-button" role="menuitem" type="button">Mark all as read</button>
+                    <button class="list-menu-item" hidden id="add-feed-menu-button" role="menuitem" type="button">Add feed</button>
                     <button class="list-menu-item" hidden id="rename-feed-group-button" role="menuitem" type="button">Edit feed title</button>
                     <button class="list-menu-item is-danger" hidden id="remove-feed-group-button" role="menuitem" type="button">Remove feed</button>
                 </div>
@@ -1424,6 +1481,7 @@
             <div class="pane-actions-right">
                 <button class="icon-btn" id="save-article-button" title="Save article (s)" aria-label="Save article"></button>
                 <button class="icon-btn" id="share-article-button" title="Share" aria-label="Share"></button>
+                <button class="icon-btn" id="toggle-highlights-button" title="Toggle highlights" aria-label="Toggle highlights" type="button"></button>
                 <span class="pane-separator"></span>
                 <button class="icon-btn is-danger" id="delete-article-button" title="Delete article" aria-label="Delete article" type="button"></button>
                 <span class="pane-separator"></span>
@@ -1434,7 +1492,7 @@
         <div class="pane-content-scroll">
             <article class="article-container" id="article-view">
                 <div class="empty-state">
-                    Select an article to start reading. New feeds sync through Convex every 15 minutes, and library saves show up here right away.
+                    Select an article to start reading. New feeds sync through Convex once an hour, and library saves show up here right away.
                 </div>
             </article>
         </div>
@@ -1483,6 +1541,25 @@
             <button class="btn-primary" type="submit">Save article</button>
         </div>
     </form>
+</dialog>
+<dialog class="feed-dialog" id="settings-dialog">
+    <div class="feed-dialog-card">
+        <div>
+            <div class="dialog-title">Settings</div>
+            <p class="dialog-copy">Run a manual sync or switch the Reader theme.</p>
+        </div>
+        <div class="settings-dialog-actions">
+            <button class="btn-secondary" id="manual-sync-button" type="button">Sync now</button>
+            <div class="theme-mode-row">
+                <button class="btn-secondary" id="theme-auto-button" type="button">Auto</button>
+                <button class="btn-secondary" id="theme-light-button" type="button">Light</button>
+                <button class="btn-secondary" id="theme-dark-button" type="button">Dark</button>
+            </div>
+        </div>
+        <div class="dialog-actions">
+            <button class="btn-secondary" id="settings-close-button" type="button">Close</button>
+        </div>
+    </div>
 </dialog>
 <dialog class="feed-dialog" id="rename-feed-group-dialog">
     <form class="feed-dialog-card" id="rename-feed-group-form" method="dialog">

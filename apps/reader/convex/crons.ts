@@ -5,8 +5,8 @@ import { internal } from "./_generated/api";
 const crons = cronJobs();
 
 crons.interval(
-  "reader-sync-feeds-every-30-minutes",
-  { minutes: 30 },
+  "reader-sync-feeds-hourly",
+  { hours: 1 },
   internal.sync.runActiveFeeds,
   {}
 );
@@ -19,8 +19,8 @@ crons.interval(
 );
 
 crons.interval(
-  "reader-newsletters-every-15-minutes",
-  { minutes: 15 },
+  "reader-newsletters-hourly",
+  { hours: 1 },
   internal.newslettersNode.syncInbox,
   {
     createIfMissing: true
