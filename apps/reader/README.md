@@ -86,6 +86,7 @@ This app can be deployed from the `apps/reader` directory on Vercel.
 Set this Vercel environment variable:
 
 - `CONVEX_URL`
+- `HUGEICONS_AUTH_TOKEN` for the private `@hugeicons-pro/*` package install used by Reader icons
 
 Do not set `PORT` on Vercel. The deployed app uses static files plus the public config function at [apps/reader/api/config.js](/Users/mjkang/Develop/AgentCompany/apps/reader/api/config.js).
 
