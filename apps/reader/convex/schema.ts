@@ -15,6 +15,12 @@ const digestStatus = v.union(
   v.literal("failed")
 );
 
+const newsletterSyncStatus = v.union(
+  v.literal("idle"),
+  v.literal("running"),
+  v.literal("error")
+);
+
 export default defineSchema({
   feeds: defineTable({
     feedUrl: v.string(),
@@ -124,5 +130,16 @@ export default defineSchema({
     ),
     status: digestStatus,
     timezone: v.string()
-  }).index("by_date_and_timezone", ["localDate", "timezone"])
+  }).index("by_date_and_timezone", ["localDate", "timezone"]),
+
+  newsletterSyncStates: defineTable({
+    inboxEmail: v.string(),
+    lastError: v.optional(v.string()),
+    lastImportedCount: v.number(),
+    lastMessageAt: v.optional(v.number()),
+    lastProcessedCount: v.number(),
+    lastSyncedAt: v.optional(v.number()),
+    name: v.string(),
+    status: newsletterSyncStatus
+  }).index("by_name", ["name"])
 });

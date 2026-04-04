@@ -184,6 +184,10 @@
             justify-content: center;
         }
 
+        .icon-btn[hidden] {
+            display: none !important;
+        }
+
         .icon-btn:hover {
             background-color: var(--bg-hover);
             color: var(--text-primary);
@@ -292,10 +296,20 @@
             height: 60px;
         }
 
+        .list-heading {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 0;
+        }
+
         .list-title {
             font-weight: 500;
             color: var(--text-heading);
             font-size: var(--font-size-base);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .list-actions {
@@ -352,6 +366,99 @@
         .list-content {
             flex: 1;
             overflow-y: auto;
+        }
+
+        .today-sidebar {
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            border-bottom: 1px solid var(--border-light);
+            background: color-mix(in srgb, var(--bg-body) 72%, var(--bg-panel));
+        }
+
+        .today-calendar {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .today-calendar-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .today-calendar-title {
+            font-size: var(--font-size-sm);
+            font-weight: 600;
+            color: var(--text-heading);
+            letter-spacing: -0.01em;
+        }
+
+        .today-calendar-nav {
+            min-width: 32px;
+            min-height: 32px;
+            padding: 6px;
+        }
+
+        .today-calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, minmax(0, 1fr));
+            gap: 6px;
+        }
+
+        .today-calendar-weekday {
+            font-size: 0.68rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-secondary);
+            text-align: center;
+            padding-bottom: 4px;
+        }
+
+        .today-calendar-day {
+            border: 1px solid var(--border-light);
+            background: var(--bg-body);
+            border-radius: 10px;
+            min-height: 38px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font: inherit;
+            color: var(--text-primary);
+            cursor: pointer;
+            transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+        }
+
+        .today-calendar-day:hover,
+        .today-calendar-day:focus-visible {
+            background: var(--bg-hover);
+            border-color: var(--border-medium);
+            outline: none;
+        }
+
+        .today-calendar-day.is-selected {
+            background: var(--bg-active);
+            border-color: var(--accent-blue);
+            color: var(--accent-blue);
+            font-weight: 600;
+        }
+
+        .today-calendar-day.is-today {
+            box-shadow: inset 0 0 0 1px var(--accent-orange);
+        }
+
+        .today-calendar-day.is-outside {
+            visibility: hidden;
+            pointer-events: none;
+        }
+
+        .today-calendar-day:disabled {
+            cursor: not-allowed;
+            opacity: 0.4;
+            background: var(--bg-panel);
         }
 
         .article-item {
@@ -1040,6 +1147,36 @@
             gap: 16px;
         }
 
+        .newsletter-card {
+            padding: 14px 16px;
+            border-radius: 18px;
+            border: 1px solid var(--border-medium);
+            background: var(--bg-muted);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .newsletter-kicker {
+            font-size: var(--font-size-xs);
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--accent-blue);
+        }
+
+        .newsletter-meta {
+            color: var(--text-secondary);
+            font-size: var(--font-size-sm);
+            line-height: 1.5;
+        }
+
+        .newsletter-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
         .dialog-title {
             font-size: var(--font-size-lg);
             font-weight: 600;
@@ -1244,42 +1381,27 @@
 <div class="app-layout">
     <nav class="icon-rail" aria-label="Navigation">
         <div class="icon-rail-top">
-            <button class="icon-rail-btn is-active" id="nav-today" title="Today" aria-label="Today" type="button">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
-            </button>
-            <button class="icon-rail-btn" id="nav-all" title="All Articles" aria-label="All Articles" type="button">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11a9 9 0 0 1 9 9"></path><path d="M4 4a16 16 0 0 1 16 16"></path><circle cx="5" cy="19" r="1"></circle></svg>
-            </button>
-            <button class="icon-rail-btn" id="nav-saved" title="Saved" aria-label="Saved" type="button">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>
-            </button>
-            <button class="icon-rail-btn" id="nav-feeds" title="Feeds" aria-label="Feeds" type="button">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
-            </button>
-            <button class="icon-rail-btn" id="nav-manual-articles" title="Articles" aria-label="Articles" type="button">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><line x1="10" y1="9" x2="8" y2="9"></line></svg>
-            </button>
+            <button class="icon-rail-btn is-active" id="nav-today" title="Today" aria-label="Today" type="button"></button>
+            <button class="icon-rail-btn" id="nav-all" title="All Articles" aria-label="All Articles" type="button"></button>
+            <button class="icon-rail-btn" id="nav-saved" title="Saved" aria-label="Saved" type="button"></button>
+            <button class="icon-rail-btn" id="nav-feeds" title="Feeds" aria-label="Feeds" type="button"></button>
+            <button class="icon-rail-btn" id="nav-manual-articles" title="Library" aria-label="Library" type="button"></button>
         </div>
         <div class="icon-rail-bottom">
-            <button class="icon-rail-btn" id="add-feed-button" title="Add Feed" aria-label="Add Feed" type="button">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            </button>
-            <button class="icon-rail-btn" id="theme-toggle-button" title="Toggle theme" aria-label="Toggle theme" type="button">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
-            </button>
+            <button class="icon-rail-btn" id="add-feed-button" title="Add Feed" aria-label="Add Feed" type="button"></button>
+            <button class="icon-rail-btn" id="theme-toggle-button" title="Toggle theme" aria-label="Toggle theme" type="button"></button>
         </div>
     </nav>
 
     <section class="article-list-panel" id="article-list-panel" aria-label="Article list">
         <div class="list-header">
-            <span class="list-title" id="list-title">All Articles</span>
+            <div class="list-heading">
+                <button class="icon-btn" id="list-back-button" title="Back to feeds" aria-label="Back to feeds" type="button" hidden></button>
+                <span class="list-title" id="list-title">All Articles</span>
+            </div>
             <div class="list-actions">
-                <button class="icon-btn" id="add-manual-article-button" title="Add article" aria-label="Add article" type="button" hidden>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                </button>
-                <button class="icon-btn" id="list-menu-button" title="More actions" aria-label="More actions" aria-expanded="false" aria-haspopup="menu" type="button">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5" r="1.5"></circle><circle cx="12" cy="12" r="1.5"></circle><circle cx="12" cy="19" r="1.5"></circle></svg>
-                </button>
+                <button class="icon-btn" id="add-manual-article-button" title="Add article" aria-label="Add article" type="button" hidden></button>
+                <button class="icon-btn" id="list-menu-button" title="More actions" aria-label="More actions" aria-expanded="false" aria-haspopup="menu" type="button"></button>
                 <div class="list-menu" hidden id="list-menu" role="menu" aria-label="List actions">
                     <button class="list-menu-item" id="mark-all-read-button" role="menuitem" type="button">Mark all as read</button>
                     <button class="list-menu-item is-danger" hidden id="remove-feed-group-button" role="menuitem" type="button">Remove feed</button>
@@ -1295,36 +1417,23 @@
     <main class="reading-pane">
         <div class="pane-header">
             <div class="pane-actions-left">
-                <button class="icon-btn" id="previous-article-button" title="Previous article" aria-label="Previous article">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
-                </button>
-                <button class="icon-btn" id="next-article-button" title="Next article" aria-label="Next article">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
-                </button>
+                <button class="icon-btn" id="previous-article-button" title="Previous article" aria-label="Previous article"></button>
+                <button class="icon-btn" id="next-article-button" title="Next article" aria-label="Next article"></button>
             </div>
             <div class="pane-actions-right">
-                <button class="icon-btn" id="save-article-button" title="Save article (s)" aria-label="Save article">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>
-                </button>
-                <button class="icon-btn" id="share-article-button" title="Share" aria-label="Share">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
-                </button>
+                <button class="icon-btn" id="save-article-button" title="Save article (s)" aria-label="Save article"></button>
+                <button class="icon-btn" id="share-article-button" title="Share" aria-label="Share"></button>
                 <span class="pane-separator"></span>
-                <button class="icon-btn is-danger" id="delete-article-button" title="Delete article" aria-label="Delete article" type="button">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4h6v2"></path></svg>
-                </button>
+                <button class="icon-btn is-danger" id="delete-article-button" title="Delete article" aria-label="Delete article" type="button"></button>
                 <span class="pane-separator"></span>
-                <button class="btn-outline" id="open-article-button">
-                    Original
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="17" x2="17" y2="7"></line><polyline points="7 7 17 7 17 17"></polyline></svg>
-                </button>
+                <button class="btn-outline" id="open-article-button">Original</button>
             </div>
         </div>
 
         <div class="pane-content-scroll">
             <article class="article-container" id="article-view">
                 <div class="empty-state">
-                    Select an article to start reading. New feeds sync through Convex every 15 minutes, and pasted article URLs show up here right away.
+                    Select an article to start reading. New feeds sync through Convex every 15 minutes, and library saves show up here right away.
                 </div>
             </article>
         </div>
@@ -1335,6 +1444,14 @@
         <div>
             <div class="dialog-title">Add feed</div>
             <p class="dialog-copy">Paste an RSS/Atom feed URL or a website URL and Reader will discover the feed automatically when possible. Feed will be suggested from the URL and you can edit it.</p>
+        </div>
+        <div class="newsletter-card">
+            <div class="newsletter-kicker">Email newsletters</div>
+            <div class="newsletter-meta" id="newsletter-status-copy">Loading newsletter inbox…</div>
+            <div class="newsletter-actions">
+                <button class="btn-secondary" id="newsletter-copy-button" type="button">Copy address</button>
+                <button class="btn-secondary" id="newsletter-sync-button" type="button">Sync now</button>
+            </div>
         </div>
         <label class="form-field">
             <span class="form-label">Feed or website URL</span>
@@ -1353,8 +1470,8 @@
 <dialog class="feed-dialog" id="article-dialog">
     <form class="feed-dialog-card" id="article-form" method="dialog">
         <div>
-            <div class="dialog-title">Add article</div>
-            <p class="dialog-copy">Paste a single article or YouTube URL and Reader will save it directly into your article list.</p>
+            <div class="dialog-title">Save to Library</div>
+            <p class="dialog-copy">Paste a single article or YouTube URL and Reader will save it directly into your Library.</p>
         </div>
         <label class="form-field">
             <span class="form-label">Article URL</span>
@@ -1362,7 +1479,7 @@
         </label>
         <div class="dialog-actions">
             <button class="btn-secondary" id="article-cancel-button" type="button">Cancel</button>
-            <button class="btn-primary" type="submit">Add article</button>
+            <button class="btn-primary" type="submit">Save article</button>
         </div>
     </form>
 </dialog>

@@ -1,3 +1,22 @@
+import {
+  addIconHtml,
+  allArticlesIconHtml,
+  deleteIconHtml,
+  externalLinkIconHtml,
+  fallbackFeedIconHtml,
+  feedGroupIconHtml,
+  feedsIconHtml,
+  libraryIconHtml,
+  menuIconHtml,
+  nextIconHtml,
+  previousIconHtml,
+  savedIconHtml,
+  shareIconHtml,
+  themeDarkIconHtml,
+  themeLightIconHtml,
+  todayIconHtml
+} from "./icons.js";
+
 const sanitizeHtml = (dirty) =>
   typeof DOMPurify !== "undefined"
     ? DOMPurify.sanitize(dirty, { ADD_ATTR: ["referrerpolicy"], ADD_TAGS: ["iframe"] })
@@ -14,28 +33,23 @@ const emptyCounts = {
   saved: 0,
   today: 0
 };
-const THEME_ICON_LIGHT = `
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-    <circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
-  </svg>
-`;
-const THEME_ICON_DARK = `
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
-  </svg>
-`;
 const state = {
   articles: [],
   counts: { ...emptyCounts },
   convexUrl: "",
+  canReturnToFeedGroups: false,
+  calendarMonth: "",
   digest: null,
   digestDate: "",
   feedGroup: "",
   hasMore: false,
+  isSyncingNewsletters: false,
   isLoadingArticle: false,
   isLoadingDigest: false,
   isLoadingMore: false,
   nextCursor: null,
+  newsletterInboxEmail: "",
+  newsletterStatus: null,
   pendingFeedGroupRemoval: "",
   overlayOpen: false,
   browseFeedGroups: false,
@@ -65,6 +79,7 @@ const elements = {
   feedUrlInput: document.querySelector("#feed-url-input"),
   highlightRemovePopover: document.querySelector("#highlight-remove-popover"),
   listActions: document.querySelector(".list-actions"),
+  listBackButton: document.querySelector("#list-back-button"),
   listMenu: document.querySelector("#list-menu"),
   listMenuButton: document.querySelector("#list-menu-button"),
   listTitle: document.querySelector("#list-title"),
@@ -74,6 +89,9 @@ const elements = {
   navManualArticles: document.querySelector("#nav-manual-articles"),
   navSaved: document.querySelector("#nav-saved"),
   navToday: document.querySelector("#nav-today"),
+  newsletterCopyButton: document.querySelector("#newsletter-copy-button"),
+  newsletterStatusCopy: document.querySelector("#newsletter-status-copy"),
+  newsletterSyncButton: document.querySelector("#newsletter-sync-button"),
   nextArticleButton: document.querySelector("#next-article-button"),
   openArticleButton: document.querySelector("#open-article-button"),
 
@@ -91,25 +109,28 @@ const elements = {
   toast: document.querySelector("#toast")
 };
 
-const feedGroupIcon = `
-  <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-  </svg>
-`;
-
-const fallbackFeedIcon = `
-  <svg class="feed-icon-small" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-    <line x1="16" y1="2" x2="16" y2="6"></line>
-    <line x1="8" y1="2" x2="8" y2="6"></line>
-    <line x1="3" y1="10" x2="21" y2="10"></line>
-  </svg>
-`;
-
 let toastTimer = null;
 let feedGroupEditedManually = false;
 let articleRequestToken = 0;
 let isListMenuOpen = false;
+
+const applyStaticIcons = () => {
+  elements.navToday.innerHTML = todayIconHtml;
+  elements.navAll.innerHTML = allArticlesIconHtml;
+  elements.navSaved.innerHTML = savedIconHtml;
+  elements.navFeeds.innerHTML = feedsIconHtml;
+  elements.navManualArticles.innerHTML = libraryIconHtml;
+  elements.addFeedButton.innerHTML = addIconHtml;
+  elements.addManualArticleButton.innerHTML = addIconHtml;
+  elements.listBackButton.innerHTML = previousIconHtml.replace('width="20"', 'width="18"').replace('height="20"', 'height="18"');
+  elements.listMenuButton.innerHTML = menuIconHtml;
+  elements.previousArticleButton.innerHTML = previousIconHtml;
+  elements.nextArticleButton.innerHTML = nextIconHtml;
+  elements.saveArticleButton.innerHTML = savedIconHtml.replace('width="18"', 'width="20"').replace('height="18"', 'height="20"');
+  elements.shareArticleButton.innerHTML = shareIconHtml;
+  elements.deleteArticleButton.innerHTML = deleteIconHtml;
+  elements.openArticleButton.innerHTML = `Original ${externalLinkIconHtml}`;
+};
 
 const escapeHtml = (value) =>
   String(value ?? "").replace(/[&<>"']/gu, (character) => ({
@@ -119,6 +140,21 @@ const escapeHtml = (value) =>
     "\"": "&quot;",
     "'": "&#39;"
   })[character]);
+
+const canOpenExternalArticle = (article) =>
+  Boolean(article?.url && /^https?:\/\//iu.test(article.url));
+
+const formatMonthLabel = (localDate) => {
+  const [year, month] = String(localDate || "").split("-").map(Number);
+  if (!year || !month) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    month: "long",
+    year: "numeric"
+  }).format(new Date(Date.UTC(year, month - 1, 1)));
+};
 
 const formatListTime = (isoString) => {
   const date = new Date(isoString);
@@ -160,6 +196,60 @@ const shiftLocalDate = (localDate, dayOffset) => {
   date.setUTCDate(date.getUTCDate() + dayOffset);
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
 };
+
+const startOfMonthKey = (localDate) => {
+  const [year, month] = String(localDate || "").split("-").map(Number);
+  if (!year || !month) {
+    return "";
+  }
+
+  return `${year}-${String(month).padStart(2, "0")}-01`;
+};
+
+const shiftMonth = (localDate, monthOffset) => {
+  const [year, month] = String(localDate || "").split("-").map(Number);
+  if (!year || !month || !Number.isFinite(monthOffset)) {
+    return localDate;
+  }
+
+  const date = new Date(Date.UTC(year, month - 1, 1));
+  date.setUTCMonth(date.getUTCMonth() + monthOffset);
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-01`;
+};
+
+const compareLocalDates = (left, right) => String(left || "").localeCompare(String(right || ""));
+
+const buildCalendarDays = (monthKey) => {
+  const [year, month] = String(monthKey || "").split("-").map(Number);
+  if (!year || !month) {
+    return [];
+  }
+
+  const firstDay = new Date(Date.UTC(year, month - 1, 1));
+  const firstWeekday = firstDay.getUTCDay();
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const cells = [];
+
+  for (let index = 0; index < firstWeekday; index += 1) {
+    cells.push({ key: `empty-${index}`, label: "", outside: true });
+  }
+
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    cells.push({
+      key: `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+      label: String(day),
+      outside: false
+    });
+  }
+
+  while (cells.length % 7 !== 0) {
+    cells.push({ key: `empty-tail-${cells.length}`, label: "", outside: true });
+  }
+
+  return cells;
+};
+
+const isTodaySidebarMode = () => state.scope === "today" && !state.feedGroup && !state.browseFeedGroups;
 
 const getArticleBodyElement = () => elements.articleView.querySelector(".article-body");
 
@@ -445,7 +535,7 @@ const listTitle = () => {
   }
 
   if (state.scope === "manual") {
-    return "Articles";
+    return "Library";
   }
 
   return "All Articles";
@@ -507,7 +597,7 @@ const articleIndex = () =>
 const feedIconMarkup = (iconUrl) =>
   iconUrl
     ? `<img class="feed-icon-small" src="${escapeHtml(iconUrl)}" alt="" referrerpolicy="no-referrer">`
-    : fallbackFeedIcon;
+    : fallbackFeedIconHtml;
 
 const titleCaseWord = (word) =>
   word ? word.charAt(0).toUpperCase() + word.slice(1) : "";
@@ -576,7 +666,67 @@ const loadConfig = async () => {
   }
 
   state.convexUrl = payload.convexUrl;
+  state.newsletterInboxEmail = payload.newsletterInboxEmail || "";
   return state.convexUrl;
+};
+
+const renderNewsletterStatus = () => {
+  if (!elements.newsletterStatusCopy) {
+    return;
+  }
+
+  const inboxEmail = state.newsletterInboxEmail || "news@mj-kang.com";
+  const status = state.newsletterStatus;
+  let message = `Send or subscribe newsletters to ${inboxEmail} and Reader will pull them into the Newsletters feed.`;
+
+  if (status?.configured === false) {
+    message = `Reader is configured to use ${inboxEmail}, but AGENTMAIL_API_KEY is missing so newsletter sync is disabled.`;
+  } else if (state.isSyncingNewsletters || status?.status === "running") {
+    message = `Syncing unread messages from ${inboxEmail} now.`;
+  } else if (status?.status === "error" && status?.lastError) {
+    message = `Newsletter sync for ${inboxEmail} failed: ${status.lastError}`;
+  } else if (status?.lastSyncedAt) {
+    const syncedAt = new Date(status.lastSyncedAt);
+    const syncedLabel = Number.isNaN(syncedAt.valueOf())
+      ? status.lastSyncedAt
+      : syncedAt.toLocaleString();
+    message = `Reader checks ${inboxEmail} every 15 minutes. Last sync: ${syncedLabel}.`;
+
+    if (status.lastImportedCount > 0) {
+      message += ` Imported ${status.lastImportedCount} newsletter${status.lastImportedCount === 1 ? "" : "s"} last run.`;
+    }
+  }
+
+  elements.newsletterStatusCopy.textContent = message;
+  elements.newsletterCopyButton.disabled = !inboxEmail;
+  elements.newsletterSyncButton.disabled = state.isSyncingNewsletters || status?.configured === false;
+};
+
+const loadNewsletterStatus = async () => {
+  const status = await convexRequest("query", "newsletters:getStatus", {});
+  state.newsletterStatus = status;
+  if (status?.inboxEmail) {
+    state.newsletterInboxEmail = status.inboxEmail;
+  }
+  renderNewsletterStatus();
+  return status;
+};
+
+const syncNewsletters = async () => {
+  state.isSyncingNewsletters = true;
+  renderNewsletterStatus();
+
+  try {
+    const result = await convexRequest("action", "newsletters:syncNow", {});
+    await loadNewsletterStatus();
+    await refreshCurrentView();
+    showToast(
+      `Newsletter sync complete. Processed ${result.processed || 0} message${result.processed === 1 ? "" : "s"}.`
+    );
+  } finally {
+    state.isSyncingNewsletters = false;
+    renderNewsletterStatus();
+  }
 };
 
 const convexRequest = async (kind, path, args = {}) => {
@@ -885,7 +1035,7 @@ const renderRail = () => {
   elements.feedGroupList.innerHTML = feedGroups
     .map(([feedGroup, count]) => `
       <button class="nav-item ${state.feedGroup === feedGroup ? "active" : ""}" data-feed-group="${escapeHtml(feedGroup)}">
-        ${feedGroupIcon}
+        ${feedGroupIconHtml}
         ${escapeHtml(feedGroup)}
         <span class="nav-item-count">${count}</span>
       </button>
@@ -893,8 +1043,58 @@ const renderRail = () => {
     .join("");
 };
 
+const renderTodaySidebar = () => {
+  const selectedDate = state.digestDate || state.digest?.localDate || "";
+  const todayDate = state.digest?.todayLocalDate || selectedDate;
+  const monthKey = state.calendarMonth || startOfMonthKey(selectedDate || todayDate);
+  const monthLabel = formatMonthLabel(monthKey);
+  const canGoForward = compareLocalDates(shiftMonth(monthKey, 1), startOfMonthKey(todayDate)) <= 0;
+
+  return `
+    <div class="today-sidebar">
+      <div class="today-calendar">
+        <div class="today-calendar-header">
+          <button class="icon-btn today-calendar-nav" data-calendar-month-offset="-1" type="button" aria-label="Previous month">${previousIconHtml.replace('width=\"20\"', 'width=\"18\"').replace('height=\"20\"', 'height=\"18\"')}</button>
+          <div class="today-calendar-title">${escapeHtml(monthLabel || "Daily Digest")}</div>
+          <button class="icon-btn today-calendar-nav" data-calendar-month-offset="1" type="button" aria-label="Next month" ${canGoForward ? "" : "disabled"}>${nextIconHtml.replace('width=\"20\"', 'width=\"18\"').replace('height=\"20\"', 'height=\"18\"')}</button>
+        </div>
+        <div class="today-calendar-grid">
+          ${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((label) => `
+            <div class="today-calendar-weekday">${label}</div>
+          `).join("")}
+          ${buildCalendarDays(monthKey).map((day) => {
+            if (day.outside) {
+              return '<div class="today-calendar-day is-outside" aria-hidden="true"></div>';
+            }
+
+            const isSelected = day.key === selectedDate;
+            const isToday = day.key === todayDate;
+            const isFuture = compareLocalDates(day.key, todayDate) > 0;
+
+            return `
+              <button
+                class="today-calendar-day ${isSelected ? "is-selected" : ""} ${isToday ? "is-today" : ""}"
+                data-calendar-date="${day.key}"
+                type="button"
+                ${isFuture ? "disabled" : ""}
+              >
+                ${day.label}
+              </button>
+            `;
+          }).join("")}
+        </div>
+      </div>
+    </div>
+  `;
+};
+
 const renderArticleList = () => {
   elements.listTitle.textContent = state.browseFeedGroups ? "Feeds" : listTitle();
+  elements.listBackButton.hidden = !(
+    state.canReturnToFeedGroups &&
+    state.feedGroup &&
+    !state.browseFeedGroups
+  );
   elements.addManualArticleButton.hidden = state.scope !== "manual" || state.browseFeedGroups;
 
   if (state.browseFeedGroups) {
@@ -916,8 +1116,9 @@ const renderArticleList = () => {
 
   if (state.articles.length === 0) {
     elements.articleList.innerHTML = `
+      ${isTodaySidebarMode() ? renderTodaySidebar() : ""}
       <div class="empty-state">
-        No articles match this view yet. Add a feed, paste an article URL, or wait for the next scheduled sync.
+        No articles match this view yet. Add a feed, paste an article URL, send newsletters to ${escapeHtml(state.newsletterInboxEmail || "news@mj-kang.com")}, or wait for the next scheduled sync.
       </div>
     `;
     return;
@@ -928,6 +1129,7 @@ const renderArticleList = () => {
     : (state.hasMore ? '<div class="list-status">Scroll for more</div>' : "");
 
   elements.articleList.innerHTML = `
+    ${isTodaySidebarMode() ? renderTodaySidebar() : ""}
     ${state.articles
       .map((article) => `
         <button class="article-item ${article.id === state.selectedArticleId ? "active" : ""} ${article.isRead ? "" : "is-unread"}" data-article-id="${article.id}" type="button" aria-label="${escapeHtml(article.title)}">
@@ -1039,6 +1241,7 @@ const renderArticle = () => {
   const article = state.selectedArticle;
   const selectedIndex = articleIndex();
   const hasSelection = Boolean(state.selectedArticleId);
+  const hasExternalUrl = canOpenExternalArticle(article);
 
   elements.previousArticleButton.disabled = !hasSelection || selectedIndex <= 0;
   elements.nextArticleButton.disabled =
@@ -1047,8 +1250,8 @@ const renderArticle = () => {
     (selectedIndex >= state.articles.length - 1 && !state.hasMore);
   elements.saveArticleButton.disabled = !article;
   elements.deleteArticleButton.disabled = !article;
-  elements.shareArticleButton.disabled = !article;
-  elements.openArticleButton.disabled = !article;
+  elements.shareArticleButton.disabled = !article || !hasExternalUrl;
+  elements.openArticleButton.disabled = !article || !hasExternalUrl;
 
   elements.saveArticleButton.classList.toggle("is-active", Boolean(article?.isSaved));
 
@@ -1072,7 +1275,7 @@ const renderArticle = () => {
     hideRemovePopover();
     elements.articleView.innerHTML = `
       <div class="empty-state">
-        Select an article to start reading. New feeds sync through Convex every 30 minutes, and pasted article URLs show up here right away.
+        Select an article to start reading. New feeds sync through Convex every 30 minutes, and library saves show up here right away.
       </div>
     `;
     return;
@@ -1166,6 +1369,7 @@ const pollTodayDigest = async (attempts = 6) => {
       timezoneOffsetMinutes: new Date().getTimezoneOffset()
     });
 
+    state.articles = payload.articles || [];
     state.counts = payload.counts || { ...emptyCounts };
     state.digest = payload.digest
       ? {
@@ -1176,6 +1380,7 @@ const pollTodayDigest = async (attempts = 6) => {
       }
       : null;
     state.digestDate = payload.localDate || "";
+    state.calendarMonth = startOfMonthKey(state.digestDate || payload.todayLocalDate || "");
     state.isLoadingDigest = false;
     render();
 
@@ -1204,6 +1409,7 @@ const loadDigestForDate = async (localDate = "") => {
   state.selectedArticle = null;
   state.selectedArticleId = "";
   state.digestDate = localDate;
+  openPanel();
   render();
 
   const payload = localDate
@@ -1212,6 +1418,7 @@ const loadDigestForDate = async (localDate = "") => {
       timezoneOffsetMinutes: new Date().getTimezoneOffset()
     });
 
+  state.articles = payload.articles || [];
   state.counts = payload.counts || { ...emptyCounts };
   state.digest = payload.digest
     ? {
@@ -1222,6 +1429,7 @@ const loadDigestForDate = async (localDate = "") => {
     }
     : null;
   state.digestDate = payload.localDate || localDate || "";
+  state.calendarMonth = startOfMonthKey(state.digestDate || payload.todayLocalDate || "");
   state.isLoadingDigest = false;
   render();
 
@@ -1483,6 +1691,7 @@ const removeFeedGroup = async () => {
 
   if (removedCurrentFeedGroup) {
     state.scope = "all";
+    state.canReturnToFeedGroups = false;
     state.feedGroup = "";
     state.browseFeedGroups = false;
     closePanel();
@@ -1499,6 +1708,10 @@ const removeFeedGroup = async () => {
 const shareArticle = async () => {
   if (!state.selectedArticle) {
     return;
+  }
+
+  if (!canOpenExternalArticle(state.selectedArticle)) {
+    throw new Error("This article does not have a browser link.");
   }
 
   if (navigator.share) {
@@ -1544,10 +1757,10 @@ const maybeLoadMoreFromScroll = async () => {
 };
 
 elements.navToday.addEventListener("click", async () => {
+  state.canReturnToFeedGroups = false;
   state.scope = "today";
   state.feedGroup = "";
   state.browseFeedGroups = false;
-  closePanel();
   clearSelection();
   await loadDigestForDate("");
 });
@@ -1557,6 +1770,7 @@ elements.navAll.addEventListener("click", async () => {
     closePanel();
     return;
   }
+  state.canReturnToFeedGroups = false;
   state.scope = "all";
   state.feedGroup = "";
   state.browseFeedGroups = false;
@@ -1570,6 +1784,7 @@ elements.navSaved.addEventListener("click", async () => {
     closePanel();
     return;
   }
+  state.canReturnToFeedGroups = false;
   state.scope = "saved";
   state.feedGroup = "";
   state.browseFeedGroups = false;
@@ -1583,6 +1798,7 @@ elements.navManualArticles.addEventListener("click", async () => {
     closePanel();
     return;
   }
+  state.canReturnToFeedGroups = false;
   state.scope = "manual";
   state.feedGroup = "";
   state.browseFeedGroups = false;
@@ -1596,6 +1812,7 @@ elements.navFeeds.addEventListener("click", () => {
     closePanel();
     return;
   }
+  state.canReturnToFeedGroups = false;
   state.browseFeedGroups = true;
   state.feedGroup = "";
   openPanel();
@@ -1609,13 +1826,49 @@ elements.feedGroupList.addEventListener("click", async (event) => {
   }
 
   state.scope = "all";
+  state.canReturnToFeedGroups = true;
   state.feedGroup = anchor.dataset.feedGroup;
   state.browseFeedGroups = false;
   clearSelection();
   await bootstrap();
 });
 
+elements.listBackButton.addEventListener("click", () => {
+  state.canReturnToFeedGroups = false;
+  state.browseFeedGroups = true;
+  state.feedGroup = "";
+  openPanel();
+  render();
+});
+
 elements.articleList.addEventListener("click", async (event) => {
+  const monthButton = event.target.closest("[data-calendar-month-offset]");
+  if (monthButton) {
+    const offset = Number(monthButton.dataset.calendarMonthOffset || "0");
+    if (!Number.isFinite(offset) || offset === 0) {
+      return;
+    }
+
+    state.calendarMonth = shiftMonth(
+      state.calendarMonth || startOfMonthKey(state.digestDate || state.digest?.todayLocalDate || ""),
+      offset
+    );
+    renderArticleList();
+    return;
+  }
+
+  const dateButton = event.target.closest("[data-calendar-date]");
+  if (dateButton) {
+    const localDate = dateButton.dataset.calendarDate;
+    if (!localDate) {
+      return;
+    }
+
+    clearSelection();
+    await loadDigestForDate(localDate === state.digest?.todayLocalDate ? "" : localDate);
+    return;
+  }
+
   const item = event.target.closest("[data-article-id]");
   if (!item) {
     return;
@@ -1880,11 +2133,32 @@ elements.shareArticleButton.addEventListener("click", async () => {
 });
 
 elements.openArticleButton.addEventListener("click", () => {
-  if (!state.selectedArticle) {
+  if (!canOpenExternalArticle(state.selectedArticle)) {
     return;
   }
 
   window.open(state.selectedArticle.url, "_blank", "noopener,noreferrer");
+});
+
+elements.newsletterCopyButton?.addEventListener("click", async () => {
+  if (!state.newsletterInboxEmail) {
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(state.newsletterInboxEmail);
+    showToast("Newsletter inbox copied.");
+  } catch (error) {
+    showToast(error.message, { error: true });
+  }
+});
+
+elements.newsletterSyncButton?.addEventListener("click", async () => {
+  try {
+    await syncNewsletters();
+  } catch (error) {
+    showToast(error.message, { error: true });
+  }
 });
 
 document.addEventListener("keydown", async (event) => {
@@ -1911,7 +2185,7 @@ document.addEventListener("keydown", async (event) => {
         await toggleSave();
         break;
       case "o":
-        if (state.selectedArticle) {
+        if (canOpenExternalArticle(state.selectedArticle)) {
           event.preventDefault();
           window.open(state.selectedArticle.url, "_blank", "noopener,noreferrer");
         }
@@ -1942,7 +2216,7 @@ const resolveTheme = (theme) => {
 const applyTheme = () => {
   const resolved = resolveTheme(state.theme);
   document.documentElement.setAttribute("data-theme", resolved);
-  elements.themeToggleButton.innerHTML = resolved === "dark" ? THEME_ICON_LIGHT : THEME_ICON_DARK;
+  elements.themeToggleButton.innerHTML = resolved === "dark" ? themeLightIconHtml : themeDarkIconHtml;
   elements.themeToggleButton.title = resolved === "dark" ? "Switch to light mode" : "Switch to dark mode";
   elements.themeToggleButton.setAttribute(
     "aria-label",
@@ -1983,10 +2257,24 @@ window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () 
 
 const start = async () => {
   await loadConfig();
+  renderNewsletterStatus();
+  await loadNewsletterStatus().catch((error) => {
+    state.newsletterStatus = {
+      configured: true,
+      inboxEmail: state.newsletterInboxEmail,
+      lastError: error.message,
+      lastImportedCount: 0,
+      lastProcessedCount: 0,
+      lastSyncedAt: "",
+      status: "error"
+    };
+    renderNewsletterStatus();
+  });
   await refreshCurrentView();
 };
 
 state.theme = readStoredTheme();
+applyStaticIcons();
 applyTheme();
 
 start().catch((error) => {

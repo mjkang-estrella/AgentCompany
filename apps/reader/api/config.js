@@ -13,6 +13,9 @@ const getConvexUrl = () => {
   return value;
 };
 
+const getNewsletterInboxEmail = () =>
+  process.env.READER_NEWSLETTER_INBOX_EMAIL || "news@mj-kang.com";
+
 export default {
   async fetch(request) {
     if (request.method !== "GET") {
@@ -21,7 +24,8 @@ export default {
 
     return withErrorHandling(() =>
       jsonResponse({
-        convexUrl: getConvexUrl()
+        convexUrl: getConvexUrl(),
+        newsletterInboxEmail: getNewsletterInboxEmail()
       })
     );
   }

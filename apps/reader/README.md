@@ -10,7 +10,7 @@ Adding a feed is asynchronous: the app creates the feed immediately, makes it vi
 
 Feeds can be removed from the article-list overflow menu while a feed is selected. Removing a feed permanently deletes all RSS feeds in that feed group and all synced articles attached to them.
 
-Reader also has a separate `Articles` section in the sidebar. It accepts a single pasted article or YouTube URL, dedupes by canonical URL, and adds the result into `All Articles`, `Today`, and `Saved` without creating an RSS subscription. Standard pages use the readable-body extractor directly. YouTube URLs are converted into transcript-backed articles when captions are available, and otherwise fall back to the video description.
+Reader also has a separate `Library` section in the sidebar. It accepts a single pasted article or YouTube URL, dedupes by canonical URL, and adds the result into `All Articles`, `Today`, and `Saved` without creating an RSS subscription. Standard pages use the readable-body extractor directly. YouTube URLs are converted into transcript-backed articles when captions are available, and otherwise fall back to the video description.
 
 Individual articles can be deleted from the top-right actions in the reading pane. Deletions are soft for feed-backed items so they stay gone on later syncs.
 
@@ -18,17 +18,19 @@ During sync and manual article import, the reader uses Defuddle with a Node DOM 
 
 When a feed exposes article imagery, the sync job stores `thumbnail_url` on the article and the reader uses it as a hero image at the top of the opened document when appropriate.
 
+Reader can also ingest email newsletters through AgentMail. Newsletters sent to the configured inbox are polled into the app every 15 minutes, grouped under a synthetic `Newsletters` feed, and stored as normal Reader articles so they show up in `Today`, `All Articles`, and the digest pipeline.
+
 ## Owns
 
 - Reader-inspired article list and reading surface
 - Local static runtime and public config endpoint for the reader UI
 - Convex schema, functions, cron sync, and import tooling
 - Feed discovery, article state, and manual sync triggers
+- AgentMail-backed newsletter polling and ingestion into Reader articles
 - Legacy Supabase migration assets kept only for rollback and feed import
 
 ## Does not own
 
-- Inbox ingestion, webhook handling, or persistence
 - Prism workflows
 - Shared runtime code for other apps
 
@@ -59,6 +61,13 @@ If you want Daily Digest generation:
 - `READER_DIGEST_MODEL` (optional, defaults to `gpt-4.1-mini`)
 - `READER_DIGEST_TIMEZONE` (optional, defaults to `America/Los_Angeles`)
 
+If you want email newsletters inside Reader:
+
+- `AGENTMAIL_API_KEY`
+- `READER_NEWSLETTER_INBOX_EMAIL` (optional, defaults to `news@mj-kang.com`)
+
+Reader polls unread messages from that AgentMail inbox every 15 minutes. The first sync will try to create the inbox automatically if it does not already exist, which means the domain behind `READER_NEWSLETTER_INBOX_EMAIL` must already be verified in AgentMail.
+
 If you want to import existing feed definitions from Supabase one time, also set:
 
 - `SUPABASE_URL`
@@ -86,6 +95,7 @@ Do not set `PORT` on Vercel. The deployed app uses static files plus the public 
 - Run `npm run convex:dev` once in [apps/reader](/Users/mjkang/Develop/AgentCompany/apps/reader) to generate Convex types and link the project locally.
 - Deploy the backend with `npm run convex:deploy`.
 - Cron syncing and Daily Digest scheduling are defined in [apps/reader/convex/crons.ts](/Users/mjkang/Develop/AgentCompany/apps/reader/convex/crons.ts).
+- Newsletter polling is also scheduled in [apps/reader/convex/crons.ts](/Users/mjkang/Develop/AgentCompany/apps/reader/convex/crons.ts).
 
 ## One-off Supabase feed import
 

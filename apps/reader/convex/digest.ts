@@ -98,6 +98,45 @@ const mapDigest = (digest: any) => ({
   timezone: digest.timezone
 });
 
+const buildDigestArticleList = async (ctx: any, digest: any) => {
+  if (!digest) {
+    return [];
+  }
+
+  const liveArticles = new Map(
+    (await Promise.all((digest.articleIds || []).map((articleId: any) => ctx.db.get(articleId))))
+      .filter(Boolean)
+      .map((article: any) => [String(article._id), article])
+  );
+
+  return (digest.sections || []).flatMap((section: any) =>
+    (section.articles || []).map((article: any) => {
+      const live = liveArticles.get(String(article.id));
+
+      return {
+        author: live?.author || article.author || "",
+        feedGroup: live?.feedGroup || section.feedGroup || "",
+        feedIconUrl: live?.feedIconUrl || section.feedIconUrl || "",
+        feedId: live?.feedId || null,
+        feedTitle: live?.feedTitle || section.feedTitle,
+        id: article.id,
+        isRead: Boolean(live?.isRead),
+        isSaved: Boolean(live?.isSaved),
+        previewText: live?.previewText || article.previewText || "",
+        publishedAt: live?.publishedAt
+          ? new Date(live.publishedAt).toISOString()
+          : article.publishedAt,
+        readTimeMinutes: live?.readTimeMinutes || 1,
+        sourceType: live?.sourceType || "feed",
+        subtitle: live?.subtitle || article.subtitle || "",
+        thumbnailUrl: live?.thumbnailUrl || "",
+        title: live?.title || article.title,
+        url: live?.url || article.url
+      };
+    })
+  );
+};
+
 const buildDigestPayload = async (
   ctx: any,
   {
@@ -118,6 +157,7 @@ const buildDigestPayload = async (
   const todayLocalDate = getTimeZoneDateKey(timezone);
 
   return {
+    articles: await buildDigestArticleList(ctx, digest),
     counts: await buildCounts(ctx, timezone),
     digest: digest ? mapDigest(digest) : null,
     isToday: localDate === todayLocalDate,

@@ -18,4 +18,13 @@ crons.interval(
   {}
 );
 
+crons.interval(
+  "reader-newsletters-every-15-minutes",
+  { minutes: 15 },
+  internal.newslettersNode.syncInbox,
+  {
+    createIfMissing: true
+  }
+);
+
 export default crons;

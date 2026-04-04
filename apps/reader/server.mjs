@@ -52,6 +52,9 @@ const sendError = (response, statusCode, error) => {
   });
 };
 
+const getNewsletterInboxEmail = () =>
+  process.env.READER_NEWSLETTER_INBOX_EMAIL || "news@mj-kang.com";
+
 createServer(async (request, response) => {
   const url = new URL(request.url, `http://${request.headers.host || `127.0.0.1:${port}`}`);
 
@@ -64,7 +67,10 @@ createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && url.pathname === "/api/config") {
-      json(response, 200, { convexUrl: getConvexUrl() });
+      json(response, 200, {
+        convexUrl: getConvexUrl(),
+        newsletterInboxEmail: getNewsletterInboxEmail()
+      });
       return;
     }
 
