@@ -1048,9 +1048,11 @@ const clearSelection = () => {
   state.selectedArticleId = "";
 };
 
-const currentRoutePath = () =>
-  buildReaderPath({
-    articleTitle: state.selectedArticle?.title || state.articles.find((article) => article.id === state.selectedArticleId)?.title || "",
+const currentRoutePath = () => {
+  const summaryArticle = state.articles.find((article) => article.id === state.selectedArticleId);
+
+  return buildReaderPath({
+    articleTitle: summaryArticle?.title || state.selectedArticle?.title || "",
     browseFeedGroups: state.browseFeedGroups,
     digestDate: state.digestDate,
     explicitArticleSelection: state.explicitArticleSelection,
@@ -1058,6 +1060,7 @@ const currentRoutePath = () =>
     scope: state.scope,
     todayLocalDate: state.digest?.todayLocalDate || ""
   });
+};
 
 const syncRoute = ({ replace = false } = {}) => {
   if (isApplyingRoute) {
