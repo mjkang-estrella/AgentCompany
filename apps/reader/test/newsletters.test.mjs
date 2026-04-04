@@ -45,8 +45,9 @@ test("buildNewsletterImport prefers the browser-view link over unsubscribe links
 
   assert.ok(result);
   assert.equal(result.feed.title, "Every");
+  assert.equal(result.feed.feedGroup, "Every");
   assert.equal(result.article.url, "https://example.com/issues/123?utm_source=email");
-  assert.equal(result.article.feedGroup, "Newsletters");
+  assert.equal(result.article.feedGroup, "Every");
   assert.equal(result.article.subtitle, "updates@every.to");
 });
 
@@ -62,5 +63,48 @@ test("buildNewsletterImport falls back to an AgentMail URL when no browser link 
   assert.ok(result);
   assert.equal(result.article.url, "agentmail://messages/msg_plain");
   assert.match(result.article.bodyHtml, /plain text issue/i);
+  assert.equal(result.article.feedGroup, "Signals");
   assert.equal(result.feed.key, "signals-example-com");
+});
+
+test("buildNewsletterImport normalizes table-layout email chrome and tracking pixels", () => {
+  const result = buildNewsletterImport({
+    extracted_html: `
+      <html>
+        <body>
+          <img src="https://example.com/open?token=abc" width="1" height="1" alt="">
+          <table>
+            <tbody>
+              <tr>
+                <td>&nbsp;</td>
+                <td>
+                  <table>
+                    <tbody>
+                      <tr>
+                        <td><p>Hello from the newsletter.</p><p>This is the main body content with enough text to count as a real article section.</p></td>
+                      </tr>
+                      <tr>
+                        <td><p>Privacy Policy</p><p>Manage preferences</p></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `,
+    extracted_text: "Hello from the newsletter.",
+    from: "Example <team@example.com>",
+    message_id: "msg_html",
+    subject: "Example issue"
+  });
+
+  assert.ok(result);
+  assert.match(result.article.bodyHtml, /Hello from the newsletter/i);
+  assert.doesNotMatch(result.article.bodyHtml, /open\\?token=abc/i);
+  assert.doesNotMatch(result.article.bodyHtml, /Privacy Policy/i);
+  assert.doesNotMatch(result.article.bodyHtml, /Manage preferences/i);
+  assert.doesNotMatch(result.article.bodyHtml, /<table/i);
 });

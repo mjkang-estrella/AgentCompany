@@ -16,6 +16,11 @@ import {
   themeLightIconHtml,
   todayIconHtml
 } from "./icons.js";
+import {
+  buildReaderPath,
+  parseReaderPath,
+  slugifySegment
+} from "./lib/reader-routes.mjs";
 
 const sanitizeHtml = (dirty) =>
   typeof DOMPurify !== "undefined"
@@ -50,6 +55,7 @@ const state = {
   nextCursor: null,
   newsletterInboxEmail: "",
   newsletterStatus: null,
+  explicitArticleSelection: false,
   pendingFeedGroupRemoval: "",
   overlayOpen: false,
   browseFeedGroups: false,
@@ -97,6 +103,11 @@ const elements = {
 
   paneContentScroll: document.querySelector(".pane-content-scroll"),
   previousArticleButton: document.querySelector("#previous-article-button"),
+  renameFeedGroupButton: document.querySelector("#rename-feed-group-button"),
+  renameFeedGroupCancelButton: document.querySelector("#rename-feed-group-cancel-button"),
+  renameFeedGroupDialog: document.querySelector("#rename-feed-group-dialog"),
+  renameFeedGroupForm: document.querySelector("#rename-feed-group-form"),
+  renameFeedGroupInput: document.querySelector("#rename-feed-group-input"),
   removeFeedGroupButton: document.querySelector("#remove-feed-group-button"),
   removeFeedGroupCancelButton: document.querySelector("#remove-feed-group-cancel-button"),
   removeFeedGroupConfirmButton: document.querySelector("#remove-feed-group-confirm-button"),
@@ -113,6 +124,7 @@ let toastTimer = null;
 let feedGroupEditedManually = false;
 let articleRequestToken = 0;
 let isListMenuOpen = false;
+let isApplyingRoute = false;
 
 const applyStaticIcons = () => {
   elements.navToday.innerHTML = todayIconHtml;
@@ -1011,9 +1023,62 @@ const buildRequestArgs = ({ cursor = null, includeSelectedArticleId = false } = 
 
 const clearSelection = () => {
   articleRequestToken += 1;
+  state.explicitArticleSelection = false;
   state.isLoadingArticle = false;
   state.selectedArticle = null;
   state.selectedArticleId = "";
+};
+
+const currentRoutePath = () =>
+  buildReaderPath({
+    articleTitle: state.selectedArticle?.title || state.articles.find((article) => article.id === state.selectedArticleId)?.title || "",
+    browseFeedGroups: state.browseFeedGroups,
+    digestDate: state.digestDate,
+    explicitArticleSelection: state.explicitArticleSelection,
+    feedGroup: state.feedGroup,
+    scope: state.scope,
+    todayLocalDate: state.digest?.todayLocalDate || ""
+  });
+
+const syncRoute = ({ replace = false } = {}) => {
+  if (isApplyingRoute) {
+    return;
+  }
+
+  const nextPath = currentRoutePath();
+  if (window.location.pathname === nextPath) {
+    return;
+  }
+
+  window.history[replace ? "replaceState" : "pushState"]({}, "", nextPath);
+};
+
+const findFeedGroupBySlug = (feedGroupSlug) => {
+  const groups = Object.keys(state.counts.feedGroups || {});
+  return groups.find((group) => slugifySegment(group) === feedGroupSlug) || "";
+};
+
+const findArticleBySlug = (articleSlug) =>
+  state.articles.find((article) => slugifySegment(article.title) === articleSlug) || null;
+
+const ensureArticleInCurrentList = async (articleSlug) => {
+  let article = findArticleBySlug(articleSlug);
+  while (!article && state.hasMore) {
+    const loadedMore = await loadMoreArticles();
+    if (!loadedMore) {
+      break;
+    }
+    article = findArticleBySlug(articleSlug);
+  }
+  return article;
+};
+
+const loadCountsOnly = async () => {
+  const payload = await convexRequest("query", "reader:getCounts", {
+    timezoneOffsetMinutes: new Date().getTimezoneOffset()
+  });
+  state.counts = payload.counts || { ...emptyCounts };
+  return state.counts;
 };
 
 const renderRail = () => {
@@ -1108,6 +1173,11 @@ const renderArticleList = () => {
   elements.articleList.hidden = false;
   elements.listActions.hidden = false;
   elements.markAllReadButton.disabled = state.articles.length === 0;
+  elements.renameFeedGroupButton.hidden = !state.feedGroup;
+  elements.renameFeedGroupButton.disabled = !state.feedGroup;
+  elements.renameFeedGroupButton.textContent = state.feedGroup
+    ? `Edit ${state.feedGroup}`
+    : "Edit feed";
   elements.removeFeedGroupButton.hidden = !state.feedGroup;
   elements.removeFeedGroupButton.disabled = !state.feedGroup;
   elements.removeFeedGroupButton.textContent = state.feedGroup
@@ -1398,7 +1468,8 @@ const ensureTodayDigest = async () => {
   await pollTodayDigest();
 };
 
-const loadDigestForDate = async (localDate = "") => {
+const loadDigestForDate = async (localDate = "", options = {}) => {
+  const { updateRoute = false } = options;
   articleRequestToken += 1;
   state.articles = [];
   state.hasMore = false;
@@ -1431,6 +1502,9 @@ const loadDigestForDate = async (localDate = "") => {
   state.digestDate = payload.localDate || localDate || "";
   state.calendarMonth = startOfMonthKey(state.digestDate || payload.todayLocalDate || "");
   state.isLoadingDigest = false;
+  if (updateRoute) {
+    syncRoute({ replace: false });
+  }
   render();
 
   if (!localDate && payload.status === "missing") {
@@ -1500,7 +1574,13 @@ const loadMoreArticles = async () => {
   }
 };
 
-const selectArticle = async (articleId) => {
+const selectArticle = async (articleId, options = {}) => {
+  const {
+    explicit = true,
+    updateRoute = true
+  } = options;
+
+  state.explicitArticleSelection = explicit;
   state.selectedArticleId = articleId;
   const summary = state.articles.find((article) => article.id === articleId);
 
@@ -1512,6 +1592,10 @@ const selectArticle = async (articleId) => {
     }).catch((error) => {
       showToast(error.message, { error: true });
     });
+  }
+
+  if (updateRoute) {
+    syncRoute({ replace: false });
   }
 
   await loadArticle(articleId);
@@ -1600,6 +1684,22 @@ const closeArticleDialog = () => {
   elements.articleForm.reset();
 };
 
+const openRenameFeedGroupDialog = (feedGroup) => {
+  if (!feedGroup) {
+    return;
+  }
+
+  elements.renameFeedGroupInput.value = feedGroup;
+  elements.renameFeedGroupDialog.showModal();
+  elements.renameFeedGroupInput.focus();
+  elements.renameFeedGroupInput.select();
+};
+
+const closeRenameFeedGroupDialog = () => {
+  elements.renameFeedGroupDialog.close();
+  elements.renameFeedGroupForm.reset();
+};
+
 const openRemoveFeedGroupDialog = (feedGroup) => {
   state.pendingFeedGroupRemoval = feedGroup;
   elements.removeFeedGroupCopy.textContent = `This will permanently delete all RSS feeds and articles in ${feedGroup}.`;
@@ -1631,6 +1731,41 @@ const submitFeed = async () => {
   showToast("Feed added. Initial sync queued.");
   clearSelection();
   await refreshCurrentView();
+};
+
+const renameFeedGroup = async () => {
+  const previousFeedGroup = state.feedGroup;
+  const nextFeedGroup = elements.renameFeedGroupInput.value.trim();
+
+  if (!previousFeedGroup) {
+    throw new Error("Feed not found");
+  }
+
+  if (!nextFeedGroup) {
+    throw new Error("Feed title is required");
+  }
+
+  if (nextFeedGroup === previousFeedGroup) {
+    closeRenameFeedGroupDialog();
+    return;
+  }
+
+  const result = await convexRequest("action", "feeds:renameFeedGroup", {
+    feedGroup: previousFeedGroup,
+    nextFeedGroup
+  });
+
+  closeRenameFeedGroupDialog();
+  closeListMenu();
+
+  if (state.feedGroup === previousFeedGroup) {
+    state.feedGroup = nextFeedGroup;
+  }
+
+  clearSelection();
+  syncRoute({ replace: false });
+  await refreshCurrentView();
+  showToast(`Renamed ${result.previousFeedGroup} to ${result.nextFeedGroup}.`);
 };
 
 const submitArticle = async () => {
@@ -1762,6 +1897,7 @@ elements.navToday.addEventListener("click", async () => {
   state.feedGroup = "";
   state.browseFeedGroups = false;
   clearSelection();
+  syncRoute({ replace: false });
   await loadDigestForDate("");
 });
 
@@ -1776,6 +1912,7 @@ elements.navAll.addEventListener("click", async () => {
   state.browseFeedGroups = false;
   clearSelection();
   openPanel();
+  syncRoute({ replace: false });
   await bootstrap();
 });
 
@@ -1790,6 +1927,7 @@ elements.navSaved.addEventListener("click", async () => {
   state.browseFeedGroups = false;
   clearSelection();
   openPanel();
+  syncRoute({ replace: false });
   await bootstrap();
 });
 
@@ -1804,6 +1942,7 @@ elements.navManualArticles.addEventListener("click", async () => {
   state.browseFeedGroups = false;
   clearSelection();
   openPanel();
+  syncRoute({ replace: false });
   await bootstrap();
 });
 
@@ -1816,6 +1955,7 @@ elements.navFeeds.addEventListener("click", () => {
   state.browseFeedGroups = true;
   state.feedGroup = "";
   openPanel();
+  syncRoute({ replace: false });
   render();
 });
 
@@ -1830,6 +1970,7 @@ elements.feedGroupList.addEventListener("click", async (event) => {
   state.feedGroup = anchor.dataset.feedGroup;
   state.browseFeedGroups = false;
   clearSelection();
+  syncRoute({ replace: false });
   await bootstrap();
 });
 
@@ -1838,6 +1979,7 @@ elements.listBackButton.addEventListener("click", () => {
   state.browseFeedGroups = true;
   state.feedGroup = "";
   openPanel();
+  syncRoute({ replace: false });
   render();
 });
 
@@ -1865,7 +2007,9 @@ elements.articleList.addEventListener("click", async (event) => {
     }
 
     clearSelection();
-    await loadDigestForDate(localDate === state.digest?.todayLocalDate ? "" : localDate);
+    await loadDigestForDate(localDate === state.digest?.todayLocalDate ? "" : localDate, {
+      updateRoute: true
+    });
     return;
   }
 
@@ -1874,7 +2018,7 @@ elements.articleList.addEventListener("click", async (event) => {
     return;
   }
 
-  await selectArticle(item.dataset.articleId);
+  await selectArticle(item.dataset.articleId, { explicit: true, updateRoute: true });
 });
 
 elements.articleView.addEventListener("click", async (event) => {
@@ -1906,7 +2050,7 @@ elements.articleView.addEventListener("click", async (event) => {
   const resetButton = event.target.closest("[data-digest-reset-today='true']");
   if (resetButton) {
     clearSelection();
-    await loadDigestForDate("");
+    await loadDigestForDate("", { updateRoute: true });
     return;
   }
 
@@ -1930,7 +2074,7 @@ elements.articleView.addEventListener("click", async (event) => {
   }
 
   clearSelection();
-  await loadDigestForDate(shiftLocalDate(baseDate, offset));
+  await loadDigestForDate(shiftLocalDate(baseDate, offset), { updateRoute: true });
 });
 
 elements.articleView.addEventListener("mouseup", () => {
@@ -1995,6 +2139,15 @@ elements.markAllReadButton.addEventListener("click", async () => {
   }
 });
 
+elements.renameFeedGroupButton.addEventListener("click", () => {
+  if (!state.feedGroup) {
+    return;
+  }
+
+  closeListMenu();
+  openRenameFeedGroupDialog(state.feedGroup);
+});
+
 elements.removeFeedGroupButton.addEventListener("click", () => {
   if (!state.feedGroup) {
     return;
@@ -2014,6 +2167,7 @@ document.querySelector("#highlight-remove-btn").addEventListener("click", async 
 
 elements.feedCancelButton.addEventListener("click", closeDialog);
 elements.articleCancelButton.addEventListener("click", closeArticleDialog);
+elements.renameFeedGroupCancelButton.addEventListener("click", closeRenameFeedGroupDialog);
 elements.removeFeedGroupCancelButton.addEventListener("click", closeRemoveFeedGroupDialog);
 elements.feedUrlInput.addEventListener("input", () => {
   if (feedGroupEditedManually && elements.feedGroupInput.value.trim()) {
@@ -2049,6 +2203,19 @@ elements.articleForm.addEventListener("submit", async (event) => {
     showToast(error.message, { error: true });
   } finally {
     setFormSubmitting(elements.articleForm, false);
+  }
+});
+
+elements.renameFeedGroupForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  setFormSubmitting(elements.renameFeedGroupForm, true);
+  try {
+    await renameFeedGroup();
+  } catch (error) {
+    showToast(error.message, { error: true });
+  } finally {
+    setFormSubmitting(elements.renameFeedGroupForm, false);
   }
 });
 
@@ -2270,8 +2437,73 @@ const start = async () => {
     };
     renderNewsletterStatus();
   });
-  await refreshCurrentView();
+  const route = parseReaderPath(window.location.pathname);
+  isApplyingRoute = true;
+  try {
+    if (route.route === "feeds") {
+      await loadCountsOnly();
+      state.scope = "all";
+      state.feedGroup = "";
+      state.browseFeedGroups = true;
+      state.canReturnToFeedGroups = false;
+      clearSelection();
+      openPanel();
+      render();
+    } else if (route.route === "feed") {
+      await loadCountsOnly();
+      state.scope = "all";
+      state.browseFeedGroups = false;
+      state.canReturnToFeedGroups = true;
+      state.feedGroup = findFeedGroupBySlug(route.feedGroupSlug);
+      clearSelection();
+      openPanel();
+      await bootstrap();
+      if (route.articleSlug) {
+        const article = await ensureArticleInCurrentList(route.articleSlug);
+        if (article) {
+          await selectArticle(article.id, { explicit: true, updateRoute: false });
+        }
+      }
+    } else if (route.scope === "today") {
+      state.scope = "today";
+      state.feedGroup = "";
+      state.browseFeedGroups = false;
+      state.canReturnToFeedGroups = false;
+      clearSelection();
+      await loadDigestForDate(route.localDate || "");
+      if (route.articleSlug) {
+        const article = findArticleBySlug(route.articleSlug);
+        if (article) {
+          await selectArticle(article.id, { explicit: true, updateRoute: false });
+        }
+      }
+    } else {
+      state.scope = route.scope;
+      state.feedGroup = "";
+      state.browseFeedGroups = false;
+      state.canReturnToFeedGroups = false;
+      clearSelection();
+      openPanel();
+      await bootstrap();
+      if (route.articleSlug) {
+        const article = await ensureArticleInCurrentList(route.articleSlug);
+        if (article) {
+          await selectArticle(article.id, { explicit: true, updateRoute: false });
+        }
+      }
+    }
+  } finally {
+    isApplyingRoute = false;
+    syncRoute({ replace: true });
+  }
 };
+
+window.addEventListener("popstate", () => {
+  start().catch((error) => {
+    render();
+    showToast(error.message, { error: true });
+  });
+});
 
 state.theme = readStoredTheme();
 applyStaticIcons();

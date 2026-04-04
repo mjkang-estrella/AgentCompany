@@ -8,6 +8,7 @@ import { internalAction } from "./_generated/server";
 import { hashArticleContent } from "../lib/content-hash.mjs";
 import {
   NEWSLETTER_LABEL_INGESTED,
+  NEWSLETTER_LABEL_PARSED_V2,
   NEWSLETTER_LABEL_UNREAD,
   buildNewsletterImport,
   buildNewsletterInboxCreateArgs,
@@ -95,9 +96,8 @@ const ensureInbox = async ({ createIfMissing, inboxEmail }) => {
   }
 };
 
-const listUnreadMessages = async (inboxEmail) => {
+const listCandidateMessages = async (inboxEmail) => {
   const searchParams = new URLSearchParams();
-  searchParams.append("labels", NEWSLETTER_LABEL_UNREAD);
   searchParams.append("limit", String(MAX_NEWSLETTER_MESSAGES));
 
   const payload = await agentmailFetch({
@@ -116,7 +116,7 @@ const getMessage = async (inboxEmail, messageId) =>
 const markMessageIngested = async (inboxEmail, messageId) =>
   agentmailFetch({
     body: {
-      add_labels: [NEWSLETTER_LABEL_INGESTED],
+      add_labels: [NEWSLETTER_LABEL_INGESTED, NEWSLETTER_LABEL_PARSED_V2],
       remove_labels: [NEWSLETTER_LABEL_UNREAD]
     },
     method: "PATCH",
@@ -145,8 +145,13 @@ export const syncInbox = internalAction({
         inboxEmail
       });
 
-      const unreadMessages = await listUnreadMessages(inboxEmail);
-      if (unreadMessages.length === 0) {
+      const recentMessages = await listCandidateMessages(inboxEmail);
+      const syncMessages = recentMessages.filter((message: any) => {
+        const labels = Array.isArray(message?.labels) ? message.labels : [];
+        return labels.includes(NEWSLETTER_LABEL_UNREAD) || !labels.includes(NEWSLETTER_LABEL_PARSED_V2);
+      });
+
+      if (syncMessages.length === 0) {
         await ctx.runMutation(internal.newsletters.upsertSyncState, {
           inboxEmail,
           lastError: undefined,
@@ -170,7 +175,7 @@ export const syncInbox = internalAction({
       let latestMessageTimestamp = 0;
       let processed = 0;
 
-      for (const unreadMessage of unreadMessages) {
+      for (const unreadMessage of syncMessages) {
         const messageId = unreadMessage?.message_id;
         if (!messageId) {
           continue;
@@ -197,7 +202,18 @@ export const syncInbox = internalAction({
 
         articles.push({
           ...normalized.article,
-          contentHash: hashArticleContent(normalized.article.bodyHtml),
+          contentHash: hashArticleContent({
+            author: normalized.article.author || "",
+            bodyHtml: normalized.article.bodyHtml,
+            canonicalUrl: normalized.article.canonicalUrl,
+            previewText: normalized.article.previewText,
+            publishedAt: normalized.article.publishedAt,
+            summaryHtml: normalized.article.summaryHtml,
+            subtitle: normalized.article.subtitle || "",
+            thumbnailUrl: normalized.article.thumbnailUrl || "",
+            title: normalized.article.title,
+            url: normalized.article.url
+          }),
           feedId,
           feedIconUrl: undefined,
           feedTitle: normalized.feed.title,

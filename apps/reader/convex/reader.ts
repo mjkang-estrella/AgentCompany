@@ -424,6 +424,15 @@ export const bootstrap = query({
   }
 });
 
+export const getCounts = query({
+  args: {
+    timezoneOffsetMinutes: v.number()
+  },
+  handler: async (ctx, args) => ({
+    counts: await buildCounts(ctx, args.timezoneOffsetMinutes)
+  })
+});
+
 export const listArticles = query({
   args: {
     cursor: v.optional(v.string()),

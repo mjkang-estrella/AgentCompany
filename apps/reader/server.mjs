@@ -38,6 +38,12 @@ const serveStatic = async (response, pathname) => {
     );
   } catch (error) {
     if (error?.code === "ENOENT") {
+      if (!relativePath.includes(".")) {
+        const body = await readFile(join(staticRoot, "index.html"));
+        text(response, 200, body, "text/html; charset=utf-8");
+        return;
+      }
+
       text(response, 404, "Not found");
       return;
     }

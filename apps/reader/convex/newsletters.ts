@@ -4,7 +4,6 @@ import { action, internalMutation, internalQuery, query } from "./_generated/ser
 import { internal } from "./_generated/api";
 
 import {
-  NEWSLETTER_FEED_GROUP,
   getNewsletterInboxEmail,
   hasAgentMailApiKey
 } from "../lib/newsletters.mjs";
@@ -77,6 +76,7 @@ export const upsertSyncState = internalMutation({
 
 export const ensureNewsletterFeed = internalMutation({
   args: {
+    feedGroup: v.string(),
     key: v.string(),
     siteUrl: v.optional(v.string()),
     title: v.string()
@@ -90,8 +90,8 @@ export const ensureNewsletterFeed = internalMutation({
 
     if (existing) {
       const patch = {};
-      if (existing.feedGroup !== NEWSLETTER_FEED_GROUP) {
-        patch.feedGroup = NEWSLETTER_FEED_GROUP;
+      if (existing.feedGroup !== args.feedGroup) {
+        patch.feedGroup = args.feedGroup;
       }
       if (existing.isActive) {
         patch.isActive = false;
@@ -114,7 +114,7 @@ export const ensureNewsletterFeed = internalMutation({
     }
 
     return ctx.db.insert("feeds", {
-      feedGroup: NEWSLETTER_FEED_GROUP,
+      feedGroup: args.feedGroup,
       feedUrl,
       isActive: false,
       siteUrl: args.siteUrl,

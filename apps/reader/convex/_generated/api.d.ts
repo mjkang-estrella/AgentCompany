@@ -14,6 +14,8 @@ import type * as digest from "../digest.js";
 import type * as digestNode from "../digestNode.js";
 import type * as feeds from "../feeds.js";
 import type * as migration from "../migration.js";
+import type * as newsletters from "../newsletters.js";
+import type * as newslettersNode from "../newslettersNode.js";
 import type * as reader from "../reader.js";
 import type * as sync from "../sync.js";
 
@@ -30,6 +32,8 @@ declare const fullApi: ApiFromModules<{
   digestNode: typeof digestNode;
   feeds: typeof feeds;
   migration: typeof migration;
+  newsletters: typeof newsletters;
+  newslettersNode: typeof newslettersNode;
   reader: typeof reader;
   sync: typeof sync;
 }>;

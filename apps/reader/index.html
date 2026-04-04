@@ -1404,6 +1404,7 @@
                 <button class="icon-btn" id="list-menu-button" title="More actions" aria-label="More actions" aria-expanded="false" aria-haspopup="menu" type="button"></button>
                 <div class="list-menu" hidden id="list-menu" role="menu" aria-label="List actions">
                     <button class="list-menu-item" id="mark-all-read-button" role="menuitem" type="button">Mark all as read</button>
+                    <button class="list-menu-item" hidden id="rename-feed-group-button" role="menuitem" type="button">Edit feed title</button>
                     <button class="list-menu-item is-danger" hidden id="remove-feed-group-button" role="menuitem" type="button">Remove feed</button>
                 </div>
             </div>
@@ -1480,6 +1481,22 @@
         <div class="dialog-actions">
             <button class="btn-secondary" id="article-cancel-button" type="button">Cancel</button>
             <button class="btn-primary" type="submit">Save article</button>
+        </div>
+    </form>
+</dialog>
+<dialog class="feed-dialog" id="rename-feed-group-dialog">
+    <form class="feed-dialog-card" id="rename-feed-group-form" method="dialog">
+        <div>
+            <div class="dialog-title">Edit feed title</div>
+            <p class="dialog-copy">Rename this feed everywhere in Reader. Existing articles stay attached to the feed.</p>
+        </div>
+        <label class="form-field">
+            <span class="form-label">Feed title</span>
+            <input class="text-input" id="rename-feed-group-input" name="feedGroup" required type="text" placeholder="Every">
+        </label>
+        <div class="dialog-actions">
+            <button class="btn-secondary" id="rename-feed-group-cancel-button" type="button">Cancel</button>
+            <button class="btn-primary" type="submit">Save</button>
         </div>
     </form>
 </dialog>

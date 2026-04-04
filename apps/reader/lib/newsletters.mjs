@@ -3,12 +3,15 @@ import { parse } from "node-html-parser";
 import {
   canonicalizeUrl,
   estimateReadTime,
+  extractReadableContent,
   sanitizeFragment,
   stripHtml
 } from "./html.mjs";
+import { normalizeArticleContent } from "./article-body-normalizer.mjs";
 
 export const NEWSLETTER_FEED_GROUP = "Newsletters";
 export const NEWSLETTER_LABEL_INGESTED = "reader-ingested";
+export const NEWSLETTER_LABEL_PARSED_V2 = "reader-parsed-v5";
 export const NEWSLETTER_LABEL_UNREAD = "unread";
 
 const HTTP_URL_PATTERN = /https?:\/\/[^\s<>"')]+/giu;
@@ -115,6 +118,17 @@ const deriveSenderTitle = ({ fromAddress, fromName, senderAddress }) => {
     .join(" ");
 };
 
+const deriveNewsletterFeedGroup = ({ fromAddress, fromName, senderAddress }) => {
+  const senderTitle = deriveSenderTitle({ fromAddress, fromName, senderAddress });
+  const normalizedTitle = trimToNull(senderTitle);
+
+  if (normalizedTitle && normalizedTitle !== "Newsletter") {
+    return normalizedTitle;
+  }
+
+  return pickFirstString(fromName, senderAddress, fromAddress, NEWSLETTER_FEED_GROUP) || NEWSLETTER_FEED_GROUP;
+};
+
 const deriveFeedKey = ({ fromAddress, senderAddress, title }) =>
   (pickFirstString(senderAddress, fromAddress, title) || "newsletter")
     .toLowerCase()
@@ -132,6 +146,157 @@ const normalizeHtmlFragment = (html) => {
   const fragment = body ? body.innerHTML : source;
 
   return sanitizeFragment(fragment);
+};
+
+const isTrackingOrSpacerImage = (image) => {
+  const src = String(image?.getAttribute?.("src") || "");
+  const width = Number(image?.getAttribute?.("width") || "0");
+  const height = Number(image?.getAttribute?.("height") || "0");
+  const style = String(image?.getAttribute?.("style") || "").toLowerCase();
+
+  return (
+    /\/open\?/iu.test(src) ||
+    /\b(pixel|tracking)\b/iu.test(src) ||
+    (width > 0 && width <= 2) ||
+    (height > 0 && height <= 2) ||
+    style.includes("display:none") ||
+    style.includes("visibility:hidden")
+  );
+};
+
+const stripEmailChrome = (html) => {
+  const fragment = trimToNull(html);
+  if (!fragment) {
+    return "";
+  }
+
+  const root = parse(fragment);
+  for (const selector of ["script", "style", "noscript", "meta", "link", "title", "head"]) {
+    root.querySelectorAll(selector).forEach((node) => node.remove());
+  }
+
+  for (const image of root.querySelectorAll("img")) {
+    if (isTrackingOrSpacerImage(image)) {
+      image.remove();
+    }
+  }
+
+  for (const node of root.querySelectorAll("table, tbody, thead, tfoot, tr, td")) {
+    const text = stripHtml(node.innerHTML || "");
+    const nestedTableCount = node.querySelectorAll("table").length;
+    const hasMedia = node.querySelectorAll("img, picture, video").length > 0;
+
+    if (!text && !hasMedia) {
+      node.remove();
+      continue;
+    }
+
+    if (["table", "tbody", "thead", "tfoot", "tr"].includes(node.tagName?.toLowerCase() || "")) {
+      node.replaceWith(node.innerHTML);
+      continue;
+    }
+
+    if (node.tagName?.toLowerCase() === "td" && nestedTableCount === 0) {
+      const wrapperTag = text.length > 180 ? "div" : "p";
+      node.replaceWith(`<${wrapperTag}>${node.innerHTML}</${wrapperTag}>`);
+    }
+  }
+
+  return root.toString();
+};
+
+const unwrapEmailLayout = (html) => {
+  const fragment = trimToNull(html);
+  if (!fragment) {
+    return "";
+  }
+
+  const root = parse(fragment);
+
+  for (let iteration = 0; iteration < 400; iteration += 1) {
+    const node = root.querySelector("table, tbody, thead, tfoot, tr, td");
+    if (!node) {
+      break;
+    }
+
+    const tagName = node.tagName?.toLowerCase() || "";
+    const text = stripHtml(node.innerHTML || "");
+    const hasMedia = node.querySelectorAll("img, picture, video").length > 0;
+
+    if (!text && !hasMedia) {
+      node.remove();
+      continue;
+    }
+
+    if (tagName === "td") {
+      const wrapperTag = text.length > 180 || hasMedia ? "div" : "p";
+      node.replaceWith(`<${wrapperTag}>${node.innerHTML}</${wrapperTag}>`);
+      continue;
+    }
+
+    node.replaceWith(node.innerHTML);
+  }
+
+  root.querySelectorAll("img").forEach((image) => {
+    if (isTrackingOrSpacerImage(image)) {
+      image.remove();
+    }
+  });
+
+  for (const node of Array.from(root.querySelectorAll("p, div")).reverse()) {
+    const text = stripHtml(node.innerHTML || "");
+
+    if (
+      !text ||
+      /\b(unsubscribe|manage preferences|privacy policy|terms of service|forward this email)\b/iu.test(text) ||
+      /^©\s*\d{4}\b/iu.test(text) ||
+      (/substack inc/iu.test(text) && text.length < 180)
+    ) {
+      node.remove();
+      continue;
+    }
+
+    break;
+  }
+
+  return sanitizeFragment(root.toString());
+};
+
+const normalizeNewsletterHtml = ({
+  author = "",
+  feedTitle = "",
+  html = "",
+  title = ""
+}) => {
+  const stripped = stripEmailChrome(html);
+  const readable = extractReadableContent(stripped || html) || normalizeHtmlFragment(html);
+  const normalized = normalizeArticleContent({
+    author,
+    bodyHtml: readable,
+    feedTitle,
+    publishedAt: "",
+    summaryHtml: readable,
+    thumbnailUrl: "",
+    title
+  });
+  const unwrappedBody = unwrapEmailLayout(normalized.bodyHtml);
+  const finalized = normalizeArticleContent({
+    author,
+    bodyHtml: unwrappedBody || normalized.bodyHtml,
+    feedTitle,
+    publishedAt: "",
+    summaryHtml: normalized.summaryHtml || unwrappedBody || normalized.bodyHtml,
+    thumbnailUrl: "",
+    title
+  });
+
+  return {
+    bodyHtml: finalized.bodyHtml,
+    previewText: finalized.previewText || stripHtml(finalized.bodyHtml).slice(0, 220),
+    readTimeMinutes: Math.max(finalized.readTimeMinutes || 0, 1),
+    summaryHtml: finalized.summaryHtml || finalized.bodyHtml,
+    subtitle: finalized.subtitle || ""
+  };
 };
 
 const renderPlainTextHtml = (text) => {
@@ -299,32 +464,43 @@ export const buildNewsletterImport = (message) => {
     fromName,
     senderAddress
   });
-  const htmlBody = normalizeHtmlFragment(
-    pickFirstString(message.extracted_html, message.html)
-  );
+  const senderFeedGroup = deriveNewsletterFeedGroup({
+    fromAddress,
+    fromName,
+    senderAddress
+  });
+  const title = pickFirstString(message.subject, message.preview) || `Newsletter from ${senderTitle}`;
+  const rawHtmlBody = pickFirstString(message.extracted_html, message.html) || "";
   const textBody = pickFirstString(
     message.extracted_text,
     message.text,
     message.preview
   ) || "";
-  const bodyHtml = htmlBody || renderPlainTextHtml(textBody);
-  const previewText = (textBody || stripHtml(bodyHtml)).slice(0, 220);
+  const normalizedHtml = rawHtmlBody
+    ? normalizeNewsletterHtml({
+      author: pickFirstString(fromName, senderAddress, fromAddress) || "",
+      feedTitle: senderTitle,
+      html: rawHtmlBody,
+      title
+    })
+    : null;
+  const bodyHtml = normalizedHtml?.bodyHtml || renderPlainTextHtml(textBody);
+  const previewText = normalizedHtml?.previewText || (textBody || stripHtml(bodyHtml)).slice(0, 220);
 
   if (!bodyHtml && !previewText) {
     return null;
   }
 
   const preferredUrl =
-    extractPreferredUrlFromHtml(bodyHtml) ||
+    extractPreferredUrlFromHtml(rawHtmlBody || bodyHtml) ||
     extractPreferredUrlFromText(textBody);
   const resolvedUrl = preferredUrl || `agentmail://messages/${encodeURIComponent(messageId)}`;
-  const title = pickFirstString(message.subject, message.preview) || `Newsletter from ${senderTitle}`;
   const feedKey = deriveFeedKey({
     fromAddress,
     senderAddress,
     title: senderTitle
   });
-  const summaryHtml = createSummaryHtml(textBody || stripHtml(bodyHtml).slice(0, 420)) || bodyHtml;
+  const summaryHtml = normalizedHtml?.summaryHtml || createSummaryHtml(textBody || stripHtml(bodyHtml).slice(0, 420)) || bodyHtml;
   const publishedAt = normalizeTimestamp(
     pickFirstString(message.timestamp, message.created_at, message.updated_at)
   );
@@ -336,21 +512,22 @@ export const buildNewsletterImport = (message) => {
       bodySource: "feed",
       canonicalUrl: resolvedUrl,
       externalId: messageId,
-      feedGroup: NEWSLETTER_FEED_GROUP,
+      feedGroup: senderFeedGroup,
       feedSiteUrl: extractOrigin(preferredUrl),
       previewText,
       publishedAt,
-      readTimeMinutes: estimateReadTime(bodyHtml),
+      readTimeMinutes: normalizedHtml?.readTimeMinutes || estimateReadTime(bodyHtml),
       sourceType: "feed",
       summaryHtml,
       subtitle:
-        senderAddress && senderAddress !== senderTitle
+        normalizedHtml?.subtitle || (senderAddress && senderAddress !== senderTitle
           ? senderAddress
-          : "",
+          : ""),
       title,
       url: resolvedUrl
     },
     feed: {
+      feedGroup: senderFeedGroup,
       key: feedKey,
       siteUrl: extractOrigin(preferredUrl),
       title: senderTitle
