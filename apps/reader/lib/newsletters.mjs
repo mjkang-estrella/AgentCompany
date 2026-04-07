@@ -11,12 +11,17 @@ import { normalizeArticleContent } from "./article-body-normalizer.mjs";
 
 export const NEWSLETTER_FEED_GROUP = "Newsletters";
 export const NEWSLETTER_LABEL_INGESTED = "reader-ingested";
-export const NEWSLETTER_LABEL_PARSED_V2 = "reader-parsed-v5";
+export const NEWSLETTER_LABEL_PARSED_V2 = "reader-parsed-v6";
 export const NEWSLETTER_LABEL_UNREAD = "unread";
 
 const HTTP_URL_PATTERN = /https?:\/\/[^\s<>"')]+/giu;
 const NEWSLETTER_LINK_HINT = /\b(view|read|open).{0,20}\b(browser|web|online)\b/iu;
 const IGNORABLE_LINK_HINT = /\b(unsubscribe|manage|preferences|settings|privacy|forward|share)\b/iu;
+const LEAD_ANCHOR_MARKERS = [
+  "biggest takeaways",
+  "key takeaways",
+  "top threads"
+];
 
 const trimToNull = (value) => {
   if (typeof value !== "string") {
@@ -262,6 +267,81 @@ const unwrapEmailLayout = (html) => {
   return sanitizeFragment(root.toString());
 };
 
+const restoreLeadAnchorHeading = (rawHtml, normalizedHtml) => {
+  const body = trimToNull(normalizedHtml);
+  if (!body) {
+    return "";
+  }
+
+  const bodyText = stripHtml(body).toLowerCase();
+  if (LEAD_ANCHOR_MARKERS.some((marker) => bodyText.includes(marker))) {
+    return body;
+  }
+
+  const source = trimToNull(rawHtml);
+  if (!source) {
+    return body;
+  }
+
+  const root = parse(source);
+  const candidates = Array.from(root.querySelectorAll("h1, h2, h3, h4, p")).slice(0, 80);
+  const anchorNode = candidates.find((node) => {
+    const text = stripHtml(node.innerHTML || "").toLowerCase();
+    return LEAD_ANCHOR_MARKERS.some((marker) => text.includes(marker));
+  });
+
+  if (!anchorNode) {
+    return body;
+  }
+  const bodyStartsWithStructuredContent = /^<(ol|ul|blockquote)\b/iu.test(body);
+  if (!bodyStartsWithStructuredContent) {
+    return body;
+  }
+
+  const anchorText = stripHtml(anchorNode.innerHTML || "").trim();
+  if (!anchorText) {
+    return body;
+  }
+
+  return `<h4>${escapeHtml(anchorText)}</h4>${body}`;
+};
+
+const enforceLeadAnchorHeading = (rawHtml, normalizedHtml) => {
+  const body = trimToNull(normalizedHtml);
+  if (!body || !/^<(ol|ul|blockquote)\b/iu.test(body)) {
+    return body || "";
+  }
+
+  const text = stripHtml(body).toLowerCase();
+  if (LEAD_ANCHOR_MARKERS.some((marker) => text.includes(marker))) {
+    return body;
+  }
+
+  const source = trimToNull(rawHtml);
+  if (!source) {
+    return body;
+  }
+
+  const idx = LEAD_ANCHOR_MARKERS
+    .map((marker) => ({
+      marker,
+      index: source.toLowerCase().indexOf(marker)
+    }))
+    .filter((entry) => entry.index >= 0)
+    .sort((left, right) => left.index - right.index)[0];
+
+  if (!idx) {
+    return body;
+  }
+
+  const anchorText = idx.marker
+    .split(" ")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+
+  return `<h4>${escapeHtml(anchorText)}:</h4>${body}`;
+};
+
 const normalizeNewsletterHtml = ({
   author = "",
   feedTitle = "",
@@ -280,18 +360,19 @@ const normalizeNewsletterHtml = ({
     title
   });
   const unwrappedBody = unwrapEmailLayout(normalized.bodyHtml);
+  const anchoredBody = restoreLeadAnchorHeading(html, unwrappedBody || normalized.bodyHtml);
   const finalized = normalizeArticleContent({
     author,
-    bodyHtml: unwrappedBody || normalized.bodyHtml,
+    bodyHtml: anchoredBody || unwrappedBody || normalized.bodyHtml,
     feedTitle,
     publishedAt: "",
-    summaryHtml: normalized.summaryHtml || unwrappedBody || normalized.bodyHtml,
+    summaryHtml: normalized.summaryHtml || anchoredBody || unwrappedBody || normalized.bodyHtml,
     thumbnailUrl: "",
     title
   });
 
   return {
-    bodyHtml: finalized.bodyHtml,
+    bodyHtml: enforceLeadAnchorHeading(html, finalized.bodyHtml),
     previewText: finalized.previewText || stripHtml(finalized.bodyHtml).slice(0, 220),
     readTimeMinutes: Math.max(finalized.readTimeMinutes || 0, 1),
     summaryHtml: finalized.summaryHtml || finalized.bodyHtml,

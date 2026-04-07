@@ -79,6 +79,9 @@ const elements = {
   articleUrlInput: document.querySelector("#article-url-input"),
   articleView: document.querySelector("#article-view"),
   deleteArticleButton: document.querySelector("#delete-article-button"),
+  inspectorCloseButton: document.querySelector("#inspector-close-button"),
+  inspectorPanel: document.querySelector("#inspector-panel"),
+  inspectorPanelBody: document.querySelector("#inspector-panel-body"),
   feedCancelButton: document.querySelector("#feed-cancel-button"),
   feedDialog: document.querySelector("#feed-dialog"),
   feedGroupList: document.querySelector("#feed-groups-list"),
@@ -422,22 +425,26 @@ const buildSelectionPayload = (root, range) => {
 };
 
 const renderHighlightsRail = () => {
-  const rail = elements.articleView.querySelector(".highlights-rail");
-  if (!rail) return;
+  if (!elements.inspectorPanelBody) {
+    return;
+  }
+
+  elements.inspectorPanel.hidden = !state.isHighlightsPanelOpen;
+  if (!state.isHighlightsPanelOpen) {
+    elements.inspectorPanelBody.innerHTML = "";
+    return;
+  }
 
   const highlights = state.selectedArticle?.highlights || [];
 
-  rail.innerHTML = highlights.length === 0
-    ? `<div class="highlights-rail-header">
-         <span>Highlights</span>
-         <button class="icon-btn highlights-close-btn" data-toggle-highlights-panel="true" type="button" aria-label="Close highlights panel">×</button>
-       </div>
-       <div class="highlights-empty">Select text in the article to highlight it.</div>`
-    : `<div class="highlights-rail-header">
-         <span>${highlights.length} Highlight${highlights.length === 1 ? "" : "s"}</span>
-         <button class="icon-btn highlights-close-btn" data-toggle-highlights-panel="true" type="button" aria-label="Close highlights panel">×</button>
-       </div>
-       <div class="highlights-list">
+  elements.inspectorPanelBody.innerHTML = `
+    <div class="inspector-section">
+      <div class="inspector-section-header">
+        <span>${highlights.length === 0 ? "Highlights" : `${highlights.length} Highlight${highlights.length === 1 ? "" : "s"}`}</span>
+      </div>
+      ${highlights.length === 0
+        ? '<div class="inspector-empty">Select text in the article to highlight it.</div>'
+        : `<div class="inspector-list">
          ${highlights.map((h) => {
            const hasMark = Boolean(elements.articleView.querySelector(`[data-highlight-id="${CSS.escape(h.id)}"]`));
            return `
@@ -450,7 +457,9 @@ const renderHighlightsRail = () => {
                </div>
              </div>`;
          }).join("")}
-       </div>`;
+       </div>`}
+    </div>
+  `;
 };
 
 const unwrapHighlightMarks = (root, highlightId) => {
@@ -1382,7 +1391,6 @@ const renderArticle = () => {
         </header>
         <div class="article-body">${sanitizeHtml(articleHero.bodyHtml) || "<p>No article body available yet.</p>"}</div>
       </div>
-      ${state.isHighlightsPanelOpen ? '<aside class="highlights-rail"></aside>' : ""}
     </div>
   `;
 
@@ -2053,9 +2061,9 @@ elements.articleView.addEventListener("click", async (event) => {
     event.stopPropagation();
     if (!state.isHighlightsPanelOpen) {
       state.isHighlightsPanelOpen = true;
-      render();
+      renderHighlightsRail();
     }
-    const jump = elements.articleView.querySelector(`[data-highlight-jump-id="${CSS.escape(highlightMark.dataset.highlightId)}"]`);
+    const jump = elements.inspectorPanelBody?.querySelector?.(`[data-highlight-jump-id="${CSS.escape(highlightMark.dataset.highlightId)}"]`);
     if (jump) {
       jump.scrollIntoView({ behavior: "smooth", block: "nearest" });
       jump.focus({ preventScroll: true });
@@ -2087,7 +2095,7 @@ elements.articleView.addEventListener("click", async (event) => {
     event.preventDefault();
     event.stopPropagation();
     state.isHighlightsPanelOpen = false;
-    render();
+    renderHighlightsRail();
     return;
   }
 
@@ -2347,7 +2355,12 @@ elements.toggleHighlightsButton.addEventListener("click", () => {
   }
 
   state.isHighlightsPanelOpen = !state.isHighlightsPanelOpen;
-  render();
+  renderHighlightsRail();
+});
+
+elements.inspectorCloseButton.addEventListener("click", () => {
+  state.isHighlightsPanelOpen = false;
+  renderHighlightsRail();
 });
 
 elements.openArticleButton.addEventListener("click", () => {
