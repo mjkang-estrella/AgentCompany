@@ -177,3 +177,27 @@ test("extractPageWithDefuddle trims trailing bio and subscription chrome", async
   assert.doesNotMatch(extracted.bodyHtml, /Only Subscription You Need/i);
   assert.doesNotMatch(extracted.bodyHtml, /Already have an account/i);
 });
+
+test("extractPageWithDefuddle prefers metadata title when document title contains site prefix", async () => {
+  const html = `
+    <html>
+      <head>
+        <title>Kagi Blog - Orion 1.0 ✴︎ Browse Beyond</title>
+        <meta name="description" content="After six years of relentless development, Orion for MacOS 1.0 is here.">
+      </head>
+      <body>
+        <article>
+          <p>After six years of relentless development, Orion for MacOS 1.0 is here.</p>
+          <p>Today, Orion for macOS officially leaves its beta phase behind.</p>
+          <p>We built Orion for people who feel that modern browsing has drifted too far from serving the user, and this release expands that vision across Mac, iPhone, and iPad.</p>
+          <p>In a market dominated by surveillance-driven browsing models, we believe privacy-respecting browsing should be treated as a product feature, not a premium add-on or hidden setting.</p>
+          <p>This launch also reflects our broader effort to create a coherent ecosystem of user-first tools across search, browser, translation, and news.</p>
+        </article>
+      </body>
+    </html>`;
+
+  const extracted = await extractPageWithDefuddle(html, "https://blog.kagi.com/orion");
+
+  assert.equal(extracted.quality, "usable");
+  assert.match(extracted.bodyHtml, /After six years of relentless development/i);
+});

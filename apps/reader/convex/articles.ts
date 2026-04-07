@@ -617,9 +617,107 @@ export const addFromUrl = action({
 
 export const reextractExistingArticles = action({
   args: {
+    articleIds: v.optional(v.array(v.id("articles"))),
     limit: v.optional(v.number())
   },
   handler: async (ctx, args) => {
+    if (args.articleIds && args.articleIds.length > 0) {
+      let scanned = 0;
+      let updated = 0;
+      let failed = 0;
+      const errors = [];
+
+      for (const articleId of args.articleIds) {
+        scanned += 1;
+
+        try {
+          const current = await ctx.runQuery(internal.articles.getArticleForReextract, {
+            articleId
+          });
+          if (!current) {
+            failed += 1;
+            if (errors.length < 10) {
+              errors.push(`Missing article ${articleId}`);
+            }
+            continue;
+          }
+
+          const page = await fetchText(current.article.url);
+          const extracted = await extractPageWithDefuddle(page.text, page.url);
+          const normalizedArticle = normalizeArticleContent({
+            author: extracted.author || current.article.author || "",
+            bodyHtml: extracted.bodyHtml,
+            publishedAt: new Date(current.article.publishedAt).toISOString(),
+            summaryHtml: extracted.summaryHtml || extracted.bodyHtml,
+            thumbnailUrl: extracted.thumbnailUrl || current.article.thumbnailUrl || "",
+            title: extracted.title || current.article.title
+          });
+          const bodyHtml = normalizedArticle.bodyHtml;
+          const summaryHtml = normalizedArticle.summaryHtml;
+          const subtitle = normalizedArticle.subtitle || undefined;
+          const previewText = normalizedArticle.previewText || stripHtml(summaryHtml || bodyHtml).slice(0, 220);
+
+          if (
+            extracted.quality !== "usable" ||
+            stripHtml(bodyHtml || summaryHtml).length < 40
+          ) {
+            failed += 1;
+            if (errors.length < 10) {
+              errors.push(`Too little content for ${current.article.url}`);
+            }
+            continue;
+          }
+
+          const result = await ctx.runMutation(internal.articles.applyReextractedArticle, {
+            articleId,
+            extraction: {
+              author: extracted.author || undefined,
+              bodyHtml,
+              bodySource: "fetched",
+              canonicalUrl: extracted.canonicalUrl || canonicalizeUrl(page.url),
+              contentHash: hashArticleContent({
+                author: extracted.author || current.article.author || "",
+                bodyHtml,
+                canonicalUrl: extracted.canonicalUrl || canonicalizeUrl(page.url),
+                previewText,
+                publishedAt: current.article.publishedAt,
+                summaryHtml,
+                subtitle,
+                thumbnailUrl: extracted.thumbnailUrl || current.article.thumbnailUrl || "",
+                title: extracted.title || current.article.title,
+                url: page.url
+              }),
+              previewText,
+              readTimeMinutes: Math.max(
+                extracted.readTimeMinutes || 0,
+                normalizedArticle.readTimeMinutes || current.article.readTimeMinutes || 1
+              ),
+              summaryHtml,
+              subtitle,
+              thumbnailUrl: extracted.thumbnailUrl || undefined,
+              title: extracted.title || current.article.title
+            }
+          });
+
+          if (result.updated) {
+            updated += 1;
+          }
+        } catch (error) {
+          failed += 1;
+          if (errors.length < 10) {
+            errors.push(`${articleId}: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+      }
+
+      return {
+        failed,
+        scanned,
+        updated,
+        errors
+      };
+    }
+
     const perPage = Math.min(Math.max(args.limit || 25, 1), 100);
     let cursor = null;
     let scanned = 0;

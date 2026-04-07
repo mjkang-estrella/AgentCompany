@@ -143,6 +143,46 @@ const setDocumentUrl = (document, url) => {
 const firstNonEmpty = (...values) => values.find((value) => String(value || "").trim()) || "";
 const normalizeText = (value) => String(value || "").replace(/\s+/gu, " ").trim().toLowerCase();
 
+const chooseArticleTitle = ({
+  defuddledTitle = "",
+  metadataTitle = "",
+  siteName = ""
+}) => {
+  const defuddled = String(defuddledTitle || "").trim();
+  const metadata = String(metadataTitle || "").trim();
+  const site = String(siteName || "").trim();
+
+  if (!defuddled) {
+    return metadata;
+  }
+
+  if (!metadata) {
+    return defuddled;
+  }
+
+  const normalizedDefuddled = normalizeText(defuddled);
+  const normalizedMetadata = normalizeText(metadata);
+  const normalizedSite = normalizeText(site);
+
+  if (
+    normalizedSite &&
+    normalizedDefuddled === normalizedSite &&
+    normalizedMetadata !== normalizedSite
+  ) {
+    return metadata;
+  }
+
+  if (
+    normalizedMetadata &&
+    normalizedDefuddled.includes(normalizedMetadata) &&
+    normalizedDefuddled !== normalizedMetadata
+  ) {
+    return metadata;
+  }
+
+  return defuddled;
+};
+
 const normalizeSummaryHtml = (bodyHtml, description) => {
   if (description) {
     return sanitizeFragment(`<p>${description}</p>`);
@@ -276,6 +316,13 @@ const assessExtractionQuality = ({
     titleText === siteText &&
     markerScore >= 2
   ) {
+    if (textLength >= 4000) {
+      return {
+        quality: "usable",
+        rejectionReason: ""
+      };
+    }
+
     return {
       quality: "reject",
       rejectionReason: "site-chrome-dominated"
@@ -374,11 +421,16 @@ export const extractPageWithDefuddle = async (html, url) => {
   const canonicalUrl = canonicalizeUrl(
     firstNonEmpty(metadata.canonicalUrl, defuddled?.url, url)
   );
-  const title = firstNonEmpty(defuddled?.title, metadata.title);
+  const resolvedSiteName = firstNonEmpty(defuddled?.site, metadata.siteName);
+  const title = chooseArticleTitle({
+    defuddledTitle: defuddled?.title,
+    metadataTitle: metadata.title,
+    siteName: resolvedSiteName
+  });
   const quality = assessExtractionQuality({
     bodyHtml,
     metadata,
-    siteName: firstNonEmpty(defuddled?.site, metadata.siteName),
+    siteName: resolvedSiteName,
     title
   });
 
@@ -391,7 +443,7 @@ export const extractPageWithDefuddle = async (html, url) => {
     quality: quality.quality,
     readTimeMinutes: estimateReadTime(bodyHtml),
     rejectionReason: quality.rejectionReason || "",
-    siteName: firstNonEmpty(defuddled?.site, metadata.siteName),
+    siteName: resolvedSiteName,
     summaryHtml,
     thumbnailUrl: thumbnailUrl || "",
     title
