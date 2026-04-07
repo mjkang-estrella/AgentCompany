@@ -41,6 +41,34 @@ const FOOTER_MARKERS = [
 ];
 
 const MONTH_PATTERN = /\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/iu;
+const PREFACE_MARKERS = [
+  "biggest takeaways",
+  "key takeaways",
+  "takeaways",
+  "key points",
+  "what you'll learn",
+  "what you will learn",
+  "in this conversation",
+  "in this episode",
+  "highlights",
+  "tl;dr",
+  "quick take"
+];
+const LEAD_PROMO_MARKERS = [
+  "read in app",
+  "listen on",
+  "brought to you by",
+  "where to find",
+  "referenced",
+  "upcoming meetups",
+  "new podcast episodes",
+  "community sponsor",
+  "thanks to",
+  "podcast",
+  "youtube",
+  "spotify",
+  "apple podcasts"
+];
 
 const normalizeText = (value) => String(value || "").replace(/\s+/gu, " ").trim().toLowerCase();
 const sentenceCount = (text) => (String(text || "").match(/[.!?](?:\s|$)/gu) || []).length;
@@ -131,6 +159,177 @@ const isSubstantiveBodyBlock = (node) => {
   }
 
   return ["blockquote", "ol", "pre", "table", "ul"].includes(tagName) && textLength >= 80;
+};
+
+const isLeadPromoMarkerText = (text) =>
+  LEAD_PROMO_MARKERS.some((marker) => text.includes(marker));
+
+const isLeadPromoBlock = (node) => {
+  if (!node) {
+    return false;
+  }
+
+  const text = normalizeText(node.textContent);
+  const tagName = node.tagName?.toLowerCase() || "";
+  const links = node.querySelectorAll?.("a").length || 0;
+  const textLength = text.length;
+
+  if (!text) {
+    return tagName === "hr";
+  }
+
+  if (isLeadPromoMarkerText(text)) {
+    return true;
+  }
+
+  if (tagName === "hr") {
+    return true;
+  }
+
+  if ((tagName === "figure" || tagName === "a") && links <= 1 && textLength < 160) {
+    return true;
+  }
+
+  if ((tagName === "ul" || tagName === "ol") && links >= 3 && textLength < 1800) {
+    return true;
+  }
+
+  return /^read in app$/iu.test(text) || /^paid$/iu.test(text);
+};
+
+const isLeadBioPrefaceBlock = (node, upcomingNodes = []) => {
+  if (!node) {
+    return false;
+  }
+
+  const text = normalizeText(node.textContent);
+  const textLength = text.length;
+  const tagName = node.tagName?.toLowerCase() || "";
+  if (!["p", "div"].includes(tagName) || textLength < 160 || textLength > 900) {
+    return false;
+  }
+
+  if (!/\b(is |worked|previously|before that|co-founder|founder|head of|led|spent his career|spent her career)\b/iu.test(text)) {
+    return false;
+  }
+
+  return upcomingNodes.some((candidate) => {
+    const candidateText = normalizeText(candidate?.textContent);
+    return (
+      isLeadPromoBlock(candidate) ||
+      candidateText.includes("in our in-depth discussion") ||
+      candidateText.includes("what you'll learn") ||
+      candidateText.includes("my biggest takeaways")
+    );
+  });
+};
+
+const isLeadPromoAnchor = (node) => {
+  if (!node) {
+    return false;
+  }
+
+  const text = normalizeText(node.textContent);
+  const textLength = text.length;
+  const tagName = node.tagName?.toLowerCase() || "";
+  const links = node.querySelectorAll?.("a").length || 0;
+
+  if (!text) {
+    return false;
+  }
+
+  if (hasPrefaceMarker(text) && textLength < 280) {
+    return true;
+  }
+
+  if (isLeadPromoMarkerText(text)) {
+    return false;
+  }
+
+  if (["h1", "h2", "h3"].includes(tagName) && textLength >= 18) {
+    return true;
+  }
+
+  if (isSubstantiveBodyBlock(node) && links <= 2) {
+    return true;
+  }
+
+  return false;
+};
+
+const hasPrefaceMarker = (text) =>
+  PREFACE_MARKERS.some((marker) => text.includes(marker));
+
+const listItemCount = (node) => node?.querySelectorAll?.("li").length || 0;
+
+const isLeadPrefaceStart = (node, nextNode) => {
+  if (!node || !nextNode) {
+    return false;
+  }
+
+  if (isMediaBlock(node) || !isSubstantiveBodyBlock(nextNode)) {
+    return false;
+  }
+
+  const text = normalizeText(node.textContent);
+  const rawText = String(node.textContent || "").replace(/\s+/gu, " ").trim();
+  const textLength = text.length;
+  const tagName = node.tagName?.toLowerCase() || "";
+  const lists = listItemCount(node);
+  const links = node.querySelectorAll?.("a").length || 0;
+  const sentences = sentenceCount(text);
+
+  if (!text || textLength > 700 || links > 6) {
+    return false;
+  }
+
+  if (hasPrefaceMarker(text)) {
+    return true;
+  }
+
+  if ((tagName === "ul" || tagName === "ol") && lists >= 2) {
+    return true;
+  }
+
+  if (rawText.endsWith(":") && textLength < 220) {
+    return true;
+  }
+
+  if (lists >= 2 && textLength < 420) {
+    return true;
+  }
+
+  return sentences <= 2 && textLength < 180 && /:\s*$/u.test(rawText);
+};
+
+const isLeadPrefaceContinuation = (node) => {
+  if (!node) {
+    return false;
+  }
+
+  if (isMediaBlock(node)) {
+    return false;
+  }
+
+  const text = normalizeText(node.textContent);
+  const textLength = text.length;
+  const tagName = node.tagName?.toLowerCase() || "";
+  const lists = listItemCount(node);
+  const links = node.querySelectorAll?.("a").length || 0;
+
+  if (!text) {
+    return true;
+  }
+
+  if ((tagName === "ul" || tagName === "ol") && lists >= 1) {
+    return true;
+  }
+
+  if (hasPrefaceMarker(text) && textLength < 360) {
+    return true;
+  }
+
+  return textLength < 240 && links <= 3 && !isSubstantiveBodyBlock(node);
 };
 
 const isDuplicateTitleBlock = (node, title) => {
@@ -312,11 +511,76 @@ const normalizeBodyHtml = (bodyHtml, context = {}) => {
 
   let removedLeadCount = 0;
   let removedBottomCount = 0;
+  let preservedLeadSummaryHtml = "";
   let seenLeadMedia = false;
   let subtitle = "";
 
   while (root.firstChild?.nodeType === 3 && !normalizeText(root.firstChild.textContent)) {
     root.firstChild.remove();
+  }
+
+  const promoLeadNodes = Array.from(root.children).slice(0, 120);
+  const promoIndexes = promoLeadNodes
+    .map((node, index) => {
+      const upcomingNodes = promoLeadNodes.slice(index + 1, index + 5);
+      return (
+        isLeadPromoBlock(node) ||
+        isLeadBioPrefaceBlock(node, upcomingNodes)
+      ) ? index : -1;
+    })
+    .filter((index) => index >= 0);
+
+  if (promoIndexes.length >= 2) {
+    const lastPromoIndex = promoIndexes[promoIndexes.length - 1];
+    let anchorIndex = -1;
+
+    for (let index = lastPromoIndex + 1; index < promoLeadNodes.length; index += 1) {
+      if (isLeadPromoAnchor(promoLeadNodes[index])) {
+        anchorIndex = index;
+        break;
+      }
+    }
+
+    if (anchorIndex > 0) {
+      for (let index = 0; index < anchorIndex; index += 1) {
+        const node = promoLeadNodes[index];
+        if (node.parentNode === root) {
+          node.remove();
+          removedLeadCount += 1;
+        }
+      }
+    }
+  }
+
+  const candidateNodes = Array.from(root.children);
+  let prefaceStartIndex = candidateNodes.findIndex((node) => !isMediaBlock(node));
+  if (removedLeadCount === 0 && prefaceStartIndex >= 0) {
+    const firstPrefaceNode = candidateNodes[prefaceStartIndex];
+    const nextNode = candidateNodes[prefaceStartIndex + 1] || null;
+
+    if (isLeadPrefaceStart(firstPrefaceNode, nextNode)) {
+      const prefaceNodes = [firstPrefaceNode];
+      for (let index = prefaceStartIndex + 1; index < candidateNodes.length; index += 1) {
+        const node = candidateNodes[index];
+        const next = candidateNodes[index + 1] || null;
+
+        if (isLeadPrefaceContinuation(node) && (!next || !isSubstantiveBodyBlock(node) || isSubstantiveBodyBlock(next))) {
+          prefaceNodes.push(node);
+          continue;
+        }
+
+        break;
+      }
+
+      const nextAfterPreface = candidateNodes[prefaceStartIndex + prefaceNodes.length] || null;
+      if (nextAfterPreface && isSubstantiveBodyBlock(nextAfterPreface)) {
+        preservedLeadSummaryHtml = sanitizeFragment(prefaceNodes.map((node) => node.outerHTML).join(""));
+        for (const node of prefaceNodes) {
+          node.remove();
+          removedLeadCount += 1;
+        }
+      }
+    }
   }
 
   const leadNodes = Array.from(root.children).slice(0, 10);
@@ -409,6 +673,7 @@ const normalizeBodyHtml = (bodyHtml, context = {}) => {
 
   return {
     bodyHtml: sanitizeFragment(root.innerHTML),
+    preservedLeadSummaryHtml,
     removedBottomCount,
     removedLeadCount,
     subtitle
@@ -432,12 +697,15 @@ export const normalizeArticleContent = ({
     title
   });
   const sanitizedSummary = sanitizeFragment(summaryHtml || "");
-  const normalizedSummary =
-    !sanitizedSummary ||
-    sanitizedSummary === sanitizeFragment(bodyHtml || "") ||
-    stripHtml(sanitizedSummary).length > 300
-      ? normalizedBody.bodyHtml
-      : sanitizedSummary;
+  const normalizedSummary = normalizedBody.preservedLeadSummaryHtml
+    ? normalizedBody.preservedLeadSummaryHtml
+    : (
+      !sanitizedSummary ||
+      sanitizedSummary === sanitizeFragment(bodyHtml || "") ||
+      stripHtml(sanitizedSummary).length > 300
+        ? normalizedBody.bodyHtml
+        : sanitizedSummary
+    );
 
   return {
     bodyHtml: normalizedBody.bodyHtml,

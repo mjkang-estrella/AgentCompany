@@ -11,6 +11,7 @@ import {
   getDigestTimezone,
   getOpenAiApiKey,
   getTimeZoneDateKey,
+  getTimeZoneDayRange,
   getTimeZoneHour,
   mergeDigestOutput
 } from "../lib/daily-digest.mjs";
@@ -177,5 +178,43 @@ export const ensureScheduledDigest = internalAction({
     });
 
     return { localDate, skipped: false, status: "ready" };
+  }
+});
+
+export const refreshTodayFromPublishedAt = internalAction({
+  args: {
+    publishedAtValues: v.array(v.number())
+  },
+  handler: async (ctx, args) => {
+    if (!getOpenAiApiKey()) {
+      return { refreshed: false, reason: "missing-openai-api-key" };
+    }
+
+    const timezone = getDigestTimezone();
+    const todayRange = getTimeZoneDayRange(timezone);
+    const hasTodayArticle = args.publishedAtValues.some((value) =>
+      value >= todayRange.start && value < todayRange.end
+    );
+
+    if (!hasTodayArticle) {
+      return { refreshed: false, reason: "no-today-articles" };
+    }
+
+    const localDate = getTimeZoneDateKey(timezone);
+    const existing = await ctx.runQuery(internal.digest.getByDate, {
+      localDate,
+      timezone
+    });
+
+    if (existing && ["pending", "running"].includes(existing.status)) {
+      return { localDate, refreshed: false, reason: "already-running" };
+    }
+
+    await ctx.runAction(internal.digestNode.generateForDate, {
+      localDate,
+      timezone
+    });
+
+    return { localDate, refreshed: true };
   }
 });

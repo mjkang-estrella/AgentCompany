@@ -10,6 +10,7 @@ import {
   highlightsOverlap
 } from "../lib/highlight-anchors.mjs";
 import { stripHtml } from "../lib/html.mjs";
+import { getDigestTimezone, getTimeZoneDayRange } from "../lib/daily-digest.mjs";
 
 const STATS_NAME = "global";
 const defaultCounts = () => ({
@@ -648,7 +649,15 @@ export const deleteArticle = mutation({
     });
     await applyStatsDeltaInDb(ctx, negateStatsDelta(statsDeltaForArticle(article)));
 
+    const digestTimezone = getDigestTimezone();
+    const digestTodayRange = getTimeZoneDayRange(digestTimezone);
+    const affectsTodayDigest =
+      (article.sourceType || "feed") === "feed" &&
+      article.publishedAt >= digestTodayRange.start &&
+      article.publishedAt < digestTodayRange.end;
+
     return {
+      affectsTodayDigest,
       articleId: args.articleId
     };
   }

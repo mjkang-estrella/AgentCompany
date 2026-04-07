@@ -735,6 +735,12 @@ export const runFeed = internalAction({
         ok: true,
         skipped: upsertResult.skipped,
         syncedArticles: articles.length,
+        touchedTodayDigest: upsertResult.inserted + upsertResult.updated > 0
+          ? articles.some((article) => article.publishedAt > 0)
+          : false,
+        updatedPublishedAtValues: upsertResult.inserted + upsertResult.updated > 0
+          ? articles.map((article) => article.publishedAt)
+          : [],
         updated: upsertResult.updated
       };
     } catch (error) {
@@ -754,9 +760,20 @@ export const runActiveFeeds = internalAction({
   handler: async (ctx) => {
     const feedIds = await ctx.runQuery(internal.sync.listActiveFeedIds, {});
     const results = [];
+    const publishedAtValues = [];
 
     for (const feedId of feedIds) {
-      results.push(await ctx.runAction(internal.sync.runFeed, { feedId }));
+      const result = await ctx.runAction(internal.sync.runFeed, { feedId });
+      results.push(result);
+      if (result?.ok && Array.isArray(result.updatedPublishedAtValues)) {
+        publishedAtValues.push(...result.updatedPublishedAtValues);
+      }
+    }
+
+    if (publishedAtValues.length > 0) {
+      await ctx.runAction(internal.digestNode.refreshTodayFromPublishedAt, {
+        publishedAtValues
+      });
     }
 
     return { processed: results.length, results };

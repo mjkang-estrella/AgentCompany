@@ -723,9 +723,78 @@ export const reextractExistingArticles = action({
 
 export const normalizeStoredBodies = action({
   args: {
+    articleIds: v.optional(v.array(v.id("articles"))),
     limit: v.optional(v.number())
   },
   handler: async (ctx, args) => {
+    if (args.articleIds && args.articleIds.length > 0) {
+      let scanned = 0;
+      let skipped = 0;
+      let updated = 0;
+
+      for (const articleId of args.articleIds) {
+        scanned += 1;
+
+        const current = await ctx.runQuery(internal.articles.getArticleForReextract, {
+          articleId
+        });
+        if (!current) {
+          skipped += 1;
+          continue;
+        }
+
+        const currentBodyHtml = current.body?.bodyHtml || current.article.bodyHtml || "";
+        const currentSummaryHtml = current.body?.summaryHtml || current.article.summaryHtml || "";
+        if (!currentBodyHtml && !currentSummaryHtml) {
+          skipped += 1;
+          continue;
+        }
+
+        const normalizedArticle = normalizeArticleContent({
+          author: current.article.author || "",
+          bodyHtml: currentBodyHtml,
+          feedTitle: current.article.feedTitle || "",
+          publishedAt: new Date(current.article.publishedAt).toISOString(),
+          summaryHtml: currentSummaryHtml,
+          thumbnailUrl: current.article.thumbnailUrl || "",
+          title: current.article.title
+        });
+
+        const result = await ctx.runMutation(internal.articles.applyNormalizedStoredBody, {
+          articleId: current.article._id,
+          bodyHtml: normalizedArticle.bodyHtml,
+          contentHash: hashArticleContent({
+            author: current.article.author || "",
+            bodyHtml: normalizedArticle.bodyHtml,
+            canonicalUrl: current.article.canonicalUrl || canonicalizeUrl(current.article.url),
+            previewText: normalizedArticle.previewText,
+            publishedAt: current.article.publishedAt,
+            summaryHtml: normalizedArticle.summaryHtml,
+            subtitle: normalizedArticle.subtitle || current.article.subtitle || "",
+            thumbnailUrl: current.article.thumbnailUrl || "",
+            title: current.article.title,
+            url: current.article.url
+          }),
+          previewText: normalizedArticle.previewText,
+          readTimeMinutes: normalizedArticle.readTimeMinutes || current.article.readTimeMinutes || 1,
+          summaryHtml: normalizedArticle.summaryHtml,
+          subtitle: normalizedArticle.subtitle || undefined
+        });
+
+        if (result.updated) {
+          updated += 1;
+        } else {
+          skipped += 1;
+        }
+      }
+
+      return {
+        scanned,
+        skipped,
+        updated
+      };
+    }
+
     const perPage = Math.min(Math.max(args.limit || 25, 1), 100);
     let cursor = null;
     let scanned = 0;

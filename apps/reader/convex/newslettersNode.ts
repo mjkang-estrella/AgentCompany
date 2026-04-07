@@ -246,6 +246,12 @@ export const syncInbox = internalAction({
         status: "idle"
       });
 
+      if (articles.length > 0 && result.inserted + result.updated > 0) {
+        await ctx.runAction(internal.digestNode.refreshTodayFromPublishedAt, {
+          publishedAtValues: articles.map((article) => article.publishedAt)
+        });
+      }
+
       return {
         imported: result.inserted + result.updated,
         inboxEmail,

@@ -1647,12 +1647,16 @@ const deleteSelectedArticle = async () => {
     return;
   }
 
-  await convexRequest("mutation", "reader:deleteArticle", {
+  const result = await convexRequest("mutation", "reader:deleteArticle", {
     articleId: state.selectedArticle.id
   });
 
   clearSelection();
-  await refreshCurrentView();
+  if (isTodayDigestMode() && result?.affectsTodayDigest) {
+    await loadDigestForDate(state.digestDate, { updateRoute: false });
+  } else {
+    await refreshCurrentView();
+  }
   showToast(`Deleted "${articleTitle}".`);
 };
 

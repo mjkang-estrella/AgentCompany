@@ -116,3 +116,98 @@ test("normalizeArticleContent uses normalized body for oversized summary preview
 
   assert.equal(normalized.previewText.startsWith("This is the actual body text"), true);
 });
+
+test("normalizeArticleContent removes useful lead takeaways from body but preserves them in summary", () => {
+  const html = `
+    <p>My biggest takeaways from this conversation:</p>
+    <ul>
+      <li>Ship smaller, faster.</li>
+      <li>Measure the thing users actually feel.</li>
+    </ul>
+    <p>This is where the real article begins with a proper introduction and enough narrative detail to count as body copy.</p>
+    <p>The second paragraph continues the article with deeper explanation and examples.</p>
+  `;
+
+  const normalized = normalizeArticleContent({
+    bodyHtml: html,
+    title: "How teams learn faster"
+  });
+
+  assert.doesNotMatch(normalized.bodyHtml, /biggest takeaways/i);
+  assert.doesNotMatch(normalized.bodyHtml, /Ship smaller, faster/i);
+  assert.match(normalized.bodyHtml, /real article begins/i);
+  assert.match(normalized.summaryHtml, /biggest takeaways/i);
+  assert.match(normalized.summaryHtml, /Measure the thing users actually feel/i);
+});
+
+test("normalizeArticleContent removes a lead podcast promo run before takeaways", () => {
+  const html = `
+    <a href="/podcast">Lenny's Podcast: Product | Claude growth run</a>
+    <h3>Anthropic’s Head of Growth on scaling in 14 months through big bets.</h3>
+    <p>Lenny Rachitsky</p>
+    <p>Apr 5</p>
+    <p>Paid</p>
+    <p>READ IN APP</p>
+    <p>Amol Avasare is Head of Growth at Anthropic and previously worked at Mercury and MasterClass.</p>
+    <p>Listen on YouTube, Spotify, and Apple Podcasts</p>
+    <h3>In our in-depth discussion, Amol shares:</h3>
+    <ol>
+      <li>How Anthropic automates growth experiments.</li>
+      <li>Why activation is the highest-leverage growth problem in AI.</li>
+    </ol>
+    <h3>Brought to you by:</h3>
+    <p>Sponsor copy.</p>
+    <h3>Referenced:</h3>
+    <p>Some links.</p>
+    <p>My biggest takeaways from this conversation:</p>
+    <p>Anthropic is on a legendary run and the company’s growth is still accelerating.</p>
+    <p>Engineering is getting the most AI leverage, and PM ratios are changing fast.</p>
+  `;
+
+  const normalized = normalizeArticleContent({
+    author: "Lenny Rachitsky",
+    bodyHtml: html,
+    title: "Anthropic growth run"
+  });
+
+  assert.doesNotMatch(normalized.bodyHtml, /Lenny's Podcast/i);
+  assert.doesNotMatch(normalized.bodyHtml, /Listen on YouTube/i);
+  assert.doesNotMatch(normalized.bodyHtml, /Brought to you by/i);
+  assert.doesNotMatch(normalized.bodyHtml, /Referenced/i);
+  assert.match(normalized.bodyHtml, /My biggest takeaways from this conversation/i);
+  assert.match(normalized.bodyHtml, /Anthropic is on a legendary run/i);
+});
+
+test("normalizeArticleContent removes community newsletter lead promo before top threads", () => {
+  const html = `
+    <h1>Community Wisdom: Evaluating startup equity</h1>
+    <h3>Community Wisdom 180</h3>
+    <p>Kiyani</p>
+    <p>Apr 4</p>
+    <p>Paid</p>
+    <p>READ IN APP</p>
+    <p>Hello and welcome to this week's edition of Community Wisdom.</p>
+    <p>A big thank-you to this month's community sponsor, Clerk.</p>
+    <h2>Upcoming meetups</h2>
+    <ul><li>Asheville</li><li>Atlanta</li></ul>
+    <h2>New podcast episodes this week</h2>
+    <p>Podcast links here.</p>
+    <h1>Top threads this week</h1>
+    <h2>1. Evaluating equity at a bootstrapped startup</h2>
+    <blockquote>I have a time-sensitive question for a call later today.</blockquote>
+    <p>First useful response.</p>
+  `;
+
+  const normalized = normalizeArticleContent({
+    author: "Kiyani",
+    bodyHtml: html,
+    title: "Community Wisdom"
+  });
+
+  assert.doesNotMatch(normalized.bodyHtml, /Hello and welcome to this week's edition/i);
+  assert.doesNotMatch(normalized.bodyHtml, /community sponsor/i);
+  assert.doesNotMatch(normalized.bodyHtml, /Upcoming meetups/i);
+  assert.doesNotMatch(normalized.bodyHtml, /New podcast episodes this week/i);
+  assert.match(normalized.bodyHtml, /Top threads this week/i);
+  assert.match(normalized.bodyHtml, /Evaluating equity at a bootstrapped startup/i);
+});
