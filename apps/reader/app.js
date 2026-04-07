@@ -436,11 +436,16 @@ const renderHighlightsRail = () => {
   }
 
   const highlights = state.selectedArticle?.highlights || [];
+  const inspectorTitle = `${highlights.length} Highlight${highlights.length === 1 ? "" : "s"}`;
+  const titleElement = elements.inspectorPanel.querySelector(".inspector-panel-title");
+  if (titleElement) {
+    titleElement.textContent = inspectorTitle;
+  }
 
   elements.inspectorPanelBody.innerHTML = `
     <div class="inspector-section">
       <div class="inspector-section-header">
-        <span>${highlights.length === 0 ? "Highlights" : `${highlights.length} Highlight${highlights.length === 1 ? "" : "s"}`}</span>
+        <span>${inspectorTitle}</span>
       </div>
       ${highlights.length === 0
         ? '<div class="inspector-empty">Select text in the article to highlight it.</div>'
@@ -2133,6 +2138,26 @@ elements.articleView.addEventListener("click", async (event) => {
 
   clearSelection();
   await loadDigestForDate(shiftLocalDate(baseDate, offset), { updateRoute: true });
+});
+
+elements.inspectorPanelBody.addEventListener("click", async (event) => {
+  const highlightJump = event.target.closest("[data-highlight-jump-id]");
+  if (highlightJump) {
+    event.preventDefault();
+    const highlightId = highlightJump.dataset.highlightJumpId;
+    const mark = elements.articleView.querySelector(`[data-highlight-id="${CSS.escape(highlightId)}"]`);
+    if (mark) {
+      mark.scrollIntoView({ behavior: "smooth", block: "center" });
+      mark.focus({ preventScroll: true });
+    }
+    return;
+  }
+
+  const highlightRemove = event.target.closest("[data-highlight-remove-id]");
+  if (highlightRemove) {
+    event.preventDefault();
+    await removeHighlight(highlightRemove.dataset.highlightRemoveId);
+  }
 });
 
 elements.articleView.addEventListener("mouseup", () => {
