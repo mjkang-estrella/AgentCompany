@@ -69,6 +69,12 @@ const LEAD_PROMO_MARKERS = [
   "spotify",
   "apple podcasts"
 ];
+const EXPLICIT_BODY_ANCHORS = [
+  "top threads",
+  "biggest takeaways",
+  "key takeaways",
+  "main takeaways"
+];
 
 const normalizeText = (value) => String(value || "").replace(/\s+/gu, " ").trim().toLowerCase();
 const sentenceCount = (text) => (String(text || "").match(/[.!?](?:\s|$)/gu) || []).length;
@@ -256,6 +262,25 @@ const isLeadPromoAnchor = (node) => {
 
   return false;
 };
+
+const isExplicitLeadBodyAnchor = (node) => {
+  if (!node) {
+    return false;
+  }
+
+  const tagName = node.tagName?.toLowerCase() || "";
+  if (!["h1", "h2", "h3", "h4"].includes(tagName)) {
+    return false;
+  }
+
+  const text = normalizeText(node.textContent);
+  return EXPLICIT_BODY_ANCHORS.some((marker) => text.includes(marker));
+};
+
+const isLeadPreambleBlock = (node, context, nextNode, upcomingNodes = []) =>
+  isLeadPromoBlock(node) ||
+  isLeadBioPrefaceBlock(node, upcomingNodes) ||
+  isLeadMetadataBlock(node, context, { removedLeadCount: 0, seenLeadMedia: false }, nextNode);
 
 const hasPrefaceMarker = (text) =>
   PREFACE_MARKERS.some((marker) => text.includes(marker));
@@ -531,6 +556,23 @@ const normalizeBodyHtml = (bodyHtml, context = {}) => {
     .filter((index) => index >= 0);
 
   if (promoIndexes.length >= 2) {
+    let explicitAnchorIndex = -1;
+    for (let index = 0; index < promoLeadNodes.length; index += 1) {
+      if (isExplicitLeadBodyAnchor(promoLeadNodes[index])) {
+        explicitAnchorIndex = index;
+        break;
+      }
+    }
+
+    if (explicitAnchorIndex > 0) {
+      for (let index = 0; index < explicitAnchorIndex; index += 1) {
+        const node = promoLeadNodes[index];
+        if (node.parentNode === root) {
+          node.remove();
+          removedLeadCount += 1;
+        }
+      }
+    } else {
     const lastPromoIndex = promoIndexes[promoIndexes.length - 1];
     let anchorIndex = -1;
 
@@ -549,6 +591,7 @@ const normalizeBodyHtml = (bodyHtml, context = {}) => {
           removedLeadCount += 1;
         }
       }
+    }
     }
   }
 
@@ -610,6 +653,29 @@ const normalizeBodyHtml = (bodyHtml, context = {}) => {
     }
 
     break;
+  }
+
+  const anchoredNodes = Array.from(root.children).slice(0, 120);
+  const explicitAnchorIndex = anchoredNodes.findIndex((node) => isExplicitLeadBodyAnchor(node));
+  if (explicitAnchorIndex > 0) {
+    const nodesBeforeAnchor = anchoredNodes.slice(0, explicitAnchorIndex);
+    const preambleCount = nodesBeforeAnchor.filter((node, index) =>
+      isLeadPreambleBlock(
+        node,
+        context,
+        nodesBeforeAnchor[index + 1] || anchoredNodes[explicitAnchorIndex] || null,
+        anchoredNodes.slice(index + 1, index + 5)
+      )
+    ).length;
+
+    if (preambleCount >= 2) {
+      for (const node of nodesBeforeAnchor) {
+        if (node.parentNode === root) {
+          node.remove();
+          removedLeadCount += 1;
+        }
+      }
+    }
   }
 
   for (const node of Array.from(root.children).reverse().slice(0, 8)) {
