@@ -12,7 +12,7 @@ import { normalizeArticleContent } from "./article-body-normalizer.mjs";
 
 export const NEWSLETTER_FEED_GROUP = "Newsletters";
 export const NEWSLETTER_LABEL_INGESTED = "reader-ingested";
-export const NEWSLETTER_LABEL_PARSED_V2 = "reader-parsed-v6";
+export const NEWSLETTER_LABEL_PARSED_V2 = "reader-parsed-v7";
 export const NEWSLETTER_LABEL_UNREAD = "unread";
 
 const HTTP_URL_PATTERN = /https?:\/\/[^\s<>"')]+/giu;
@@ -67,6 +67,9 @@ const pickFirstString = (...values) => {
 
 const markerCount = (text, markers) =>
   markers.reduce((count, marker) => count + (text.includes(marker) ? 1 : 0), 0);
+
+const stripInvisibleCharacters = (value) =>
+  String(value || "").replace(/[\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]+/gu, "");
 
 const escapeHtml = (value) =>
   String(value ?? "").replace(/[&<>"']/gu, (character) => ({
@@ -291,7 +294,7 @@ const unwrapEmailLayout = (html) => {
     break;
   }
 
-  return sanitizeFragment(root.toString())
+  return sanitizeFragment(stripInvisibleCharacters(root.toString()))
     .replace(/^(?:\s*<p>\s*(?:READ IN APP|Subscribed|Guest post|Paid|∙)?\s*<\/p>)+/iu, "")
     .replace(/^(?:\s*<a\b[^>]*>\s*<img\b[^>]*>\s*<\/a>)+/iu, "")
     .replace(/^(?:\s*<figure>\s*<img\b[^>]*>\s*<\/figure>)+/iu, "")
@@ -589,8 +592,18 @@ const normalizeNewsletterHtml = ({
 }) => {
   const stripped = stripEmailChrome(html);
   const trimmedLead = trimNewsletterLeadPreamble(stripped || html);
+  const directBodyHtml = sanitizeFragment(trimmedLead || stripped || html);
+  const directNormalized = normalizeArticleContent({
+    author,
+    bodyHtml: directBodyHtml,
+    feedTitle,
+    publishedAt: "",
+    summaryHtml: directBodyHtml,
+    thumbnailUrl: "",
+    title
+  });
   const readable = extractReadableContent(trimmedLead || stripped || html) || normalizeHtmlFragment(trimmedLead || html);
-  const normalized = normalizeArticleContent({
+  const readableNormalized = normalizeArticleContent({
     author,
     bodyHtml: readable,
     feedTitle,
@@ -599,14 +612,18 @@ const normalizeNewsletterHtml = ({
     thumbnailUrl: "",
     title
   });
-  const unwrappedBody = unwrapEmailLayout(normalized.bodyHtml);
-  const anchoredBody = restoreLeadAnchorHeading(html, unwrappedBody || normalized.bodyHtml);
+  const preferredNormalized = stripHtml(directNormalized.bodyHtml).length >= 180
+    ? directNormalized
+    : readableNormalized;
+
+  const unwrappedBody = unwrapEmailLayout(preferredNormalized.bodyHtml);
+  const anchoredBody = restoreLeadAnchorHeading(html, unwrappedBody || preferredNormalized.bodyHtml);
   const finalized = normalizeArticleContent({
     author,
-    bodyHtml: anchoredBody || unwrappedBody || normalized.bodyHtml,
+    bodyHtml: anchoredBody || unwrappedBody || preferredNormalized.bodyHtml,
     feedTitle,
     publishedAt: "",
-    summaryHtml: normalized.summaryHtml || anchoredBody || unwrappedBody || normalized.bodyHtml,
+    summaryHtml: preferredNormalized.summaryHtml || anchoredBody || unwrappedBody || preferredNormalized.bodyHtml,
     thumbnailUrl: "",
     title
   });
@@ -614,12 +631,17 @@ const normalizeNewsletterHtml = ({
   const finalBodyHtml = trimLeadingNewsletterMeta(
     enforceLeadAnchorHeading(html, finalized.bodyHtml)
   );
+  const cleanBodyHtml = stripInvisibleCharacters(finalBodyHtml);
+  const cleanSummaryHtml = stripInvisibleCharacters(finalized.summaryHtml || cleanBodyHtml);
+  const cleanPreviewText = stripInvisibleCharacters(
+    finalized.previewText || stripHtml(cleanBodyHtml).slice(0, 220)
+  );
 
   return {
-    bodyHtml: finalBodyHtml,
-    previewText: finalized.previewText || stripHtml(finalized.bodyHtml).slice(0, 220),
+    bodyHtml: cleanBodyHtml,
+    previewText: cleanPreviewText,
     readTimeMinutes: Math.max(finalized.readTimeMinutes || 0, 1),
-    summaryHtml: finalized.summaryHtml || finalBodyHtml,
+    summaryHtml: cleanSummaryHtml,
     subtitle: finalized.subtitle || ""
   };
 };
