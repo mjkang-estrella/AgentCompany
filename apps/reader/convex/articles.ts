@@ -7,6 +7,7 @@ import { hashArticleContent } from "../lib/content-hash.mjs";
 import { extractPageWithDefuddle } from "../lib/page-extractor.mjs";
 import { normalizeArticleContent } from "../lib/article-body-normalizer.mjs";
 import { canonicalizeUrl, stripHtml } from "../lib/html.mjs";
+import { extractXPostFromUrl, isXStatusUrl } from "../lib/x-extractor.mjs";
 import { extractYouTubeArticleFromHtml, isYouTubeUrl } from "../lib/youtube-extractor.mjs";
 
 const DEFAULT_HEADERS = {
@@ -500,6 +501,48 @@ export const addFromUrl = action({
 
     if (!canonicalizeUrl(requestedUrl)) {
       throw new Error("Please enter a valid article URL");
+    }
+
+    if (isXStatusUrl(requestedUrl)) {
+      const extracted = await extractXPostFromUrl(requestedUrl);
+      const canonicalUrl = extracted.canonicalUrl || canonicalizeUrl(requestedUrl);
+      const title = extracted.title || `${extracted.author || "X"} on X`;
+      const bodyHtml = extracted.bodyHtml;
+      const summaryHtml = extracted.summaryHtml || bodyHtml;
+      const previewText = extracted.previewText || stripHtml(summaryHtml || bodyHtml).slice(0, 220);
+
+      return ctx.runMutation(internal.articles.upsertManualArticle, {
+        article: {
+          author: extracted.author || undefined,
+          bodyHtml,
+          bodySource: "fetched",
+          canonicalUrl,
+          contentHash: hashArticleContent({
+            author: extracted.author || "",
+            bodyHtml,
+            canonicalUrl,
+            previewText,
+            publishedAt: extracted.publishedAt,
+            summaryHtml,
+            subtitle: "",
+            thumbnailUrl: "",
+            title,
+            url: canonicalUrl
+          }),
+          externalId: canonicalUrl,
+          feedIconUrl: undefined,
+          feedSiteUrl: "https://x.com",
+          feedTitle: extracted.siteName || "X",
+          previewText,
+          publishedAt: extracted.publishedAt,
+          readTimeMinutes: Math.max(extracted.readTimeMinutes || 0, 1),
+          summaryHtml,
+          subtitle: undefined,
+          thumbnailUrl: undefined,
+          title,
+          url: canonicalUrl
+        }
+      });
     }
 
     const page = await fetchText(requestedUrl);

@@ -7,6 +7,7 @@ import {
   sanitizeFragment,
   stripHtml
 } from "./html.mjs";
+import { normalizeFeedGroupName } from "./feed-group-name.mjs";
 import { normalizeArticleContent } from "./article-body-normalizer.mjs";
 
 export const NEWSLETTER_FEED_GROUP = "Newsletters";
@@ -21,6 +22,27 @@ const LEAD_ANCHOR_MARKERS = [
   "biggest takeaways",
   "key takeaways",
   "top threads"
+];
+const NEWSLETTER_LEAD_PROMO_MARKERS = [
+  "forwarded this email",
+  "subscribe here for more",
+  "read in app",
+  "hello and welcome",
+  "each week, i ",
+  "for more:",
+  "guest post",
+  "coming soon to",
+  "learn more here",
+  "keep an eye on your inbox",
+  "not a paid subscriber yet",
+  "members-only",
+  "community sponsor",
+  "upcoming meetups",
+  "new podcast episodes",
+  "invite your friends",
+  "product pass",
+  "catch you next week",
+  "follow on your favorite podcast"
 ];
 
 const trimToNull = (value) => {
@@ -42,6 +64,9 @@ const pickFirstString = (...values) => {
 
   return null;
 };
+
+const markerCount = (text, markers) =>
+  markers.reduce((count, marker) => count + (text.includes(marker) ? 1 : 0), 0);
 
 const escapeHtml = (value) =>
   String(value ?? "").replace(/[&<>"']/gu, (character) => ({
@@ -128,10 +153,12 @@ const deriveNewsletterFeedGroup = ({ fromAddress, fromName, senderAddress }) => 
   const normalizedTitle = trimToNull(senderTitle);
 
   if (normalizedTitle && normalizedTitle !== "Newsletter") {
-    return normalizedTitle;
+    return normalizeFeedGroupName(normalizedTitle);
   }
 
-  return pickFirstString(fromName, senderAddress, fromAddress, NEWSLETTER_FEED_GROUP) || NEWSLETTER_FEED_GROUP;
+  return normalizeFeedGroupName(
+    pickFirstString(fromName, senderAddress, fromAddress, NEWSLETTER_FEED_GROUP) || NEWSLETTER_FEED_GROUP
+  );
 };
 
 const deriveFeedKey = ({ fromAddress, senderAddress, title }) =>
@@ -264,7 +291,128 @@ const unwrapEmailLayout = (html) => {
     break;
   }
 
-  return sanitizeFragment(root.toString());
+  return sanitizeFragment(root.toString())
+    .replace(/^(?:\s*<p>\s*(?:READ IN APP|Subscribed|Guest post|Paid|∙)?\s*<\/p>)+/iu, "")
+    .replace(/^(?:\s*<a\b[^>]*>\s*<img\b[^>]*>\s*<\/a>)+/iu, "")
+    .replace(/^(?:\s*<figure>\s*<img\b[^>]*>\s*<\/figure>)+/iu, "")
+    .replace(/^(?:\s*<p>\s*<\/p>)+/iu, "")
+    .trim();
+};
+
+const normalizeNodeText = (node) =>
+  stripHtml(node?.innerHTML || "")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .toLowerCase();
+
+const isNewsletterLeadPromoBlock = (node) => {
+  if (!node) {
+    return false;
+  }
+
+  const tagName = node.tagName?.toLowerCase() || "";
+  const text = normalizeNodeText(node);
+  const links = node.querySelectorAll?.("a").length || 0;
+  const textLength = text.length;
+
+  if (!text) {
+    return ["figure", "hr"].includes(tagName);
+  }
+
+  if (NEWSLETTER_LEAD_PROMO_MARKERS.some((marker) => text.includes(marker))) {
+    return true;
+  }
+
+  if (/^\w+\s+\d{1,2}$/u.test(text) || text === "paid" || text === "guest post") {
+    return true;
+  }
+
+  if (links >= 3 && textLength < 280) {
+    return true;
+  }
+
+  return false;
+};
+
+const isNewsletterBodyAnchor = (node, previousNode, nextNode, promoHits) => {
+  const previousTag = previousNode?.tagName?.toLowerCase() || "";
+  const requiredPromoHits = previousTag === "figure" ? 1 : 2;
+
+  if (!node || promoHits < requiredPromoHits) {
+    return false;
+  }
+
+  const tagName = node.tagName?.toLowerCase() || "";
+  const text = normalizeNodeText(node);
+  const textLength = text.length;
+  const nextTextLength = normalizeNodeText(nextNode).length;
+
+  if (!text) {
+    return false;
+  }
+
+  if (LEAD_ANCHOR_MARKERS.some((marker) => text.includes(marker))) {
+    return true;
+  }
+
+  if (/^\d+\.\s/u.test(text) && ["h2", "h3", "h4", "p"].includes(tagName)) {
+    return true;
+  }
+
+  if (
+    tagName === "p" &&
+    textLength >= 180 &&
+    (previousTag === "figure" || nextTextLength >= 120)
+  ) {
+    return true;
+  }
+
+  return false;
+};
+
+const trimNewsletterLeadPreamble = (html) => {
+  const fragment = trimToNull(html);
+  if (!fragment) {
+    return "";
+  }
+
+  const root = parse(fragment);
+  const scope = root.querySelector("body") || root;
+  const blocks = Array.from(scope.querySelectorAll("h1, h2, h3, h4, p, figure, blockquote, ol, ul, hr")).slice(0, 60);
+  let promoHits = 0;
+  let anchorNode = null;
+
+  for (let index = 0; index < blocks.length; index += 1) {
+    const node = blocks[index];
+    const previousNode = blocks[index - 1] || null;
+    const nextNode = blocks[index + 1] || null;
+
+    if (isNewsletterLeadPromoBlock(node)) {
+      promoHits += 1;
+      continue;
+    }
+
+    if (isNewsletterBodyAnchor(node, previousNode, nextNode, promoHits)) {
+      anchorNode = node;
+      break;
+    }
+  }
+
+  if (!anchorNode) {
+    return fragment;
+  }
+
+  for (const node of blocks) {
+    if (node === anchorNode) {
+      break;
+    }
+
+    if (node.parentNode) {
+      node.remove();
+    }
+  }
+
+  return sanitizeFragment(scope.innerHTML || root.toString());
 };
 
 const restoreLeadAnchorHeading = (rawHtml, normalizedHtml) => {
@@ -342,6 +490,97 @@ const enforceLeadAnchorHeading = (rawHtml, normalizedHtml) => {
   return `<h4>${escapeHtml(anchorText)}:</h4>${body}`;
 };
 
+const isLeadingNewsletterMetaNode = (node) => {
+  if (!node) {
+    return false;
+  }
+
+  const tagName = node.tagName?.toLowerCase() || "";
+  const text = normalizeNodeText(node);
+  const links = node.querySelectorAll?.("a").length || 0;
+  const images = node.querySelectorAll?.("img").length || 0;
+
+  if (!text) {
+    return images > 0 || tagName === "figure";
+  }
+
+  if (
+    text === "∙" ||
+    text === "guest post" ||
+    text === "paid" ||
+    text === "read in app" ||
+    text === "subscribed" ||
+    text === "read in app subscribed" ||
+    /^\w+\s+\d{1,2}$/u.test(text)
+  ) {
+    return true;
+  }
+
+  if (
+    text.length < 280 &&
+    markerCount(text, ["forwarded this email", "subscribe here for more", "read in app", "guest post", "subscribed"]) >= 2
+  ) {
+    return true;
+  }
+
+  if ((tagName === "a" || tagName === "figure") && images > 0 && text.length < 80) {
+    return true;
+  }
+
+  return links >= 1 && images > 0 && text.length < 80;
+};
+
+const trimLeadingNewsletterMeta = (html) => {
+  const fragment = trimToNull(html);
+  if (!fragment) {
+    return "";
+  }
+
+  const root = parse(fragment);
+  let current = root.firstChild;
+
+  while (current) {
+    const next = current.nextSibling;
+    if (current.nodeType === 3 && !trimToNull(current.rawText || current.text || current.textContent)) {
+      current.remove();
+      current = next;
+      continue;
+    }
+
+    if (current.nodeType !== 1) {
+      break;
+    }
+
+    if (!isLeadingNewsletterMetaNode(current)) {
+      break;
+    }
+
+    current.remove();
+    current = next;
+  }
+
+  let firstElement = root.firstElementChild;
+  while (firstElement) {
+    const next = firstElement.nextElementSibling;
+    const text = normalizeNodeText(firstElement);
+    const tagName = firstElement.tagName?.toLowerCase() || "";
+    const images = firstElement.querySelectorAll?.("img").length || 0;
+
+    if (
+      !text ||
+      ((tagName === "a" || tagName === "figure") && images > 0 && text.length < 40)
+    ) {
+      firstElement.remove();
+      firstElement = next;
+      continue;
+    }
+
+    break;
+  }
+
+  return sanitizeFragment(root.toString());
+};
+
 const normalizeNewsletterHtml = ({
   author = "",
   feedTitle = "",
@@ -349,7 +588,8 @@ const normalizeNewsletterHtml = ({
   title = ""
 }) => {
   const stripped = stripEmailChrome(html);
-  const readable = extractReadableContent(stripped || html) || normalizeHtmlFragment(html);
+  const trimmedLead = trimNewsletterLeadPreamble(stripped || html);
+  const readable = extractReadableContent(trimmedLead || stripped || html) || normalizeHtmlFragment(trimmedLead || html);
   const normalized = normalizeArticleContent({
     author,
     bodyHtml: readable,
@@ -371,11 +611,15 @@ const normalizeNewsletterHtml = ({
     title
   });
 
+  const finalBodyHtml = trimLeadingNewsletterMeta(
+    enforceLeadAnchorHeading(html, finalized.bodyHtml)
+  );
+
   return {
-    bodyHtml: enforceLeadAnchorHeading(html, finalized.bodyHtml),
+    bodyHtml: finalBodyHtml,
     previewText: finalized.previewText || stripHtml(finalized.bodyHtml).slice(0, 220),
     readTimeMinutes: Math.max(finalized.readTimeMinutes || 0, 1),
-    summaryHtml: finalized.summaryHtml || finalized.bodyHtml,
+    summaryHtml: finalized.summaryHtml || finalBodyHtml,
     subtitle: finalized.subtitle || ""
   };
 };

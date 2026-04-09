@@ -4,10 +4,11 @@ import { internal } from "./_generated/api";
 import { action, internalMutation, internalQuery } from "./_generated/server";
 
 import { hashArticleContent } from "../lib/content-hash.mjs";
+import { normalizeFeedGroupName } from "../lib/feed-group-name.mjs";
 import { canonicalizeUrl } from "../lib/html.mjs";
 
 const normalizeFeedGroup = (value: { feedGroup?: string; feedFolder?: string; folder?: string }) =>
-  (value.feedGroup || value.feedFolder || value.folder || "Uncategorized").trim() || "Uncategorized";
+  normalizeFeedGroupName(value.feedGroup || value.feedFolder || value.folder || "Uncategorized");
 
 export const importFeeds = action({
   args: {

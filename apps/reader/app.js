@@ -21,6 +21,7 @@ import {
   parseReaderPath,
   slugifySegment
 } from "./lib/reader-routes.mjs";
+import { normalizeFeedGroupName } from "./lib/feed-group-name.mjs";
 
 const sanitizeHtml = (dirty) =>
   typeof DOMPurify !== "undefined"
@@ -640,11 +641,11 @@ const deriveFeedGroupFromUrl = (value) => {
     const parts = normalizedUrl.hostname.replace(/^www\./iu, "").split(".");
     const base = parts.length > 1 ? parts.at(-2) : parts[0];
 
-    return base
+    return normalizeFeedGroupName(base
       .split(/[-_]+/u)
       .filter(Boolean)
       .map(titleCaseWord)
-      .join(" ");
+      .join(" "));
   } catch {
     return "";
   }
@@ -1773,7 +1774,7 @@ const submitFeed = async () => {
 
 const renameFeedGroup = async () => {
   const previousFeedGroup = state.feedGroup;
-  const nextFeedGroup = elements.renameFeedGroupInput.value.trim();
+  const nextFeedGroup = normalizeFeedGroupName(elements.renameFeedGroupInput.value);
 
   if (!previousFeedGroup) {
     throw new Error("Feed not found");

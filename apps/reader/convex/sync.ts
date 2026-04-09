@@ -5,6 +5,7 @@ import { action, internalAction, internalMutation, internalQuery } from "./_gene
 
 import { parseFeed } from "../lib/feed-utils.mjs";
 import { hashArticleContent } from "../lib/content-hash.mjs";
+import { normalizeFeedGroupName } from "../lib/feed-group-name.mjs";
 import { extractPageWithDefuddle } from "../lib/page-extractor.mjs";
 import { normalizeArticleContent } from "../lib/article-body-normalizer.mjs";
 import {
@@ -539,7 +540,7 @@ export const upsertArticles = internalMutation({
 });
 
 const getFeedGroup = (value: { feedGroup?: string; folder?: string }) =>
-  value.feedGroup || value.folder || "Uncategorized";
+  normalizeFeedGroupName(value.feedGroup || value.folder || "Uncategorized");
 
 const getSourceType = (article: { sourceType?: "feed" | "manual" }) => article.sourceType || "feed";
 
@@ -679,7 +680,7 @@ export const runFeed = internalAction({
             url: entry.url
           }),
           externalId: entry.externalId,
-          feedGroup: feed.feedGroup || feed.folder || "Uncategorized",
+          feedGroup: normalizeFeedGroupName(feed.feedGroup || feed.folder || "Uncategorized"),
           feedIconUrl: feed.iconUrl || undefined,
           feedId: feed._id,
           feedSiteUrl: parsed.siteUrl || feed.siteUrl || undefined,

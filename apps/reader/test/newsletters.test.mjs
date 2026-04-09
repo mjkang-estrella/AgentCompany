@@ -108,3 +108,30 @@ test("buildNewsletterImport normalizes table-layout email chrome and tracking pi
   assert.doesNotMatch(result.article.bodyHtml, /Manage preferences/i);
   assert.doesNotMatch(result.article.bodyHtml, /<table/i);
 });
+
+test("buildNewsletterImport trims newsletter lead metadata before the real article body", () => {
+  const result = buildNewsletterImport({
+    extracted_html: `
+      <html>
+        <body>
+          <p>READ IN APP</p>
+          <p>Subscribed</p>
+          <a href="https://substack.com/@michellerial"><img src="https://cdn.example.com/avatar.png" alt=""></a>
+          <figure><img src="https://cdn.example.com/chart.png" alt="Chart"></figure>
+          <p>Are you feeling what I’m feeling? Blink twice with your heavy human eyelids if you are starting to feel like there is no point to creating things anymore.</p>
+          <p>Or maybe you’re just in a regular creative drought.</p>
+          <p>Well, it’s time to lift yourself by your Blundstone loops and climb right out of that rut.</p>
+        </body>
+      </html>
+    `,
+    extracted_text: "A visual guide to getting out of a creative slump",
+    from: "Lenny's Newsletter <lenny@substack.com>",
+    message_id: "msg_creative_slump",
+    subject: "A visual guide to getting out of a creative slump"
+  });
+
+  assert.ok(result);
+  assert.doesNotMatch(result.article.bodyHtml, /READ IN APP/i);
+  assert.doesNotMatch(result.article.bodyHtml, /Subscribed/i);
+  assert.match(result.article.bodyHtml, /Are you feeling what I’m feeling/i);
+});

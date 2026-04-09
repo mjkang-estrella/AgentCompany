@@ -4,9 +4,11 @@ import { internal } from "./_generated/api";
 import { action, internalMutation, internalQuery } from "./_generated/server";
 
 import type { Doc } from "./_generated/dataModel";
+import { normalizeFeedGroupName } from "../lib/feed-group-name.mjs";
 import { resolveFeedInput } from "../lib/feed-discovery.mjs";
 
-const getFeedGroup = (value) => (value.feedGroup || value.folder || "Uncategorized").trim() || "Uncategorized";
+const getFeedGroup = (value) =>
+  normalizeFeedGroupName(value.feedGroup || value.folder || "Uncategorized");
 
 const clampCount = (value: number) => Math.max(0, value || 0);
 
