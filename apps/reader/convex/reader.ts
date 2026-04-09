@@ -32,7 +32,8 @@ const scopeValidator = v.union(
   v.literal("all"),
   v.literal("manual"),
   v.literal("saved"),
-  v.literal("today")
+  v.literal("today"),
+  v.literal("youtube")
 );
 
 const statsDeltaValidator = v.object({
@@ -248,7 +249,7 @@ const buildArticleQuery = (
   ctx: any,
   args: {
     feedGroup?: string;
-    scope: "all" | "manual" | "saved" | "today";
+    scope: "all" | "manual" | "saved" | "today" | "youtube";
     timezoneOffsetMinutes: number;
   }
 ) => {
@@ -270,7 +271,23 @@ const buildArticleQuery = (
       .query("articles")
       .withIndex("by_published_at")
       .order("desc")
-      .filter((q: any) => q.eq(q.field("sourceType"), "manual"));
+      .filter((q: any) =>
+        q.and(
+          q.eq(q.field("sourceType"), "manual"),
+          q.neq(q.field("feedTitle"), "YouTube")
+        )
+      );
+  } else if (args.scope === "youtube") {
+    articleQuery = ctx.db
+      .query("articles")
+      .withIndex("by_published_at")
+      .order("desc")
+      .filter((q: any) =>
+        q.and(
+          q.eq(q.field("sourceType"), "manual"),
+          q.eq(q.field("feedTitle"), "YouTube")
+        )
+      );
   } else {
     articleQuery = ctx.db.query("articles").withIndex("by_published_at").order("desc");
   }

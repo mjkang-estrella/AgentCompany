@@ -42,13 +42,15 @@ export const parseReaderPath = (pathname) => {
     };
   }
 
-  if (head === "all" || head === "saved" || head === "library") {
+  if (head === "all" || head === "saved" || head === "library" || head === "youtube") {
     return {
       browseFeedGroups: false,
       feedGroupSlug: "",
       localDate: "",
       route: head,
-      scope: head === "library" ? "manual" : head,
+      scope: head === "library"
+        ? "manual"
+        : (head === "youtube" ? "youtube" : head),
       articleSlug: second || ""
     };
   }
@@ -105,6 +107,10 @@ export const buildReaderPath = ({
 
   if (scope === "manual") {
     return `/library${articleSlug}`;
+  }
+
+  if (scope === "youtube") {
+    return `/youtube${articleSlug}`;
   }
 
   if (scope === "all") {

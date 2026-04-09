@@ -40,3 +40,28 @@ test("buildReaderPath creates feed article routes", () => {
     "/feed/every/how-to-design-for-human-agent-interaction"
   );
 });
+
+test("parseReaderPath handles youtube article routes", () => {
+  assert.deepEqual(
+    parseReaderPath("/youtube/how-agents-use-claude-code"),
+    {
+      articleSlug: "how-agents-use-claude-code",
+      browseFeedGroups: false,
+      feedGroupSlug: "",
+      localDate: "",
+      route: "youtube",
+      scope: "youtube"
+    }
+  );
+});
+
+test("buildReaderPath creates youtube article routes", () => {
+  assert.equal(
+    buildReaderPath({
+      articleTitle: "How Agents Use Claude Code",
+      explicitArticleSelection: true,
+      scope: "youtube"
+    }),
+    "/youtube/how-agents-use-claude-code"
+  );
+});

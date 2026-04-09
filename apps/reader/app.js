@@ -14,7 +14,8 @@ import {
   savedIconHtml,
   settingsIconHtml,
   shareIconHtml,
-  todayIconHtml
+  todayIconHtml,
+  youtubeIconHtml
 } from "./icons.js";
 import {
   buildReaderPath,
@@ -99,6 +100,7 @@ const elements = {
   navManualArticles: document.querySelector("#nav-manual-articles"),
   navSaved: document.querySelector("#nav-saved"),
   navToday: document.querySelector("#nav-today"),
+  navYoutube: document.querySelector("#nav-youtube"),
   newsletterCopyButton: document.querySelector("#newsletter-copy-button"),
   newsletterStatusCopy: document.querySelector("#newsletter-status-copy"),
   newsletterSyncButton: document.querySelector("#newsletter-sync-button"),
@@ -143,6 +145,7 @@ const applyStaticIcons = () => {
   elements.navSaved.innerHTML = savedIconHtml;
   elements.navFeeds.innerHTML = feedsIconHtml;
   elements.navManualArticles.innerHTML = libraryIconHtml;
+  elements.navYoutube.innerHTML = youtubeIconHtml;
   elements.addManualArticleButton.innerHTML = addIconHtml;
   elements.listBackButton.innerHTML = previousIconHtml.replace('width="20"', 'width="18"').replace('height="20"', 'height="18"');
   elements.listMenuButton.innerHTML = menuIconHtml;
@@ -167,6 +170,14 @@ const escapeHtml = (value) =>
 
 const canOpenExternalArticle = (article) =>
   Boolean(article?.url && /^https?:\/\//iu.test(article.url));
+
+const isYouTubeArticle = (article) =>
+  Boolean(article) && (
+    article.feedTitle === "YouTube" ||
+    /(?:youtube\.com|youtu\.be)/iu.test(String(article.url || article.canonicalUrl || ""))
+  );
+
+const isLibraryLikeScope = () => state.scope === "manual" || state.scope === "youtube";
 
 const formatMonthLabel = (localDate) => {
   const [year, month] = String(localDate || "").split("-").map(Number);
@@ -560,6 +571,10 @@ const listTitle = () => {
 
   if (state.scope === "manual") {
     return "Library";
+  }
+
+  if (state.scope === "youtube") {
+    return "YouTube";
   }
 
   return "All Articles";
@@ -1102,6 +1117,7 @@ const renderRail = () => {
   elements.navSaved.classList.toggle("is-active", state.scope === "saved" && !state.feedGroup && !state.browseFeedGroups);
   elements.navFeeds.classList.toggle("is-active", state.browseFeedGroups || Boolean(state.feedGroup));
   elements.navManualArticles.classList.toggle("is-active", state.scope === "manual" && !state.feedGroup && !state.browseFeedGroups);
+  elements.navYoutube.classList.toggle("is-active", state.scope === "youtube" && !state.feedGroup && !state.browseFeedGroups);
 
   const feedGroups = Object.entries(state.counts.feedGroups || {}).sort((left, right) =>
     left[0].localeCompare(right[0])
@@ -1175,7 +1191,7 @@ const renderArticleList = () => {
     state.feedGroup &&
     !state.browseFeedGroups
   );
-  elements.addManualArticleButton.hidden = state.scope !== "manual" || state.browseFeedGroups;
+  elements.addManualArticleButton.hidden = !isLibraryLikeScope() || state.browseFeedGroups;
 
   if (state.browseFeedGroups) {
     elements.feedGroupList.hidden = false;
@@ -1191,7 +1207,7 @@ const renderArticleList = () => {
   elements.feedGroupList.hidden = true;
   elements.articleList.hidden = false;
   const showFeedSettings = state.browseFeedGroups || Boolean(state.feedGroup);
-  elements.listActions.hidden = !(showFeedSettings || state.scope === "manual");
+  elements.listActions.hidden = !(showFeedSettings || isLibraryLikeScope());
   elements.listMenuButton.hidden = !showFeedSettings;
   elements.addFeedMenuButton.hidden = !showFeedSettings;
   elements.renameFeedGroupButton.hidden = !state.feedGroup;
@@ -1209,7 +1225,9 @@ const renderArticleList = () => {
     elements.articleList.innerHTML = `
       ${isTodaySidebarMode() ? renderTodaySidebar() : ""}
       <div class="empty-state">
-        No articles match this view yet. Add a feed, paste an article URL, send newsletters to ${escapeHtml(state.newsletterInboxEmail || "news@mj-kang.com")}, or wait for the next scheduled sync.
+        ${state.scope === "youtube"
+          ? "No YouTube videos saved yet. Paste a YouTube URL to add one here."
+          : `No articles match this view yet. Add a feed, paste an article URL, send newsletters to ${escapeHtml(state.newsletterInboxEmail || "news@mj-kang.com")}, or wait for the next scheduled sync.`}
       </div>
     `;
     return;
@@ -1279,7 +1297,6 @@ const renderDigestView = () => {
   }
 
   const sections = state.digest.sections || [];
-  const isTodayDigest = Boolean(state.digest.isToday);
   elements.articleView.innerHTML = `
     <div class="digest-view">
       <header class="digest-header">
@@ -1288,16 +1305,7 @@ const renderDigestView = () => {
         </button>
         <div class="digest-title">Daily Digest</div>
         <div class="digest-meta">
-          <button class="inline-link digest-date-nav" data-digest-date-offset="-1" type="button">
-            Previous day
-          </button>
-          <button class="inline-link digest-date-pill" data-digest-reset-today="true" type="button">
-            ${escapeHtml(state.digest.localDateLabel || "")}
-          </button>
-          <button class="inline-link digest-date-nav" data-digest-date-offset="1" type="button" ${isTodayDigest ? "disabled" : ""}>
-            Next day
-          </button>
-          ${state.digest.generatedAt ? ` • Generated ${escapeHtml(formatListTime(state.digest.generatedAt))}` : ""}
+          ${escapeHtml(state.digest.localDateLabel || "")}
         </div>
         <div class="digest-intro">${escapeHtml(state.digest.intro || "No new feed articles arrived for this morning’s digest.")}</div>
       </header>
@@ -1639,7 +1647,7 @@ const toggleSave = async () => {
     await bootstrap();
   } else {
     state.counts.saved += updated.isSaved ? 1 : -1;
-    if (state.scope === "manual" && !updated.isSaved) {
+    if (isLibraryLikeScope() && !updated.isSaved) {
       render();
       return;
     }
@@ -1808,9 +1816,11 @@ const submitArticle = async () => {
   const result = await convexRequest("action", "articles:addFromUrl", {
     url: elements.articleUrlInput.value
   });
+  const article = await convexRequest("query", "reader:getArticle", { articleId: result.articleId });
+  const nextScope = isYouTubeArticle(article) ? "youtube" : "manual";
 
   closeArticleDialog();
-  state.scope = "manual";
+  state.scope = nextScope;
   state.feedGroup = "";
   state.browseFeedGroups = false;
   clearSelection();
@@ -1818,7 +1828,6 @@ const submitArticle = async () => {
 
   const existing = state.articles.find((article) => article.id === result.articleId);
   if (!existing) {
-    const article = await convexRequest("query", "reader:getArticle", { articleId: result.articleId });
     state.articles = [
       {
         author: article.author,
@@ -1974,6 +1983,21 @@ elements.navManualArticles.addEventListener("click", async () => {
   }
   state.canReturnToFeedGroups = false;
   state.scope = "manual";
+  state.feedGroup = "";
+  state.browseFeedGroups = false;
+  clearSelection();
+  openPanel();
+  syncRoute({ replace: false });
+  await bootstrap();
+});
+
+elements.navYoutube.addEventListener("click", async () => {
+  if (state.scope === "youtube" && !state.feedGroup && !state.browseFeedGroups && state.overlayOpen) {
+    closePanel();
+    return;
+  }
+  state.canReturnToFeedGroups = false;
+  state.scope = "youtube";
   state.feedGroup = "";
   state.browseFeedGroups = false;
   clearSelection();
