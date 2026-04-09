@@ -135,3 +135,38 @@ test("buildNewsletterImport trims newsletter lead metadata before the real artic
   assert.doesNotMatch(result.article.bodyHtml, /Subscribed/i);
   assert.match(result.article.bodyHtml, /Are you feeling what I’m feeling/i);
 });
+
+test("buildNewsletterImport prefers the substantive newsletter body over teaser and footer fragments", () => {
+  const result = buildNewsletterImport({
+    extracted_html: `
+      <p>Claude subscriptions are 15-30x cheaper than the API. Full cost breakdown of Claude Code plans, OpenRouter setup, best API models for agentic coding, and an open-source token visibility dashboard.</p>
+      <p>Forwarded this email? Subscribe here for more</p>
+      <p>Paweł Huryn</p>
+      <p>Apr 8</p>
+      <p>READ IN APP</p>
+      <p>Claude subscriptions are 15-30x cheaper than the API. But Anthropic just killed every third-party tool that used them — and you still can’t see where your tokens go.</p>
+      <p>I run Claude Code on a Max plan. 440 sessions last month, 18,000 turns. I built a dashboard to track what that actually costs: $1,588 in API-equivalent tokens. Covered by a $200 subscription.</p>
+      <p>Here’s the full breakdown — what April 4 killed, which API models actually work for agentic coding, and how to see exactly where your budget goes.</p>
+      <h2>What You’ll Learn</h2>
+      <ul>
+        <li>What April 4 actually killed</li>
+        <li>The full cost breakdown</li>
+      </ul>
+      <p>Listen on Spotify</p>
+      <p>YouTube</p>
+      <h2>Thanks for Reading The Product Compass</h2>
+      <p>It’s amazing to learn and grow together.</p>
+      <p>Invite your friends and earn rewards</p>
+    `,
+    extracted_text: "Claude subscriptions are 15-30x cheaper than the API.",
+    from: "Paweł from The Product Compass <huryn+ai-product-management@substack.com>",
+    message_id: "msg_product_compass",
+    subject: "Claude Code Pricing"
+  });
+
+  assert.ok(result);
+  assert.match(result.article.bodyHtml, /Anthropic just killed every third-party tool/i);
+  assert.match(result.article.bodyHtml, /What You’ll Learn/i);
+  assert.doesNotMatch(result.article.bodyHtml, /Thanks for Reading The Product Compass/i);
+  assert.doesNotMatch(result.article.bodyHtml, /Invite your friends and earn rewards/i);
+});

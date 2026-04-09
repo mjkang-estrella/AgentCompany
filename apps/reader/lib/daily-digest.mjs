@@ -180,6 +180,8 @@ export const buildDigestPrompt = ({ localDate, sections }) => {
     "- If a feed has only one article, still write a full paragraph that fully summarizes that article instead of a short blurb.",
     "- Use the body excerpts as the primary evidence source whenever they are present.",
     "- Mention concrete details from the excerpts instead of paraphrasing at a high level only.",
+    "- Start each section summary with the substance of the argument or news itself, not with framing like 'X discusses', 'Y provides', or 'Feed Z published'.",
+    "- Mention the author or publication only when it is necessary context, not as the opening subject of the paragraph.",
     "- Do not mention that this is AI-generated.",
     "- Do not use markdown, bullets, or code fences.",
     "- Use only the provided article metadata and previews.",
@@ -199,31 +201,59 @@ const fallbackSectionSummary = (section) => {
   const count = section.articles.length;
   const articles = section.articles.slice(0, 3);
   const titles = articles.map((article) => article.title).filter(Boolean);
-  if (titles.length === 0) {
-    return `${section.feedTitle} published ${count} article${count === 1 ? "" : "s"} today.`;
-  }
-
-  if (titles.length === 1) {
-    const article = articles[0];
-    const preview = article?.previewText ? ` ${article.previewText}` : "";
-    return `${section.feedTitle} published ${titles[0]}.${preview}`.trim();
-  }
-
   const preview = articles
     .map((article) => article.previewText)
     .filter(Boolean)
-    .join(" ");
-
-  if (titles.length === 2) {
-    return `${section.feedTitle} published ${titles[0]} and ${titles[1]}. ${preview}`.trim();
+    .join(" ")
+    .trim();
+  if (titles.length === 0) {
+    return preview || `There ${count === 1 ? "was" : "were"} ${count} new article${count === 1 ? "" : "s"} in this section today.`;
   }
 
-  return `${section.feedTitle} published ${titles[0]}, ${titles[1]}, and ${titles[2]}. ${preview}`.trim();
+  if (titles.length === 1) {
+    return preview || titles[0];
+  }
+
+  if (titles.length === 2) {
+    return preview || `${titles[0]} and ${titles[1]}.`;
+  }
+
+  return preview || `${titles[0]}, ${titles[1]}, and ${titles[2]}.`;
 };
 
 const fallbackIntro = (sections) => {
   const articleCount = sections.reduce((sum, section) => sum + section.articles.length, 0);
   return `Today's digest covers ${sections.length} feed${sections.length === 1 ? "" : "s"} and ${articleCount} article${articleCount === 1 ? "" : "s"}.`;
+};
+
+const escapeRegExp = (value) => String(value || "").replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+
+const stripLeadingAttribution = (summary, section) => {
+  const text = String(summary || "").trim();
+  if (!text) {
+    return "";
+  }
+
+  const author = String(section.articles?.[0]?.author || "").trim();
+  const feedTitle = String(section.feedTitle || "").trim();
+  const candidates = [
+    author && feedTitle ? `${author} from ${feedTitle}` : "",
+    feedTitle,
+    author
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const pattern = new RegExp(
+      `^${escapeRegExp(candidate)}\\s+(provides|discusses|explains|argues|examines|explores|covers|outlines|shares|details)\\s+`,
+      "iu"
+    );
+    if (pattern.test(text)) {
+      const stripped = text.replace(pattern, "");
+      return stripped.charAt(0).toUpperCase() + stripped.slice(1);
+    }
+  }
+
+  return text;
 };
 
 export const mergeDigestOutput = ({ rawText, sections }) => {
@@ -240,7 +270,10 @@ export const mergeDigestOutput = ({ rawText, sections }) => {
     intro: String(parsed.intro || "").trim() || fallbackIntro(sections),
     sections: sections.map((section) => ({
       ...section,
-      summary: summaries.get(section.feedKey) || fallbackSectionSummary(section)
+      summary: stripLeadingAttribution(
+        summaries.get(section.feedKey) || fallbackSectionSummary(section),
+        section
+      )
     }))
   };
 };

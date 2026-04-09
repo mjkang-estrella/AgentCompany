@@ -477,6 +477,10 @@ const isFooterChromeBlock = (node, context) => {
     return true;
   }
 
+  if (footerScore >= 1 && textLength < 320) {
+    return true;
+  }
+
   if (
     text === "subscribe" ||
     text === "email address" ||

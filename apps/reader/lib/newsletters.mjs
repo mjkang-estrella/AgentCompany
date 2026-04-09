@@ -12,7 +12,7 @@ import { normalizeArticleContent } from "./article-body-normalizer.mjs";
 
 export const NEWSLETTER_FEED_GROUP = "Newsletters";
 export const NEWSLETTER_LABEL_INGESTED = "reader-ingested";
-export const NEWSLETTER_LABEL_PARSED_V2 = "reader-parsed-v7";
+export const NEWSLETTER_LABEL_PARSED_V2 = "reader-parsed-v8";
 export const NEWSLETTER_LABEL_UNREAD = "unread";
 
 const HTTP_URL_PATTERN = /https?:\/\/[^\s<>"')]+/giu;
@@ -44,6 +44,17 @@ const NEWSLETTER_LEAD_PROMO_MARKERS = [
   "catch you next week",
   "follow on your favorite podcast"
 ];
+const NEWSLETTER_FOOTER_MARKERS = [
+  "thanks for reading",
+  "invite your friends and earn rewards",
+  "have a great week ahead",
+  "manage preferences",
+  "privacy policy",
+  "terms of service",
+  "substack inc",
+  "unsubscribe"
+];
+const NEWSLETTER_BLOCK_SELECTOR = "h1, h2, h3, h4, p, ol, ul, blockquote, figure, hr";
 
 const trimToNull = (value) => {
   if (typeof value !== "string") {
@@ -584,6 +595,276 @@ const trimLeadingNewsletterMeta = (html) => {
   return sanitizeFragment(root.toString());
 };
 
+const finalizeNewsletterCandidate = ({
+  author = "",
+  bodyHtml = "",
+  feedTitle = "",
+  mode = "default",
+  rawHtml = "",
+  title = ""
+}) => {
+  const normalizedBodyHtml = trimToNull(bodyHtml);
+  if (!normalizedBodyHtml) {
+    return null;
+  }
+
+  if (mode === "main") {
+    const anchoredBody = restoreLeadAnchorHeading(rawHtml, normalizedBodyHtml);
+    const finalBodyHtml = trimLeadingNewsletterMeta(
+      enforceLeadAnchorHeading(rawHtml, anchoredBody || normalizedBodyHtml)
+    );
+    const cleanBodyHtml = stripInvisibleCharacters(sanitizeFragment(finalBodyHtml));
+    const cleanSummaryHtml = cleanBodyHtml;
+    const cleanPreviewText = stripInvisibleCharacters(
+      stripHtml(cleanBodyHtml).slice(0, 220)
+    );
+
+    if (!trimToNull(stripHtml(cleanBodyHtml))) {
+      return null;
+    }
+
+    return {
+      bodyHtml: cleanBodyHtml,
+      previewText: cleanPreviewText,
+      readTimeMinutes: Math.max(estimateReadTime(cleanBodyHtml), 1),
+      subtitle: "",
+      summaryHtml: cleanSummaryHtml
+    };
+  }
+
+  const normalized = normalizeArticleContent({
+    author,
+    bodyHtml: normalizedBodyHtml,
+    feedTitle,
+    publishedAt: "",
+    summaryHtml: normalizedBodyHtml,
+    thumbnailUrl: "",
+    title
+  });
+
+  const unwrappedBody = unwrapEmailLayout(normalized.bodyHtml);
+  const anchoredBody = restoreLeadAnchorHeading(rawHtml, unwrappedBody || normalized.bodyHtml);
+  const finalized = normalizeArticleContent({
+    author,
+    bodyHtml: anchoredBody || unwrappedBody || normalized.bodyHtml,
+    feedTitle,
+    publishedAt: "",
+    summaryHtml: normalized.summaryHtml || anchoredBody || unwrappedBody || normalized.bodyHtml,
+    thumbnailUrl: "",
+    title
+  });
+
+  const finalBodyHtml = trimLeadingNewsletterMeta(
+    enforceLeadAnchorHeading(rawHtml, finalized.bodyHtml)
+  );
+  const cleanBodyHtml = stripInvisibleCharacters(finalBodyHtml);
+  const cleanSummaryHtml = stripInvisibleCharacters(finalized.summaryHtml || cleanBodyHtml);
+  const cleanPreviewText = stripInvisibleCharacters(
+    finalized.previewText || stripHtml(cleanBodyHtml).slice(0, 220)
+  );
+
+  if (!trimToNull(stripHtml(cleanBodyHtml))) {
+    return null;
+  }
+
+  return {
+    bodyHtml: cleanBodyHtml,
+    previewText: cleanPreviewText,
+    readTimeMinutes: Math.max(finalized.readTimeMinutes || 0, 1),
+    subtitle: finalized.subtitle || "",
+    summaryHtml: cleanSummaryHtml
+  };
+};
+
+const newsletterSentenceCount = (text) => (String(text || "").match(/[.!?](?:\s|$)/gu) || []).length;
+
+const getNewsletterBlockText = (node) =>
+  stripInvisibleCharacters(stripHtml(node?.outerHTML || node?.innerHTML || ""))
+    .replace(/\s+/gu, " ")
+    .trim();
+
+const hasNewsletterBlockAncestor = (node, scope) => {
+  let current = node?.parentNode || null;
+
+  while (current && current !== scope) {
+    const tagName = current.tagName?.toLowerCase() || "";
+    if (NEWSLETTER_BLOCK_SELECTOR.split(", ").includes(tagName)) {
+      return true;
+    }
+    current = current.parentNode || null;
+  }
+
+  return false;
+};
+
+const isNewsletterFooterBlock = (node) => {
+  const text = getNewsletterBlockText(node).toLowerCase();
+  if (!text) {
+    return false;
+  }
+
+  return markerCount(text, NEWSLETTER_FOOTER_MARKERS) >= 1;
+};
+
+const isNewsletterPreambleBlock = (node) =>
+  isNewsletterLeadPromoBlock(node) || isLeadingNewsletterMetaNode(node);
+
+const isNewsletterSubstantiveBlock = (node) => {
+  if (!node) {
+    return false;
+  }
+
+  const tagName = node.tagName?.toLowerCase() || "";
+  const text = getNewsletterBlockText(node);
+  const textLength = text.length;
+  const listItems = node.querySelectorAll?.("li").length || 0;
+
+  if (textLength >= 220) {
+    return true;
+  }
+
+  if (textLength >= 120 && newsletterSentenceCount(text) >= 2) {
+    return true;
+  }
+
+  if ((tagName === "ol" || tagName === "ul") && listItems >= 2 && textLength >= 80) {
+    return true;
+  }
+
+  if (["h1", "h2", "h3", "h4"].includes(tagName) && textLength >= 18) {
+    return true;
+  }
+
+  return false;
+};
+
+const shouldSkipNewsletterRunStart = (blocks, startIndex) => {
+  const node = blocks[startIndex];
+  if (!node || isNewsletterPreambleBlock(node) || isNewsletterFooterBlock(node)) {
+    return true;
+  }
+
+  const nextBlocks = blocks.slice(startIndex + 1, startIndex + 5);
+  const preambleHits = nextBlocks.filter((candidate) => isNewsletterPreambleBlock(candidate)).length;
+  return preambleHits >= 2;
+};
+
+const extractNewsletterMainContentCandidate = (html) => {
+  const fragment = trimToNull(html);
+  if (!fragment) {
+    return "";
+  }
+
+  const root = parse(fragment);
+  const scope = root.querySelector("body") || root;
+  const blocks = scope.querySelectorAll(NEWSLETTER_BLOCK_SELECTOR)
+    .filter((node) => !hasNewsletterBlockAncestor(node, scope));
+
+  if (blocks.length === 0) {
+    return "";
+  }
+
+  let startIndex = -1;
+
+  for (let index = 0; index < blocks.length; index += 1) {
+    const node = blocks[index];
+    const tagName = node.tagName?.toLowerCase() || "";
+
+    if (shouldSkipNewsletterRunStart(blocks, index)) {
+      continue;
+    }
+
+    if (
+      ["h1", "h2", "h3", "h4"].includes(tagName) &&
+      blocks[index + 1] &&
+      isNewsletterSubstantiveBlock(blocks[index + 1])
+    ) {
+      continue;
+    }
+
+    startIndex = index;
+    break;
+  }
+
+  if (startIndex < 0) {
+    return "";
+  }
+
+  let substantiveCount = 0;
+  let promoCount = 0;
+  const runParts = [];
+
+  for (let index = startIndex; index < blocks.length && runParts.length < 40; index += 1) {
+    const node = blocks[index];
+    const text = getNewsletterBlockText(node);
+
+    if (runParts.length > 0 && isNewsletterFooterBlock(node)) {
+      break;
+    }
+
+    if (!text && node.tagName?.toLowerCase() !== "figure") {
+      continue;
+    }
+
+    if (runParts.length > 0 && isNewsletterPreambleBlock(node) && substantiveCount >= 2) {
+      promoCount += 1;
+      if (promoCount >= 2) {
+        break;
+      }
+    }
+
+    runParts.push(node.outerHTML || node.toString());
+
+    if (isNewsletterSubstantiveBlock(node)) {
+      substantiveCount += 1;
+    }
+  }
+
+  return substantiveCount >= 1
+    ? sanitizeFragment(runParts.join(""))
+    : "";
+};
+
+const scoreNewsletterCandidate = (candidate) => {
+  const bodyHtml = String(candidate?.bodyHtml || "");
+  const text = stripInvisibleCharacters(stripHtml(bodyHtml))
+    .replace(/\s+/gu, " ")
+    .trim();
+
+  if (!text) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  const normalizedText = text.toLowerCase();
+  const openingText = normalizedText.slice(0, 800);
+  const paragraphCount = (bodyHtml.match(/<(?:p|li|blockquote)\b/giu) || []).length;
+  const headingCount = (bodyHtml.match(/<(?:h1|h2|h3|h4)\b/giu) || []).length;
+  const listCount = (bodyHtml.match(/<(?:ol|ul)\b/giu) || []).length;
+
+  let score = Math.min(text.length, 8000);
+  score += paragraphCount * 140;
+  score += headingCount * 90;
+  score += listCount * 120;
+  score += markerCount(normalizedText, LEAD_ANCHOR_MARKERS) * 220;
+  score += markerCount(normalizedText, ["what you’ll learn", "what you'll learn", "what you will learn"]) * 260;
+  score -= markerCount(openingText, NEWSLETTER_LEAD_PROMO_MARKERS) * 240;
+  score -= markerCount(normalizedText, NEWSLETTER_FOOTER_MARKERS) * 1000;
+
+  if (NEWSLETTER_FOOTER_MARKERS.some((marker) => normalizedText.startsWith(marker))) {
+    score -= 3200;
+  }
+
+  if (text.length < 260) {
+    score -= 1200;
+  }
+
+  if (paragraphCount + headingCount + listCount <= 2) {
+    score -= 600;
+  }
+
+  return score;
+};
+
 const normalizeNewsletterHtml = ({
   author = "",
   feedTitle = "",
@@ -592,58 +873,71 @@ const normalizeNewsletterHtml = ({
 }) => {
   const stripped = stripEmailChrome(html);
   const trimmedLead = trimNewsletterLeadPreamble(stripped || html);
-  const directBodyHtml = sanitizeFragment(trimmedLead || stripped || html);
-  const directNormalized = normalizeArticleContent({
-    author,
-    bodyHtml: directBodyHtml,
-    feedTitle,
-    publishedAt: "",
-    summaryHtml: directBodyHtml,
-    thumbnailUrl: "",
-    title
-  });
-  const readable = extractReadableContent(trimmedLead || stripped || html) || normalizeHtmlFragment(trimmedLead || html);
-  const readableNormalized = normalizeArticleContent({
-    author,
-    bodyHtml: readable,
-    feedTitle,
-    publishedAt: "",
-    summaryHtml: readable,
-    thumbnailUrl: "",
-    title
-  });
-  const preferredNormalized = stripHtml(directNormalized.bodyHtml).length >= 180
-    ? directNormalized
-    : readableNormalized;
+  const candidateInputs = [
+    {
+      html: extractNewsletterMainContentCandidate(stripped || html),
+      mode: "main"
+    },
+    {
+      html: sanitizeFragment(trimmedLead || stripped || html),
+      mode: "default"
+    },
+    {
+      html: extractReadableContent(trimmedLead || stripped || html),
+      mode: "default"
+    },
+    {
+      html: extractReadableContent(stripped || html),
+      mode: "default"
+    },
+    {
+      html: normalizeHtmlFragment(trimmedLead || stripped || html),
+      mode: "default"
+    }
+  ].filter((candidate) => trimToNull(candidate.html));
 
-  const unwrappedBody = unwrapEmailLayout(preferredNormalized.bodyHtml);
-  const anchoredBody = restoreLeadAnchorHeading(html, unwrappedBody || preferredNormalized.bodyHtml);
-  const finalized = normalizeArticleContent({
-    author,
-    bodyHtml: anchoredBody || unwrappedBody || preferredNormalized.bodyHtml,
-    feedTitle,
-    publishedAt: "",
-    summaryHtml: preferredNormalized.summaryHtml || anchoredBody || unwrappedBody || preferredNormalized.bodyHtml,
-    thumbnailUrl: "",
-    title
-  });
+  const seenCandidates = new Set();
+  const candidates = [];
 
-  const finalBodyHtml = trimLeadingNewsletterMeta(
-    enforceLeadAnchorHeading(html, finalized.bodyHtml)
-  );
-  const cleanBodyHtml = stripInvisibleCharacters(finalBodyHtml);
-  const cleanSummaryHtml = stripInvisibleCharacters(finalized.summaryHtml || cleanBodyHtml);
-  const cleanPreviewText = stripInvisibleCharacters(
-    finalized.previewText || stripHtml(cleanBodyHtml).slice(0, 220)
-  );
+  for (const candidateInput of candidateInputs) {
+    const candidateHtml = candidateInput.html;
+    const signature = stripInvisibleCharacters(stripHtml(candidateHtml))
+      .replace(/\s+/gu, " ")
+      .trim()
+      .toLowerCase();
 
-  return {
-    bodyHtml: cleanBodyHtml,
-    previewText: cleanPreviewText,
-    readTimeMinutes: Math.max(finalized.readTimeMinutes || 0, 1),
-    summaryHtml: cleanSummaryHtml,
-    subtitle: finalized.subtitle || ""
-  };
+    if (!signature || seenCandidates.has(signature)) {
+      continue;
+    }
+
+    seenCandidates.add(signature);
+    const finalizedCandidate = finalizeNewsletterCandidate({
+      author,
+      bodyHtml: candidateHtml,
+      feedTitle,
+      mode: candidateInput.mode,
+      rawHtml: html,
+      title
+    });
+
+    if (finalizedCandidate) {
+      candidates.push(finalizedCandidate);
+    }
+  }
+
+  if (candidates.length === 0) {
+    return {
+      bodyHtml: "",
+      previewText: "",
+      readTimeMinutes: 1,
+      summaryHtml: "",
+      subtitle: ""
+    };
+  }
+
+  return candidates.sort((left, right) => (
+    scoreNewsletterCandidate(right) - scoreNewsletterCandidate(left)
+  ))[0];
 };
 
 const renderPlainTextHtml = (text) => {

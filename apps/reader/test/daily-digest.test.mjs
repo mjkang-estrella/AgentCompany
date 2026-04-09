@@ -70,19 +70,19 @@ test("mergeDigestOutput applies returned summaries by feed key", () => {
     rawText: JSON.stringify({
       intro: "Today focused on product building and AI workflows.",
       sections: [
-        { key: "feed-1", summary: "Feed One emphasized practical shipping advice." }
+        { key: "feed-1", summary: "Feed One discusses practical shipping advice for product teams." }
       ]
     }),
     sections: [
       {
-        articles: [{ id: "article-1", title: "First" }],
+        articles: [{ author: "Alice", id: "article-1", title: "First" }],
         feedGroup: "Feed One",
         feedIconUrl: "",
         feedKey: "feed-1",
         feedTitle: "Feed One"
       },
       {
-        articles: [{ id: "article-2", title: "Second" }],
+        articles: [{ author: "Bob", id: "article-2", previewText: "Second preview with actual substance.", title: "Second" }],
         feedGroup: "Feed Two",
         feedIconUrl: "",
         feedKey: "feed-2",
@@ -92,8 +92,39 @@ test("mergeDigestOutput applies returned summaries by feed key", () => {
   });
 
   assert.equal(merged.intro, "Today focused on product building and AI workflows.");
-  assert.equal(merged.sections[0].summary, "Feed One emphasized practical shipping advice.");
-  assert.match(merged.sections[1].summary, /Feed Two published Second/i);
+  assert.equal(merged.sections[0].summary, "Practical shipping advice for product teams.");
+  assert.equal(merged.sections[1].summary, "Second preview with actual substance.");
+});
+
+test("mergeDigestOutput strips author-led discuss/provides framing", () => {
+  const merged = mergeDigestOutput({
+    rawText: JSON.stringify({
+      intro: "Intro",
+      sections: [
+        { key: "feed-1", summary: "Paweł from The Product Compass provides a breakdown of Claude Code pricing and token visibility tradeoffs." },
+        { key: "feed-2", summary: "Ben Thompson discusses OpenAI's latest move and why it matters for the market." }
+      ]
+    }),
+    sections: [
+      {
+        articles: [{ author: "Paweł", id: "article-1", title: "First" }],
+        feedGroup: "The Product Compass",
+        feedIconUrl: "",
+        feedKey: "feed-1",
+        feedTitle: "The Product Compass"
+      },
+      {
+        articles: [{ author: "Ben Thompson", id: "article-2", title: "Second" }],
+        feedGroup: "Stratechery",
+        feedIconUrl: "",
+        feedKey: "feed-2",
+        feedTitle: "Stratechery"
+      }
+    ]
+  });
+
+  assert.equal(merged.sections[0].summary, "A breakdown of Claude Code pricing and token visibility tradeoffs.");
+  assert.equal(merged.sections[1].summary, "OpenAI's latest move and why it matters for the market.");
 });
 
 test("shiftLocalDate moves backward and forward across month boundaries", () => {

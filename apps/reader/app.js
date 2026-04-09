@@ -445,9 +445,6 @@ const renderHighlightsRail = () => {
 
   elements.inspectorPanelBody.innerHTML = `
     <div class="inspector-section">
-      <div class="inspector-section-header">
-        <span>${inspectorTitle}</span>
-      </div>
       ${highlights.length === 0
         ? '<div class="inspector-empty">Select text in the article to highlight it.</div>'
         : `<div class="inspector-list">
