@@ -11,6 +11,7 @@ import {
   getDigestTimezone,
   getOpenAiApiKey,
   getTimeZoneDateKey,
+  getTimeZoneDateKeysForTimestamps,
   getTimeZoneDayRange,
   getTimeZoneHour,
   mergeDigestOutput
@@ -181,7 +182,7 @@ export const ensureScheduledDigest = internalAction({
   }
 });
 
-export const refreshTodayFromPublishedAt = internalAction({
+export const refreshDigestsFromPublishedAt = internalAction({
   args: {
     publishedAtValues: v.array(v.number())
   },
@@ -191,30 +192,37 @@ export const refreshTodayFromPublishedAt = internalAction({
     }
 
     const timezone = getDigestTimezone();
-    const todayRange = getTimeZoneDayRange(timezone);
-    const hasTodayArticle = args.publishedAtValues.some((value) =>
-      value >= todayRange.start && value < todayRange.end
-    );
+    const localDates = getTimeZoneDateKeysForTimestamps(timezone, args.publishedAtValues);
 
-    if (!hasTodayArticle) {
-      return { refreshed: false, reason: "no-today-articles" };
+    if (localDates.length === 0) {
+      return { refreshed: false, reason: "no-article-dates" };
     }
 
-    const localDate = getTimeZoneDateKey(timezone);
-    const existing = await ctx.runQuery(internal.digest.getByDate, {
-      localDate,
-      timezone
-    });
+    const results = [];
 
-    if (existing && ["pending", "running"].includes(existing.status)) {
-      return { localDate, refreshed: false, reason: "already-running" };
+    for (const localDate of localDates) {
+      const existing = await ctx.runQuery(internal.digest.getByDate, {
+        localDate,
+        timezone
+      });
+
+      if (existing && ["pending", "running"].includes(existing.status)) {
+        results.push({ localDate, refreshed: false, reason: "already-running" });
+        continue;
+      }
+
+      await ctx.runAction(internal.digestNode.generateForDate, {
+        localDate,
+        timezone
+      });
+
+      results.push({ localDate, refreshed: true });
     }
 
-    await ctx.runAction(internal.digestNode.generateForDate, {
-      localDate,
-      timezone
-    });
-
-    return { localDate, refreshed: true };
+    return {
+      localDates,
+      refreshed: results.some((result) => result.refreshed),
+      results
+    };
   }
 });

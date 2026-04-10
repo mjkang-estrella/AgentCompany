@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   getTimeZoneDateKey,
+  getTimeZoneDateKeysForTimestamps,
   getTimeZoneHour,
   groupDigestInputs,
   mergeDigestOutput,
@@ -14,6 +15,18 @@ test("getTimeZoneDateKey and getTimeZoneHour respect named timezone", () => {
 
   assert.equal(getTimeZoneDateKey("America/Los_Angeles", date), "2026-03-31");
   assert.equal(getTimeZoneHour("America/Los_Angeles", date), 7);
+});
+
+test("getTimeZoneDateKeysForTimestamps maps timestamps into unique local digest dates", () => {
+  assert.deepEqual(
+    getTimeZoneDateKeysForTimestamps("America/Los_Angeles", [
+      Date.parse("2026-04-08T19:00:00.000Z"),
+      Date.parse("2026-04-09T03:00:00.000Z"),
+      Date.parse("2026-04-09T22:00:00.000Z"),
+      Number.NaN
+    ]),
+    ["2026-04-08", "2026-04-09"]
+  );
 });
 
 test("groupDigestInputs keeps feed grouping and article order", () => {

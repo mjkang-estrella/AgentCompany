@@ -20,6 +20,13 @@ const PLAYER_RESPONSE_MARKERS = [
   "window['ytInitialPlayerResponse'] = ",
   "window[\"ytInitialPlayerResponse\"] = "
 ];
+const CONSENT_PAGE_MARKER = 'action="https://consent.youtube.com/s"';
+const INNERTUBE_ANDROID_CONTEXT = {
+  client: {
+    clientName: "ANDROID",
+    clientVersion: "20.10.38"
+  }
+};
 
 const escapeHtml = (value) =>
   String(value ?? "").replace(/[&<>"']/gu, (match) => ({
@@ -33,6 +40,11 @@ const escapeHtml = (value) =>
 const firstNonEmpty = (...values) => values.find((value) => String(value || "").trim()) || "";
 
 const normalizeText = (value) => String(value || "").replace(/\s+/gu, " ").trim();
+
+const DEFAULT_FETCH_HEADERS = {
+  "accept-language": "en-US,en;q=0.9",
+  "user-agent": "Mozilla/5.0"
+};
 
 const renderParagraphs = (text) => {
   const paragraphs = String(text || "")
@@ -156,6 +168,137 @@ const parsePlayerResponse = (html) => {
   return null;
 };
 
+const extractConsentCookie = (html) => {
+  if (!html.includes(CONSENT_PAGE_MARKER)) {
+    return "";
+  }
+
+  const value = html.match(/name="v"\s+value="([^"]+)"/u)?.[1];
+  return value ? `CONSENT=YES+${value}` : "";
+};
+
+const defaultFetchText = async (url, options = {}) => {
+  const response = await fetch(url, {
+    headers: {
+      ...DEFAULT_FETCH_HEADERS,
+      ...(options.headers || {})
+    },
+    method: options.method || "GET",
+    redirect: "follow",
+    signal: AbortSignal.timeout(15_000)
+  });
+
+  if (!response.ok) {
+    throw new Error(`Request failed for ${url} (${response.status})`);
+  }
+
+  return await response.text();
+};
+
+const extractInnertubeApiKey = (html) =>
+  firstNonEmpty(
+    html.match(/"INNERTUBE_API_KEY":\s*"([^"]+)"/u)?.[1],
+    html.match(/INNERTUBE_API_KEY:\s*"([^"]+)"/u)?.[1],
+    html.match(/window\["INNERTUBE_API_KEY"\]\s*=\s*"([^"]+)"/u)?.[1],
+    html.match(/innertubeApiKey":"([^"]+)"/u)?.[1]
+  );
+
+const defaultFetchJson = async (url, options = {}) => {
+  const response = await fetch(url, {
+    body: options.body ? JSON.stringify(options.body) : undefined,
+    headers: {
+      ...DEFAULT_FETCH_HEADERS,
+      ...(options.headers || {})
+    },
+    method: options.method || "GET",
+    redirect: "follow",
+    signal: AbortSignal.timeout(15_000)
+  });
+
+  if (!response.ok) {
+    throw new Error(`Request failed for ${url} (${response.status})`);
+  }
+
+  return response.json();
+};
+
+const isWeakYouTubeTitle = (value) => {
+  const normalized = normalizeText(value).toLowerCase();
+  return (
+    !normalized ||
+    normalized === "youtube" ||
+    normalized === "- youtube" ||
+    normalized.endsWith(" - youtube")
+  );
+};
+
+const preferYouTubeTitle = (...values) => {
+  const weakFallbacks = [];
+
+  for (const value of values) {
+    const normalized = String(value || "").trim();
+    if (!normalized) {
+      continue;
+    }
+
+    if (isWeakYouTubeTitle(normalized)) {
+      weakFallbacks.push(normalized);
+      continue;
+    }
+
+    return normalized;
+  }
+
+  return weakFallbacks[0] || "";
+};
+
+const fetchYouTubeOEmbed = async (pageUrl, fetchJson) => {
+  const targetUrl = canonicalizeUrl(pageUrl);
+  if (!targetUrl) {
+    return null;
+  }
+
+  try {
+    return await (typeof fetchJson === "function" ? fetchJson : defaultFetchJson)(
+      `https://www.youtube.com/oembed?url=${encodeURIComponent(targetUrl)}&format=json`,
+      {
+        headers: DEFAULT_FETCH_HEADERS,
+        method: "GET"
+      }
+    );
+  } catch {
+    return null;
+  }
+};
+
+const fetchInnertubePlayerResponse = async (videoId, html, fetchJson) => {
+  if (!videoId) {
+    return null;
+  }
+
+  const apiKey = extractInnertubeApiKey(html);
+  if (!apiKey) {
+    return null;
+  }
+
+  try {
+    return await (typeof fetchJson === "function" ? fetchJson : defaultFetchJson)(`https://www.youtube.com/youtubei/v1/player?key=${apiKey}`, {
+      body: {
+        context: INNERTUBE_ANDROID_CONTEXT,
+        videoId
+      },
+      headers: {
+        "accept-language": "en-US,en;q=0.9",
+        "content-type": "application/json",
+        "user-agent": "Mozilla/5.0"
+      },
+      method: "POST"
+    });
+  } catch {
+    return null;
+  }
+};
+
 const pickBestThumbnailUrl = (...thumbnailLists) => {
   const thumbnails = thumbnailLists
     .flatMap((value) => Array.isArray(value) ? value : [])
@@ -270,26 +413,24 @@ const groupTranscriptSegments = (segments) => {
   return groups.filter((group) => group.text);
 };
 
-const buildTranscriptBodyHtml = ({ description, transcriptGroups, watchUrl }) => {
+const buildTranscriptBodyHtml = ({ description, transcriptGroups }) => {
   const descriptionHtml = renderParagraphs(description);
   const transcriptHtml = transcriptGroups
     .map((group) => `<p><strong>${escapeHtml(formatTimestamp(group.startSeconds))}</strong> ${escapeHtml(group.text)}</p>`)
     .join("");
 
   return sanitizeFragment(`
-    <p><a href="${escapeHtml(watchUrl)}">Watch on YouTube</a></p>
     ${descriptionHtml ? `<h2>Description</h2>${descriptionHtml}` : ""}
     <h2>Transcript</h2>
     ${transcriptHtml}
   `);
 };
 
-const buildDescriptionFallbackHtml = ({ description, watchUrl }) => {
+const buildDescriptionFallbackHtml = ({ description }) => {
   const descriptionHtml = renderParagraphs(description);
 
   return sanitizeFragment(`
     <p>Transcript unavailable for this video. Reader saved the video description instead.</p>
-    <p><a href="${escapeHtml(watchUrl)}">Watch on YouTube</a></p>
     ${descriptionHtml || "<p>No YouTube description was available.</p>"}
   `);
 };
@@ -307,26 +448,66 @@ const buildSummaryHtml = ({ description, transcriptGroups }) => {
 };
 
 export const extractYouTubeArticleFromHtml = async (html, pageUrl, options = {}) => {
-  const fetchText = options.fetchText;
+  let resolvedHtml = html;
+  const fetchText = typeof options.fetchText === "function" ? options.fetchText : defaultFetchText;
+  const consentCookie = extractConsentCookie(resolvedHtml);
+  if (consentCookie) {
+    try {
+      resolvedHtml = await defaultFetchText(pageUrl, {
+        headers: {
+          cookie: consentCookie
+        }
+      });
+    } catch {
+      resolvedHtml = html;
+    }
+  }
+  const fetchJson = options.fetchJson;
   const videoId = getVideoIdFromUrl(pageUrl);
-  const playerResponse = parsePlayerResponse(html) || {};
+  const parsedPlayerResponse = parsePlayerResponse(resolvedHtml) || {};
+  const innertubePlayerResponse = await fetchInnertubePlayerResponse(videoId, resolvedHtml, fetchJson);
+  const playerResponse = innertubePlayerResponse || parsedPlayerResponse;
   const videoDetails = playerResponse.videoDetails || {};
   const microformat = playerResponse.microformat?.playerMicroformatRenderer || {};
-  const metadata = extractPageMetadata(html, pageUrl);
+  const metadata = extractPageMetadata(resolvedHtml, pageUrl);
   const watchUrl = canonicalizeUrl(
     firstNonEmpty(microformat.urlCanonical, videoId ? `https://www.youtube.com/watch?v=${videoId}` : pageUrl)
   );
+  const oEmbed = (
+    isWeakYouTubeTitle(videoDetails.title) ||
+    isWeakYouTubeTitle(microformat.title?.simpleText) ||
+    isWeakYouTubeTitle(metadata.title) ||
+    !firstNonEmpty(videoDetails.author, microformat.ownerChannelName, metadata.author) ||
+    !firstNonEmpty(
+      pickBestThumbnailUrl(videoDetails.thumbnail?.thumbnails, microformat.thumbnail?.thumbnails),
+      metadata.thumbnailUrl
+    )
+  )
+    ? await fetchYouTubeOEmbed(watchUrl || pageUrl, fetchJson)
+    : null;
   const description = firstNonEmpty(
     videoDetails.shortDescription,
     microformat.description?.simpleText,
     metadata.description
   );
-  const title = firstNonEmpty(videoDetails.title, microformat.title?.simpleText, metadata.title);
-  const author = firstNonEmpty(videoDetails.author, microformat.ownerChannelName, metadata.author);
+  const title = preferYouTubeTitle(
+    videoDetails.title,
+    microformat.title?.simpleText,
+    metadata.title,
+    oEmbed?.title,
+    metadata.title
+  );
+  const author = firstNonEmpty(
+    videoDetails.author,
+    microformat.ownerChannelName,
+    metadata.author,
+    oEmbed?.author_name
+  );
   const publishedAt = firstNonEmpty(microformat.publishDate, microformat.uploadDate, metadata.publishedAt);
   const thumbnailUrl = firstNonEmpty(
     pickBestThumbnailUrl(videoDetails.thumbnail?.thumbnails, microformat.thumbnail?.thumbnails),
-    metadata.thumbnailUrl
+    metadata.thumbnailUrl,
+    oEmbed?.thumbnail_url
   );
   const captionTrack = pickCaptionTrack(
     playerResponse.captions?.playerCaptionsTracklistRenderer?.captionTracks || []
@@ -346,14 +527,12 @@ export const extractYouTubeArticleFromHtml = async (html, pageUrl, options = {})
   const hasTranscript = transcriptGroups.length > 0;
   const bodyHtml = hasTranscript
     ? buildTranscriptBodyHtml({
-        description,
-        transcriptGroups,
-        watchUrl
-      })
+      description,
+      transcriptGroups
+    })
     : buildDescriptionFallbackHtml({
-        description,
-        watchUrl
-      });
+      description
+    });
   const summaryHtml = buildSummaryHtml({
     description,
     transcriptGroups

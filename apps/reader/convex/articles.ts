@@ -13,10 +13,17 @@ import { extractYouTubeArticleFromHtml, isYouTubeUrl } from "../lib/youtube-extr
 const DEFAULT_HEADERS = {
   "user-agent": "AgentCompany Reader/1.0 (+https://agent.company)"
 };
+const YOUTUBE_HEADERS = {
+  "accept-language": "en-US,en;q=0.9",
+  "user-agent": "Mozilla/5.0"
+};
 
-const fetchText = async (url: string) => {
+const fetchText = async (url: string, options: { headers?: Record<string, string> } = {}) => {
   const response = await fetch(url, {
-    headers: DEFAULT_HEADERS,
+    headers: {
+      ...DEFAULT_HEADERS,
+      ...(options.headers || {})
+    },
     redirect: "follow",
     signal: AbortSignal.timeout(15_000)
   });
@@ -440,6 +447,8 @@ export const upsertManualArticle = internalMutation({
         canonicalUrl: args.article.canonicalUrl,
         contentHash: args.article.contentHash,
         deletedAt: undefined,
+        feedSiteUrl: args.article.feedSiteUrl || existing.feedSiteUrl,
+        feedTitle: args.article.feedTitle || existing.feedTitle,
         isRead: shouldRestore ? false : existing.isRead,
         isSaved: shouldRestore ? false : existing.isSaved,
         previewText: args.article.previewText,
@@ -447,9 +456,9 @@ export const upsertManualArticle = internalMutation({
         readTimeMinutes: args.article.readTimeMinutes,
         savedAt: shouldRestore ? undefined : existing.savedAt,
         summaryHtml: undefined,
-        subtitle: args.article.subtitle || existing.subtitle,
+        subtitle: args.article.subtitle !== undefined ? args.article.subtitle : existing.subtitle,
         thumbnailUrl: args.article.thumbnailUrl || existing.thumbnailUrl,
-        title: existing.title || args.article.title,
+        title: args.article.title || existing.title,
         url: args.article.url
       });
 
@@ -545,11 +554,14 @@ export const addFromUrl = action({
       });
     }
 
-    const page = await fetchText(requestedUrl);
+    const page = await fetchText(
+      requestedUrl,
+      isYouTubeUrl(requestedUrl) ? { headers: YOUTUBE_HEADERS } : {}
+    );
     if (isYouTubeUrl(page.url)) {
       const extracted = await extractYouTubeArticleFromHtml(page.text, page.url, {
         fetchText: async (url: string) => {
-          const response = await fetchText(url);
+          const response = await fetchText(url, { headers: YOUTUBE_HEADERS });
           return response.text;
         }
       });
@@ -590,7 +602,7 @@ export const addFromUrl = action({
           publishedAt: normalizePublishedAt(extracted.publishedAt),
           readTimeMinutes: Math.max(extracted.readTimeMinutes || 0, 1),
           summaryHtml: extracted.summaryHtml,
-          subtitle: extracted.subtitle || undefined,
+          subtitle: extracted.subtitle,
           thumbnailUrl: extracted.thumbnailUrl || undefined,
           title: extracted.title,
           url: canonicalUrl

@@ -63,6 +63,20 @@ export const getTimeZoneDateKey = (timezone, date = new Date()) => {
   return `${String(parts.year).padStart(4, "0")}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
 };
 
+export const getTimeZoneDateKeysForTimestamps = (timezone, timestamps = []) => {
+  const keys = new Set();
+
+  for (const timestamp of timestamps) {
+    if (!Number.isFinite(timestamp)) {
+      continue;
+    }
+
+    keys.add(getTimeZoneDateKey(timezone, new Date(timestamp)));
+  }
+
+  return [...keys];
+};
+
 export const getTimeZoneHour = (timezone, date = new Date()) =>
   getTimeZoneParts(timezone, date).hour;
 

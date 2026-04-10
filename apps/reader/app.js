@@ -26,7 +26,10 @@ import { normalizeFeedGroupName } from "./lib/feed-group-name.mjs";
 
 const sanitizeHtml = (dirty) =>
   typeof DOMPurify !== "undefined"
-    ? DOMPurify.sanitize(dirty, { ADD_ATTR: ["referrerpolicy"], ADD_TAGS: ["iframe"] })
+    ? DOMPurify.sanitize(dirty, {
+      ADD_ATTR: ["allow", "allowfullscreen", "frameborder", "loading", "referrerpolicy", "src", "title"],
+      ADD_TAGS: ["iframe"]
+    })
     : dirty;
 
 const PAGE_LIMIT = 50;
@@ -178,6 +181,57 @@ const isYouTubeArticle = (article) =>
   );
 
 const isLibraryLikeScope = () => state.scope === "manual" || state.scope === "youtube";
+
+const getYouTubeVideoIdFromUrl = (value) => {
+  try {
+    const url = new URL(String(value || ""));
+    const hostname = url.hostname.replace(/^www\./iu, "");
+
+    if (hostname === "youtu.be") {
+      return url.pathname.split("/").filter(Boolean)[0] || "";
+    }
+
+    if (!["youtube.com", "m.youtube.com", "music.youtube.com"].includes(hostname)) {
+      return "";
+    }
+
+    if (url.pathname === "/watch") {
+      return url.searchParams.get("v") || "";
+    }
+
+    const [, resource, id] = url.pathname.split("/");
+    if (resource === "shorts" || resource === "embed" || resource === "live") {
+      return id || "";
+    }
+
+    return url.searchParams.get("v") || "";
+  } catch {
+    return "";
+  }
+};
+
+const buildYouTubeHero = (value, title) => {
+  const videoId = getYouTubeVideoIdFromUrl(value);
+  if (!videoId) {
+    return "";
+  }
+
+  return `
+    <div class="article-video-frame">
+      <iframe
+        src="https://www.youtube.com/embed/${escapeHtml(videoId)}?rel=0"
+        title="${escapeHtml(title || "YouTube video")}"
+        data-youtube-player="true"
+        data-youtube-video-id="${escapeHtml(videoId)}"
+        loading="eager"
+        referrerpolicy="strict-origin-when-cross-origin"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        allowfullscreen
+      ></iframe>
+    </div>
+  `;
+};
 
 const formatMonthLabel = (localDate) => {
   const [year, month] = String(localDate || "").split("-").map(Number);
@@ -954,9 +1008,17 @@ const consumeLeadMediaNode = (root) => {
   return "";
 };
 
-const buildArticleHero = (bodyHtml, thumbnailUrl, title) => {
+const buildArticleHero = (bodyHtml, thumbnailUrl, title, url = "") => {
   if (!bodyHtml && !thumbnailUrl) {
     return { bodyHtml: bodyHtml || "", heroHtml: "" };
+  }
+
+  const youtubeHeroHtml = buildYouTubeHero(url, title);
+  if (youtubeHeroHtml) {
+    return {
+      bodyHtml: bodyHtml || "",
+      heroHtml: youtubeHeroHtml
+    };
   }
 
   const parser = new DOMParser();
@@ -1024,6 +1086,72 @@ const buildArticleHero = (bodyHtml, thumbnailUrl, title) => {
     bodyHtml: root ? root.innerHTML : (bodyHtml || ""),
     heroHtml
   };
+};
+
+const parseTimestampToSeconds = (value) => {
+  const normalized = String(value || "").trim();
+  if (!/^\d{1,2}:\d{2}(?::\d{2})?$/u.test(normalized)) {
+    return null;
+  }
+
+  const parts = normalized.split(":").map((part) => Number(part));
+  if (parts.some((part) => !Number.isFinite(part))) {
+    return null;
+  }
+
+  if (parts.length === 2) {
+    return parts[0] * 60 + parts[1];
+  }
+
+  return parts[0] * 3600 + parts[1] * 60 + parts[2];
+};
+
+const enhanceYouTubeTranscriptTimestamps = (root) => {
+  if (!root) {
+    return;
+  }
+
+  for (const paragraph of root.querySelectorAll("p")) {
+    const firstElement = paragraph.firstElementChild;
+    if (!firstElement || firstElement.tagName !== "STRONG") {
+      continue;
+    }
+
+    const timestamp = firstElement.textContent?.trim() || "";
+    const seconds = parseTimestampToSeconds(timestamp);
+    if (seconds == null) {
+      continue;
+    }
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "transcript-timestamp";
+    button.dataset.seekSeconds = String(seconds);
+    button.textContent = timestamp;
+    button.setAttribute("aria-label", `Play video from ${timestamp}`);
+    firstElement.replaceWith(button);
+
+    const textWrapper = document.createElement("span");
+    textWrapper.className = "transcript-line-text";
+    while (button.nextSibling) {
+      textWrapper.append(button.nextSibling);
+    }
+
+    paragraph.classList.add("transcript-line");
+    paragraph.append(textWrapper);
+  }
+};
+
+const seekYouTubeHeroPlayer = (seconds) => {
+  const iframe = elements.articleView.querySelector('iframe[data-youtube-player="true"]');
+  const videoId = iframe?.dataset.youtubeVideoId;
+  if (!iframe || !videoId || !Number.isFinite(seconds)) {
+    return;
+  }
+
+  const startSeconds = Math.max(0, Math.floor(seconds));
+  iframe.src = `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=1&rel=0&start=${startSeconds}`;
+  iframe.scrollIntoView({ behavior: "smooth", block: "center" });
 };
 
 const buildRequestArgs = ({ cursor = null, includeSelectedArticleId = false } = {}) => {
@@ -1379,7 +1507,12 @@ const renderArticle = () => {
     return;
   }
 
-  const articleHero = buildArticleHero(article.bodyHtml, article.thumbnailUrl, article.title);
+  const articleHero = buildArticleHero(
+    article.bodyHtml,
+    article.thumbnailUrl,
+    article.title,
+    article.url || article.canonicalUrl || ""
+  );
 
   elements.articleView.innerHTML = `
     <div class="article-layout">
@@ -1407,6 +1540,9 @@ const renderArticle = () => {
 
   const articleBody = elements.articleView.querySelector(".article-body");
   if (articleBody) {
+    if (isYouTubeArticle(article)) {
+      enhanceYouTubeTranscriptTimestamps(articleBody);
+    }
     applyHighlightsToArticleBody(articleBody, article.highlights || []);
   }
 
@@ -2095,6 +2231,12 @@ elements.articleView.addEventListener("click", async (event) => {
       jump.scrollIntoView({ behavior: "smooth", block: "nearest" });
       jump.focus({ preventScroll: true });
     }
+    return;
+  }
+
+  const transcriptTimestamp = event.target.closest("[data-seek-seconds]");
+  if (transcriptTimestamp) {
+    seekYouTubeHeroPlayer(Number(transcriptTimestamp.dataset.seekSeconds || "0"));
     return;
   }
 

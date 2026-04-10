@@ -247,7 +247,7 @@ export const syncInbox = internalAction({
       });
 
       if (articles.length > 0 && result.inserted + result.updated > 0) {
-        await ctx.runAction(internal.digestNode.refreshTodayFromPublishedAt, {
+        await ctx.runAction(internal.digestNode.refreshDigestsFromPublishedAt, {
           publishedAtValues: articles.map((article) => article.publishedAt)
         });
       }

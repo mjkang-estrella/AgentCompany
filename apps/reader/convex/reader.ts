@@ -71,24 +71,35 @@ const articleDetail = (
   article: Doc<"articles">,
   body: Doc<"articleBodies"> | null,
   highlights: Doc<"articleHighlights">[]
-) => ({
-  ...articleSummary(article),
-  bodyHtml: body?.bodyHtml || article.bodyHtml || "",
-  bodySource: body?.bodySource || article.bodySource || "feed",
-  canonicalUrl: article.canonicalUrl || "",
-  feedSiteUrl: article.feedSiteUrl || "",
-  highlights: highlights.map((highlight) => ({
-    color: highlight.color,
-    createdAt: new Date(highlight.createdAt).toISOString(),
-    endOffset: highlight.endOffset,
-    id: highlight._id,
-    prefixText: highlight.prefixText,
-    selectedText: highlight.selectedText,
-    startOffset: highlight.startOffset,
-    suffixText: highlight.suffixText
-  })),
-  summaryHtml: body?.summaryHtml || article.summaryHtml || ""
-});
+) => {
+  const bodyHtml = body?.bodyHtml || article.bodyHtml || "";
+  const subtitle =
+    article.feedTitle === "YouTube" &&
+    article.subtitle === "Transcript unavailable. Showing the video description instead." &&
+    /<h2>Transcript<\/h2>/iu.test(bodyHtml)
+      ? ""
+      : (article.subtitle || "");
+
+  return {
+    ...articleSummary(article),
+    bodyHtml,
+    bodySource: body?.bodySource || article.bodySource || "feed",
+    canonicalUrl: article.canonicalUrl || "",
+    feedSiteUrl: article.feedSiteUrl || "",
+    highlights: highlights.map((highlight) => ({
+      color: highlight.color,
+      createdAt: new Date(highlight.createdAt).toISOString(),
+      endOffset: highlight.endOffset,
+      id: highlight._id,
+      prefixText: highlight.prefixText,
+      selectedText: highlight.selectedText,
+      startOffset: highlight.startOffset,
+      suffixText: highlight.suffixText
+    })),
+    subtitle,
+    summaryHtml: body?.summaryHtml || article.summaryHtml || ""
+  };
+};
 
 const withoutDeleted = (queryBuilder: any) =>
   queryBuilder.filter((q: any) => q.eq(q.field("deletedAt"), undefined));

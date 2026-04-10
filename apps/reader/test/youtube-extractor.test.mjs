@@ -14,6 +14,19 @@ const buildWatchPageHtml = (playerResponse) => `<!doctype html>
   <body></body>
 </html>`;
 
+const buildWatchPageHtmlWithApiKey = (playerResponse) => `<!doctype html>
+<html lang="en">
+  <head>
+    <title>${playerResponse.videoDetails.title}</title>
+    <meta property="og:title" content="${playerResponse.videoDetails.title}">
+    <meta property="og:image" content="https://i.ytimg.com/vi/${playerResponse.videoDetails.videoId}/maxresdefault.jpg">
+    <script>var ytcfg = { INNERTUBE_API_KEY: "test-api-key" };</script>
+    <script>window["INNERTUBE_API_KEY"]="test-api-key";</script>
+    <script>var ytInitialPlayerResponse = ${JSON.stringify(playerResponse)};</script>
+  </head>
+  <body></body>
+</html>`;
+
 test("isYouTubeUrl recognizes watch and short links", () => {
   assert.equal(isYouTubeUrl("https://www.youtube.com/watch?v=abc123"), true);
   assert.equal(isYouTubeUrl("https://youtu.be/abc123"), true);
@@ -117,4 +130,113 @@ test("extractYouTubeArticleFromHtml falls back to the description when captions 
     article.subtitle,
     "Transcript unavailable. Showing the video description instead."
   );
+});
+
+test("extractYouTubeArticleFromHtml prefers fresh Innertube caption tracks when page tracks are unusable", async () => {
+  const pagePlayerResponse = {
+    microformat: {
+      playerMicroformatRenderer: {
+        ownerChannelName: "Agent Channel",
+        publishDate: "2026-04-01",
+        urlCanonical: "https://www.youtube.com/watch?v=fresh123"
+      }
+    },
+    videoDetails: {
+      author: "Agent Channel",
+      shortDescription: "Description fallback text.",
+      title: "Fresh transcript fallback",
+      videoId: "fresh123"
+    }
+  };
+
+  const freshPlayerResponse = {
+    captions: {
+      playerCaptionsTracklistRenderer: {
+        captionTracks: [
+          {
+            baseUrl: "https://www.youtube.com/api/timedtext?v=fresh123&lang=en&fmt=srv3",
+            languageCode: "en",
+            name: { simpleText: "English" },
+            vssId: ".en"
+          }
+        ]
+      }
+    },
+    microformat: {
+      playerMicroformatRenderer: {
+        ownerChannelName: "Agent Channel",
+        publishDate: "2026-04-01",
+        urlCanonical: "https://www.youtube.com/watch?v=fresh123"
+      }
+    },
+    videoDetails: {
+      author: "Agent Channel",
+      shortDescription: "Description fallback text.",
+      title: "Fresh transcript fallback",
+      videoId: "fresh123"
+    }
+  };
+
+  const article = await extractYouTubeArticleFromHtml(
+    buildWatchPageHtmlWithApiKey(pagePlayerResponse),
+    "https://www.youtube.com/watch?v=fresh123",
+    {
+      fetchJson: async () => freshPlayerResponse,
+      fetchText: async (url) => {
+        if (!url.includes("timedtext")) {
+          throw new Error("unexpected transcript url");
+        }
+
+        return `
+          <timedtext format="3">
+            <body>
+              <p t="0" d="4000">Fresh transcript sentence one.</p>
+              <p t="4000" d="4000">Fresh transcript sentence two.</p>
+            </body>
+          </timedtext>
+        `;
+      }
+    }
+  );
+
+  assert.equal(article.subtitle, "");
+  assert.match(article.bodyHtml, /Fresh transcript sentence one/);
+  assert.match(article.bodyHtml, /<h2>Transcript<\/h2>/);
+});
+
+test("extractYouTubeArticleFromHtml falls back to oEmbed metadata when the watch page is shell-like", async () => {
+  const shellHtml = `<!doctype html>
+  <html lang="en">
+    <head>
+      <title>- YouTube</title>
+      <meta property="og:title" content="- YouTube">
+      <meta property="og:description" content="Shell page description.">
+    </head>
+    <body></body>
+  </html>`;
+
+  const article = await extractYouTubeArticleFromHtml(
+    shellHtml,
+    "https://www.youtube.com/watch?v=oembed123",
+    {
+      fetchJson: async (url) => {
+        if (url.includes("/oembed")) {
+          return {
+            author_name: "Recovered Channel",
+            thumbnail_url: "https://i.ytimg.com/vi/oembed123/hqdefault.jpg",
+            title: "Recovered Title"
+          };
+        }
+
+        throw new Error("unexpected fetchJson call");
+      },
+      fetchText: async () => {
+        throw new Error("captions unavailable");
+      }
+    }
+  );
+
+  assert.equal(article.title, "Recovered Title");
+  assert.equal(article.author, "Recovered Channel");
+  assert.equal(article.thumbnailUrl, "https://i.ytimg.com/vi/oembed123/hqdefault.jpg");
 });

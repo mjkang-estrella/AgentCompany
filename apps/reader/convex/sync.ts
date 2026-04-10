@@ -772,7 +772,7 @@ export const runActiveFeeds = internalAction({
     }
 
     if (publishedAtValues.length > 0) {
-      await ctx.runAction(internal.digestNode.refreshTodayFromPublishedAt, {
+      await ctx.runAction(internal.digestNode.refreshDigestsFromPublishedAt, {
         publishedAtValues
       });
     }
