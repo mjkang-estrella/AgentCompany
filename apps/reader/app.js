@@ -38,7 +38,6 @@ const PAGE_LIMIT = 50;
 const LOAD_MORE_THRESHOLD = 240;
 const THEME_STORAGE_KEY = "reader.theme";
 const LEGACY_BOOKS_STORAGE_KEY = "reader.books.items";
-const LEGACY_BOOK_HIGHLIGHTS_STORAGE_KEY = "reader.books.highlights";
 const LEGACY_BOOK_NOTES_STORAGE_KEY = "reader.books.notes";
 const LEGACY_BOOKS_MIGRATION_KEY = "reader.books.migrated.v1";
 const MAX_BOOK_COVER_BYTES = 750_000;
@@ -81,6 +80,7 @@ const state = {
   overlayOpen: false,
   browseFeedGroups: false,
   scope: "today",
+  editingBookSectionId: "",
   selectedBookId: "",
   selectedBookSectionId: "",
   theme: "auto",
@@ -176,6 +176,7 @@ let feedGroupEditedManually = false;
 let articleRequestToken = 0;
 let isListMenuOpen = false;
 let isApplyingRoute = false;
+const pendingBookSyncTimers = new Map();
 
 const applyStaticIcons = () => {
   elements.navToday.innerHTML = todayIconHtml;
@@ -219,6 +220,7 @@ const isYouTubeArticle = (article) =>
 
 const isLibraryLikeScope = () => state.scope === "manual" || state.scope === "youtube";
 const isBooksMode = () => state.scope === "books";
+const isNarrowViewport = () => window.matchMedia("(max-width: 640px)").matches;
 
 const BOOK_COVER_THEMES = [
   { accent: "linear-gradient(160deg, #C96B3B 0%, #7B341E 100%)", coverTone: "Warm Copper" },
@@ -327,18 +329,15 @@ const loadBooks = async ({ preserveSelection = true } = {}) => {
     if (!legacyMigrationDone) {
       const legacyBooks = readLegacyJson(LEGACY_BOOKS_STORAGE_KEY, null);
       const legacyNotes = readLegacyJson(LEGACY_BOOK_NOTES_STORAGE_KEY, {});
-      const legacyHighlights = readLegacyJson(LEGACY_BOOK_HIGHLIGHTS_STORAGE_KEY, {});
-
       if (Array.isArray(legacyBooks) && legacyBooks.length > 0) {
         await convexRequest("mutation", "books:migrateLegacyShelf", {
           books: legacyBooks,
-          highlightParagraphsByBookId: legacyHighlights,
           notesByBookId: legacyNotes
         });
         window.localStorage.setItem(LEGACY_BOOKS_MIGRATION_KEY, "1");
         window.localStorage.removeItem(LEGACY_BOOKS_STORAGE_KEY);
         window.localStorage.removeItem(LEGACY_BOOK_NOTES_STORAGE_KEY);
-        window.localStorage.removeItem(LEGACY_BOOK_HIGHLIGHTS_STORAGE_KEY);
+        window.localStorage.removeItem("reader.books.highlights");
       } else {
         window.localStorage.setItem(LEGACY_BOOKS_MIGRATION_KEY, "1");
       }
@@ -369,7 +368,6 @@ const mapBookRecord = (book) => ({
   id: book.id,
   sections: Array.isArray(book.sections) && book.sections.length > 0
     ? book.sections.map((section) => ({
-      highlightParagraphs: Array.isArray(section.highlightParagraphs) ? section.highlightParagraphs : [],
       id: section.id,
       notes: section.notes || "",
       status: section.status || "todo",
@@ -406,12 +404,18 @@ const createBookId = (title) => {
 };
 
 const createBookSection = (title = "Untitled section", index = 0) => ({
-  highlightParagraphs: [],
   id: `${slugifySegment(title || "section")}-${Date.now()}-${index + 1}`,
   notes: "",
   status: "todo",
   title
 });
+
+const normalizeSectionKey = (value) =>
+  String(value || "")
+    .normalize("NFKC")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .toLocaleLowerCase();
 
 const parseBookOutlineSections = (outlineText) => {
   const lines = String(outlineText || "")
@@ -434,7 +438,7 @@ const parseBookOutlineSections = (outlineText) => {
       .filter((line) => line.length > 0 && line.length < 160);
 
   return candidateLines.filter((line, index, array) =>
-    array.findIndex((candidate) => slugifySegment(candidate) === slugifySegment(line)) === index
+    array.findIndex((candidate) => normalizeSectionKey(candidate) === normalizeSectionKey(line)) === index
   );
 };
 
@@ -445,11 +449,11 @@ const mergeSectionsFromOutline = (existingSections, outlineText) => {
   }
 
   const existingBySlug = new Map(
-    existingSections.map((section) => [slugifySegment(section.title), section])
+    existingSections.map((section) => [normalizeSectionKey(section.title), section])
   );
 
   return titles.map((title, index) => {
-    const existing = existingBySlug.get(slugifySegment(title));
+    const existing = existingBySlug.get(normalizeSectionKey(title));
     if (existing) {
       return {
         ...existing,
@@ -471,6 +475,65 @@ const patchBookSections = (bookId, updater) => {
   updateBookInState(bookId, { sections: nextSections });
   return nextSections;
 };
+
+const advanceBookSection = (bookId, sectionId) => {
+  if (!bookId || !sectionId) {
+    return;
+  }
+
+  const book = getBookById(bookId);
+  const sections = Array.isArray(book?.sections) ? book.sections : [];
+  const currentIndex = sections.findIndex((section) => section.id === sectionId);
+  if (currentIndex === -1) {
+    return;
+  }
+
+  const nextSectionId = sections[currentIndex + 1]?.id || sectionId;
+  const nextSections = patchBookSections(bookId, (items) =>
+    items.map((section) => section.id === sectionId
+      ? { ...section, status: "done" }
+      : section)
+  );
+
+  state.selectedBookSectionId = nextSectionId;
+  state.explicitArticleSelection = true;
+  scheduleBookSync(`sections:${bookId}`, () =>
+    convexRequest("mutation", "books:updateSections", {
+      bookId,
+      sections: nextSections
+    }),
+  "Sections synced");
+  syncRoute({ replace: false });
+  render();
+};
+
+const commitBookSectionTitle = (bookId, sectionId, nextTitle) => {
+  const book = getBookById(bookId);
+  const currentSection = Array.isArray(book?.sections)
+    ? book.sections.find((section) => section.id === sectionId)
+    : null;
+  if (!bookId || !sectionId || !currentSection) {
+    state.editingBookSectionId = "";
+    return;
+  }
+
+  const normalizedTitle = String(nextTitle || "").trim() || currentSection.title || "Untitled section";
+  state.editingBookSectionId = "";
+  const nextSections = patchBookSections(bookId, (sections) =>
+    sections.map((section) => section.id === sectionId
+      ? { ...section, title: normalizedTitle }
+      : section)
+  );
+  scheduleBookSync(`sections:${bookId}`, () =>
+    convexRequest("mutation", "books:updateSections", {
+      bookId,
+      sections: nextSections
+    }),
+  "Sections synced");
+  render();
+};
+
+window.__readerAdvanceBookSection = advanceBookSection;
 
 const renderBookCoverMarkup = (book, className = "book-cover") => {
   const tone = book.coverTone || "";
@@ -1740,20 +1803,24 @@ const renderBookView = () => {
       <div class="book-sections-layout">
         <aside class="book-sections-panel">
           <div class="book-sections-header">
-            <div>
-              <div class="book-notes-kicker">Contents</div>
-              <h2 class="book-notes-title">Sections</h2>
-            </div>
-            <button class="btn-secondary" data-book-section-add="${book.id}" type="button">Add section</button>
+            <h2 class="book-panel-title">Table of Contents</h2>
+            <button class="btn-secondary" data-book-section-add="${book.id}" type="button">Add</button>
           </div>
           <div class="book-sections-list">
-            ${sections.map((section, index) => `
+            ${sections.map((section) => `
               <button class="book-section-item ${selectedSection?.id === section.id ? "is-active" : ""}" data-book-section-id="${section.id}" type="button">
-                <div class="book-section-index">${index + 1}</div>
-                <div class="book-section-copy">
+                ${state.editingBookSectionId === section.id ? `
+                  <input
+                    class="book-section-title-edit-input"
+                    data-book-section-title-edit-input="${book.id}:${section.id}"
+                    type="text"
+                    value="${escapeHtml(section.title)}"
+                    aria-label="Edit section title"
+                  >
+                ` : `
                   <div class="book-section-title">${escapeHtml(section.title)}</div>
-                  <div class="book-section-meta">${section.status === "done" ? "Complete" : "In progress"}</div>
-                </div>
+                `}
+                <div class="book-section-status ${section.status === "done" ? "is-done" : ""}">${section.status === "done" ? "Done" : "Active"}</div>
               </button>
             `).join("")}
           </div>
@@ -1762,58 +1829,13 @@ const renderBookView = () => {
           ${selectedSection ? `
             <section class="book-notes-panel">
               <div class="book-notes-header">
-                <div>
-                  <div class="book-notes-kicker">Section</div>
-                  <h2 class="book-notes-title">Notes editor</h2>
-                </div>
-                <div class="book-notes-meta book-save-status ${state.bookSaveFeedback.tone === "success" ? "is-success" : state.bookSaveFeedback.tone === "error" ? "is-error" : ""}" data-book-save-status>${escapeHtml(state.bookSaveFeedback.message)}</div>
-              </div>
-              <input
-                class="text-input"
-                data-book-section-title-input="${book.id}:${selectedSection.id}"
-                type="text"
-                value="${escapeHtml(selectedSection.title)}"
-                placeholder="Section title"
-              >
-              <div class="book-section-actions">
-                <button class="btn-secondary ${selectedSection.status === "done" ? "is-active" : ""}" data-book-section-toggle="${book.id}:${selectedSection.id}" type="button">
-                  ${selectedSection.status === "done" ? "Completed" : "Mark complete"}
-                </button>
-                <button class="btn-secondary" data-book-section-remove="${book.id}:${selectedSection.id}" type="button">Delete section</button>
+                <h2 class="book-notes-chapter-title">${escapeHtml(selectedSection.title)}</h2>
+                <button class="btn-secondary" data-book-section-next="${book.id}:${selectedSection.id}" onclick="window.__readerAdvanceBookSection && window.__readerAdvanceBookSection('${escapeHtml(book.id)}', '${escapeHtml(selectedSection.id)}')" type="button">Next</button>
               </div>
               <textarea
                 class="book-notes-textarea"
-                data-book-section-notes-input="${book.id}:${selectedSection.id}"
-                placeholder="Capture quotes, arguments, open questions, chapter reactions, or anything you want to revisit later."
+                data-book-notes-input="${book.id}:${selectedSection.id}"
               >${escapeHtml(selectedSection.notes || "")}</textarea>
-            </section>
-            <section class="book-highlights-panel">
-              <div class="book-highlights-header">
-                <div>
-                  <div class="book-notes-kicker">Highlights</div>
-                  <h2 class="book-notes-title">Paragraph highlights</h2>
-                </div>
-                <button class="btn-secondary" data-book-highlight-add="${book.id}:${selectedSection.id}" type="button">Add paragraph</button>
-              </div>
-              <div class="book-highlights-list">
-                ${selectedSection.highlightParagraphs.length === 0 ? `
-                  <div class="book-highlights-empty">
-                    Add highlighted passages one paragraph at a time.
-                  </div>
-                ` : selectedSection.highlightParagraphs.map((paragraph, index) => `
-                  <div class="book-highlight-item">
-                    <div class="book-highlight-toolbar">
-                      <div class="book-highlight-label">Paragraph ${index + 1}</div>
-                      <button class="icon-btn" data-book-highlight-remove="${book.id}:${selectedSection.id}:${index}" title="Remove paragraph" aria-label="Remove paragraph" type="button">×</button>
-                    </div>
-                    <textarea
-                      class="book-highlight-textarea"
-                      data-book-highlight-input="${book.id}:${selectedSection.id}:${index}"
-                      placeholder="Write one highlight paragraph here."
-                    >${escapeHtml(paragraph)}</textarea>
-                  </div>
-                `).join("")}
-              </div>
             </section>
           ` : `
             <div class="books-empty-state">
@@ -1828,6 +1850,13 @@ const renderBookView = () => {
       </div>
     </div>
   `;
+
+  const titleEditInput = elements.articleView.querySelector("[data-book-section-title-edit-input]");
+  if (titleEditInput) {
+    titleEditInput.focus();
+    titleEditInput.select();
+  }
+
 };
 
 const renderArticleList = () => {
@@ -2096,6 +2125,7 @@ const renderArticle = () => {
 };
 
 const render = () => {
+  elements.articleView.classList.toggle("is-books-view", isBooksMode());
   renderRail();
   renderArticleList();
   renderArticle();
@@ -2734,7 +2764,6 @@ const deleteSelectedBook = async () => {
   }
 
   clearPendingBookSync(`notes:${book.id}`);
-  clearPendingBookSync(`highlights:${book.id}`);
   await convexRequest("mutation", "books:remove", { bookId: book.id });
   saveBooksToState(state.books.filter((entry) => entry.id !== book.id));
   state.selectedBookId = state.books[0]?.id || "";
@@ -2880,6 +2909,9 @@ elements.navBooks.addEventListener("click", async () => {
   openPanel();
   syncRoute({ replace: false });
   await loadBooks({ preserveSelection: true });
+  if (isNarrowViewport() && state.selectedBookId) {
+    closePanel();
+  }
   render();
 });
 
@@ -2965,15 +2997,33 @@ elements.articleList.addEventListener("click", async (event) => {
   state.selectedBookSectionId = getSelectedBookSection(getBookById(state.selectedBookId))?.id || "";
   state.explicitArticleSelection = true;
   setBookSaveFeedback("Synced", "idle");
+  if (isBooksMode() && isNarrowViewport()) {
+    closePanel();
+  }
   syncRoute({ replace: false });
   render();
 });
 
 elements.articleView.addEventListener("click", async (event) => {
+  const titleEditInput = event.target.closest("[data-book-section-title-edit-input]");
+  if (titleEditInput) {
+    event.stopPropagation();
+    return;
+  }
+
   const addBookSectionButton = event.target.closest("[data-book-section-add]");
   if (addBookSectionButton) {
     const bookId = addBookSectionButton.dataset.bookSectionAdd;
-    const nextSections = patchBookSections(bookId, (sections) => [...sections, createBookSection(`Section ${sections.length + 1}`, sections.length)]);
+    const book = getBookById(bookId);
+    const sectionCount = Array.isArray(book?.sections) ? book.sections.length : 0;
+    const suggestedTitle = `Section ${sectionCount + 1}`;
+    const requestedTitle = window.prompt("New chapter title", suggestedTitle);
+    if (requestedTitle == null) {
+      return;
+    }
+
+    const nextTitle = requestedTitle.trim() || suggestedTitle;
+    const nextSections = patchBookSections(bookId, (sections) => [...sections, createBookSection(nextTitle, sections.length)]);
     state.selectedBookSectionId = nextSections[nextSections.length - 1]?.id || "";
     scheduleBookSync(`sections:${bookId}`, () =>
       convexRequest("mutation", "books:updateSections", {
@@ -2985,100 +3035,9 @@ elements.articleView.addEventListener("click", async (event) => {
     return;
   }
 
-  const removeBookSectionButton = event.target.closest("[data-book-section-remove]");
-  if (removeBookSectionButton) {
-    const [bookId, sectionId] = String(removeBookSectionButton.dataset.bookSectionRemove || "").split(":");
-    if (!bookId || !sectionId) {
-      return;
-    }
-
-    const nextSections = patchBookSections(bookId, (sections) => sections.filter((section) => section.id !== sectionId));
-    state.selectedBookSectionId = nextSections[0]?.id || "";
-    scheduleBookSync(`sections:${bookId}`, () =>
-      convexRequest("mutation", "books:updateSections", {
-        bookId,
-        sections: nextSections
-      }),
-    "Sections synced");
-    render();
-    return;
-  }
-
-  const toggleBookSectionButton = event.target.closest("[data-book-section-toggle]");
-  if (toggleBookSectionButton) {
-    const [bookId, sectionId] = String(toggleBookSectionButton.dataset.bookSectionToggle || "").split(":");
-    if (!bookId || !sectionId) {
-      return;
-    }
-
-    const nextSections = patchBookSections(bookId, (sections) =>
-      sections.map((section) => section.id === sectionId
-        ? { ...section, status: section.status === "done" ? "todo" : "done" }
-        : section)
-    );
-    scheduleBookSync(`sections:${bookId}`, () =>
-      convexRequest("mutation", "books:updateSections", {
-        bookId,
-        sections: nextSections
-      }),
-    "Sections synced");
-    render();
-    return;
-  }
-
-  const addBookHighlightButton = event.target.closest("[data-book-highlight-add]");
-  if (addBookHighlightButton) {
-    const [bookId, sectionId] = String(addBookHighlightButton.dataset.bookHighlightAdd || "").split(":");
-    if (!bookId || !sectionId) {
-      return;
-    }
-
-    const nextSections = patchBookSections(bookId, (sections) =>
-      sections.map((section) => section.id === sectionId
-        ? { ...section, highlightParagraphs: [...section.highlightParagraphs, ""] }
-        : section)
-    );
-    scheduleBookSync(`sections:${bookId}`, () =>
-      convexRequest("mutation", "books:updateSections", {
-        bookId,
-        sections: nextSections
-      }),
-    "Highlights synced");
-    render();
-    const targetSection = nextSections.find((section) => section.id === sectionId);
-    const nextIndex = (targetSection?.highlightParagraphs.length || 1) - 1;
-    const nextInput = elements.articleView.querySelector(`[data-book-highlight-input="${CSS.escape(`${bookId}:${sectionId}:${nextIndex}`)}"]`);
-    if (nextInput) {
-      nextInput.focus();
-    }
-    return;
-  }
-
-  const removeBookHighlightButton = event.target.closest("[data-book-highlight-remove]");
-  if (removeBookHighlightButton) {
-    const [bookId, sectionId, indexValue] = String(removeBookHighlightButton.dataset.bookHighlightRemove || "").split(":");
-    const index = Number(indexValue);
-    if (!bookId || !sectionId || !Number.isInteger(index)) {
-      return;
-    }
-
-    const nextSections = patchBookSections(bookId, (sections) =>
-      sections.map((section) => section.id === sectionId
-        ? { ...section, highlightParagraphs: section.highlightParagraphs.filter((_, itemIndex) => itemIndex !== index) }
-        : section)
-    );
-    scheduleBookSync(`sections:${bookId}`, () =>
-      convexRequest("mutation", "books:updateSections", {
-        bookId,
-        sections: nextSections
-      }),
-    "Highlights synced");
-    render();
-    return;
-  }
-
   const sectionButton = event.target.closest("[data-book-section-id]");
   if (sectionButton) {
+    state.editingBookSectionId = "";
     state.selectedBookSectionId = sectionButton.dataset.bookSectionId;
     state.explicitArticleSelection = true;
     syncRoute({ replace: false });
@@ -3172,63 +3131,35 @@ elements.articleView.addEventListener("click", async (event) => {
   await loadDigestForDate(shiftLocalDate(baseDate, offset), { updateRoute: true });
 });
 
-elements.articleView.addEventListener("input", (event) => {
-  const notesInput = event.target.closest("[data-book-notes-input]");
-  if (!notesInput) {
-    const sectionTitleInput = event.target.closest("[data-book-section-title-input]");
-    if (sectionTitleInput) {
-      const [bookId, sectionId] = String(sectionTitleInput.dataset.bookSectionTitleInput || "").split(":");
-      if (!bookId || !sectionId) {
-        return;
-      }
-
-      const nextSections = patchBookSections(bookId, (sections) =>
-        sections.map((section) => section.id === sectionId
-          ? { ...section, title: sectionTitleInput.value }
-          : section)
-      );
-      scheduleBookSync(`sections:${bookId}`, () =>
-        convexRequest("mutation", "books:updateSections", {
-          bookId,
-          sections: nextSections
-        }),
-      "Sections synced");
-      return;
-    }
-
-    const highlightInput = event.target.closest("[data-book-highlight-input]");
-    if (!highlightInput) {
-      return;
-    }
-
-    const [bookId, sectionId, indexValue] = String(highlightInput.dataset.bookHighlightInput || "").split(":");
-    const index = Number(indexValue);
-    if (!bookId || !sectionId || !Number.isInteger(index)) {
-      return;
-    }
-
-    const nextSections = patchBookSections(bookId, (sections) =>
-      sections.map((section) => {
-        if (section.id !== sectionId) {
-          return section;
-        }
-
-        const nextHighlights = [...section.highlightParagraphs];
-        nextHighlights[index] = highlightInput.value;
-        return { ...section, highlightParagraphs: nextHighlights };
-      })
-    );
-    scheduleBookSync(`sections:${bookId}`, () =>
-      convexRequest("mutation", "books:updateSections", {
-        bookId,
-        sections: nextSections
-      }),
-    "Highlights synced");
+elements.articleView.addEventListener("dblclick", (event) => {
+  const sectionButton = event.target.closest("[data-book-section-id]");
+  if (!sectionButton) {
     return;
   }
 
-  const bookId = notesInput.dataset.bookNotesInput;
-  const sectionId = state.selectedBookSectionId;
+  const sectionId = sectionButton.dataset.bookSectionId;
+  if (!sectionId) {
+    return;
+  }
+
+  state.selectedBookSectionId = sectionId;
+  state.editingBookSectionId = sectionId;
+  state.explicitArticleSelection = true;
+  syncRoute({ replace: false });
+  render();
+});
+
+elements.articleView.addEventListener("input", (event) => {
+  const notesInput = event.target.closest("[data-book-notes-input]");
+  if (!notesInput) {
+    return;
+  }
+
+  const [bookId, sectionId] = String(notesInput.dataset.bookNotesInput || "").split(":");
+  if (!bookId || !sectionId) {
+    return;
+  }
+
   const nextSections = patchBookSections(bookId, (sections) =>
     sections.map((section) => section.id === sectionId
       ? { ...section, notes: notesInput.value }
@@ -3240,6 +3171,44 @@ elements.articleView.addEventListener("input", (event) => {
       sections: nextSections
     }),
   "Notes synced");
+});
+
+elements.articleView.addEventListener("keydown", (event) => {
+  const titleEditInput = event.target.closest("[data-book-section-title-edit-input]");
+  if (!titleEditInput) {
+    return;
+  }
+
+  const [bookId, sectionId] = String(titleEditInput.dataset.bookSectionTitleEditInput || "").split(":");
+  if (!bookId || !sectionId) {
+    return;
+  }
+
+  if (event.key === "Enter") {
+    event.preventDefault();
+    commitBookSectionTitle(bookId, sectionId, titleEditInput.value);
+    return;
+  }
+
+  if (event.key === "Escape") {
+    event.preventDefault();
+    state.editingBookSectionId = "";
+    render();
+  }
+});
+
+elements.articleView.addEventListener("focusout", (event) => {
+  const titleEditInput = event.target.closest("[data-book-section-title-edit-input]");
+  if (!titleEditInput) {
+    return;
+  }
+
+  const [bookId, sectionId] = String(titleEditInput.dataset.bookSectionTitleEditInput || "").split(":");
+  if (!bookId || !sectionId) {
+    return;
+  }
+
+  commitBookSectionTitle(bookId, sectionId, titleEditInput.value);
 });
 
 elements.inspectorPanelBody.addEventListener("click", async (event) => {
@@ -3725,7 +3694,11 @@ const start = async () => {
       state.explicitArticleSelection = Boolean(route.articleSlug);
       state.selectedBookId = findBookBySlug(route.articleSlug)?.id || state.books[0]?.id || "";
       setBookSaveFeedback("Synced", "idle");
-      openPanel();
+      if (isNarrowViewport() && state.selectedBookId) {
+        closePanel();
+      } else {
+        openPanel();
+      }
       render();
     } else {
       state.scope = route.scope;

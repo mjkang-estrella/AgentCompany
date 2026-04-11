@@ -104,7 +104,7 @@ export default defineSchema({
     slug: v.string(),
     notes: v.optional(v.string()),
     sections: v.optional(v.array(v.object({
-      highlightParagraphs: v.array(v.string()),
+      highlightParagraphs: v.optional(v.array(v.string())),
       id: v.string(),
       notes: v.string(),
       status: v.string(),

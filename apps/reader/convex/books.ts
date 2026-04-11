@@ -11,7 +11,6 @@ const createSectionId = (title: string, index = 0) => `${slugifySegment(title ||
 const deriveSections = (book: Partial<Doc<"books">>) => {
   if (Array.isArray(book.sections) && book.sections.length > 0) {
     return book.sections.map((section) => ({
-      highlightParagraphs: Array.isArray(section.highlightParagraphs) ? section.highlightParagraphs : [],
       id: section.id,
       notes: section.notes || "",
       status: section.status || "todo",
@@ -21,7 +20,6 @@ const deriveSections = (book: Partial<Doc<"books">>) => {
 
   return [
     {
-      highlightParagraphs: Array.isArray(book.highlightParagraphs) ? book.highlightParagraphs : [],
       id: "overview-1",
       notes: book.notes || "",
       status: "todo",
@@ -100,7 +98,6 @@ export const ensureDefaultShelf = mutation({
         description: book.description,
         sections: [
           {
-            highlightParagraphs: [],
             id: "overview-1",
             notes: "",
             status: "todo",
@@ -171,7 +168,6 @@ export const upsert = mutation({
       description: args.description,
       sections: [
         {
-          highlightParagraphs: [],
           id: "overview-1",
           notes: "",
           status: "todo",
@@ -192,7 +188,6 @@ export const updateSections = mutation({
   args: {
     bookId: v.id("books"),
     sections: v.array(v.object({
-      highlightParagraphs: v.array(v.string()),
       id: v.string(),
       notes: v.string(),
       status: v.string(),
@@ -244,7 +239,6 @@ export const migrateLegacyShelf = mutation({
       status: v.optional(v.string()),
       title: v.string()
     })),
-    highlightParagraphsByBookId: v.record(v.string(), v.array(v.string())),
     notesByBookId: v.record(v.string(), v.string())
   },
   handler: async (ctx, args) => {
@@ -271,7 +265,6 @@ export const migrateLegacyShelf = mutation({
         description: legacyBook.description || "",
         sections: [
           {
-            highlightParagraphs: args.highlightParagraphsByBookId[legacyBook.id] || [],
             id: createSectionId("Overview"),
             notes: args.notesByBookId[legacyBook.id] || "",
             status: "todo",
