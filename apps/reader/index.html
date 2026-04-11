@@ -4,14 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
     <title>Reader | MJ Kang</title>
     <style>
         :root {
             --bg-body: #FFFFFF;
             --bg-panel: #FAFAFA;
+            --bg-muted: #F8F5F0;
             --bg-hover: #F3F4F6;
             --bg-active: #EFF6FF;
 
@@ -20,6 +18,7 @@
             --text-heading: #1e293b;
 
             --accent-orange: #EA580C;
+            --accent-orange-text: #B45309;
             --accent-orange-light: #FFEDD5;
             --accent-green: #10B981;
             --accent-blue: #1E3A8A;
@@ -27,7 +26,8 @@
             --border-light: #E5E7EB;
             --border-medium: #D1D5DB;
 
-            --font-family: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            --font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, "Times New Roman", serif;
+            --font-family-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
             --font-size-xs: 0.75rem;
             --font-size-sm: 0.8125rem;
             --font-size-base: 0.875rem;
@@ -80,7 +80,7 @@
         }
 
         body {
-            font-family: var(--font-family);
+            font-family: var(--font-family-ui);
             background-color: var(--bg-body);
             color: var(--text-primary);
             height: 100vh;
@@ -148,8 +148,8 @@
             border: none;
             color: var(--text-secondary);
             cursor: pointer;
-            width: 36px;
-            height: 36px;
+            width: 44px;
+            height: 44px;
             border-radius: var(--radius-sm);
             display: flex;
             align-items: center;
@@ -163,7 +163,7 @@
 
         .icon-rail-btn.is-active {
             background-color: var(--accent-orange-light);
-            color: var(--accent-orange);
+            color: var(--accent-orange-text);
         }
 
         .icon-rail-btn:focus-visible {
@@ -177,8 +177,8 @@
             color: var(--text-secondary);
             cursor: pointer;
             padding: 8px;
-            min-width: 36px;
-            min-height: 36px;
+            min-width: 44px;
+            min-height: 44px;
             border-radius: var(--radius-sm);
             display: inline-flex;
             align-items: center;
@@ -202,7 +202,7 @@
 
         .icon-btn.is-active {
             background-color: var(--accent-orange-light);
-            color: var(--accent-orange);
+            color: var(--accent-orange-text);
         }
 
         .icon-btn:disabled,
@@ -486,6 +486,412 @@
             padding-left: 17px;
         }
 
+        .books-sidebar {
+            padding: 18px 18px 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        .books-sidebar-copy {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding-bottom: 4px;
+        }
+
+        .books-sidebar-kicker,
+        .book-page-kicker,
+        .book-notes-kicker,
+        .books-empty-kicker {
+            font-size: var(--font-size-xs);
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--accent-orange);
+            font-weight: 700;
+        }
+
+        .books-sidebar-title {
+            font-size: 1.2rem;
+            color: var(--text-heading);
+            font-weight: 600;
+            letter-spacing: -0.01em;
+        }
+
+        .books-sidebar-text,
+        .books-empty-text,
+        .book-page-blurb {
+            color: var(--text-secondary);
+            line-height: 1.6;
+            font-size: var(--font-size-sm);
+        }
+
+        .books-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .books-featured {
+            border: 1px solid var(--border-light);
+            background: linear-gradient(180deg, var(--bg-body), var(--bg-panel));
+            border-radius: 18px;
+            padding: 16px;
+            display: grid;
+            grid-template-columns: 120px minmax(0, 1fr);
+            gap: 16px;
+            align-items: start;
+            cursor: pointer;
+            text-align: left;
+        }
+
+        .books-featured-copy {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .books-featured-label,
+        .books-section-label {
+            font-size: var(--font-size-xs);
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--accent-orange-text);
+            font-weight: 700;
+        }
+
+        .books-featured-title {
+            color: var(--text-heading);
+            font-family: var(--font-family);
+            font-size: 1.15rem;
+            line-height: 1.2;
+            letter-spacing: -0.02em;
+            font-weight: 700;
+        }
+
+        .books-featured-author {
+            color: var(--text-secondary);
+            font-size: var(--font-size-sm);
+        }
+
+        .books-featured-text {
+            color: var(--text-secondary);
+            font-size: var(--font-size-sm);
+            line-height: 1.6;
+        }
+
+        .book-card {
+            border: none;
+            background: none;
+            padding: 0;
+            text-align: left;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .book-card:focus-visible {
+            outline: none;
+        }
+
+        .book-card.is-active .book-cover {
+            transform: translateY(-2px);
+            box-shadow: 0 16px 32px rgba(15, 23, 42, 0.18);
+        }
+
+        .book-cover,
+        .book-page-cover {
+            position: relative;
+            background: var(--book-accent);
+            border-radius: 18px;
+            color: #FEF7ED;
+            border: 1px solid rgba(255,255,255,0.16);
+            box-shadow: 0 14px 28px rgba(15, 23, 42, 0.16);
+            overflow: hidden;
+        }
+
+        .book-cover::before,
+        .book-page-cover::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background:
+                linear-gradient(180deg, rgba(255,255,255,0.18), transparent 38%),
+                radial-gradient(circle at top right, rgba(255,255,255,0.16), transparent 34%);
+            pointer-events: none;
+        }
+
+        .book-cover {
+            min-height: 188px;
+            padding: 14px 14px 16px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .book-card:hover .book-cover,
+        .book-card:focus-visible .book-cover {
+            transform: translateY(-2px);
+            box-shadow: 0 16px 32px rgba(15, 23, 42, 0.18);
+        }
+
+        .book-cover.is-image-cover,
+        .book-page-cover.is-image-cover {
+            padding: 0;
+        }
+
+        .book-cover-tone {
+            font-size: 0.68rem;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            opacity: 0.82;
+        }
+
+        .book-cover-title {
+            font-size: 1.05rem;
+            line-height: 1.18;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            max-width: 9ch;
+            text-wrap: balance;
+        }
+
+        .book-cover-author {
+            font-size: var(--font-size-xs);
+            opacity: 0.92;
+            line-height: 1.45;
+        }
+
+        .book-card-meta {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding: 0 2px;
+        }
+
+        .book-card-title {
+            color: var(--text-heading);
+            font-size: var(--font-size-sm);
+            font-weight: 600;
+            line-height: 1.35;
+        }
+
+        .book-card-author {
+            color: var(--text-secondary);
+            font-size: var(--font-size-xs);
+        }
+
+        .books-empty-state {
+            min-height: 52vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .books-empty-copy {
+            max-width: 32rem;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .books-empty-title,
+        .book-page-title {
+            font-size: 2.1rem;
+            line-height: 1.08;
+            letter-spacing: -0.03em;
+            color: var(--text-heading);
+            font-family: var(--font-family);
+        }
+
+        .book-page {
+            display: flex;
+            flex-direction: column;
+            gap: 28px;
+        }
+
+        .book-page-hero {
+            display: grid;
+            grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+            gap: 28px;
+            align-items: start;
+        }
+
+        .book-page-cover {
+            min-height: 320px;
+            padding: 22px 20px 24px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .book-page-header {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .book-page-author {
+            color: var(--text-secondary);
+            font-size: 1rem;
+        }
+
+        .book-page-status-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .book-status-pill,
+        .book-local-pill {
+            display: inline-flex;
+            align-items: center;
+            min-height: 30px;
+            padding: 0 12px;
+            border-radius: 999px;
+            font-size: var(--font-size-xs);
+            font-weight: 600;
+            letter-spacing: 0.01em;
+        }
+
+        .book-status-pill {
+            background: var(--bg-active);
+            color: var(--accent-blue);
+            border: 1px solid color-mix(in srgb, var(--accent-blue) 22%, var(--border-light));
+        }
+
+        .book-local-pill {
+            background: var(--bg-panel);
+            color: var(--text-secondary);
+            border: 1px solid var(--border-light);
+        }
+
+        .book-notes-panel {
+            border: 1px solid var(--border-light);
+            border-radius: 18px;
+            background: color-mix(in srgb, var(--bg-body) 65%, var(--bg-panel));
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .book-notes-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            align-items: end;
+        }
+
+        .book-notes-title {
+            font-size: 1.2rem;
+            color: var(--text-heading);
+            letter-spacing: -0.01em;
+        }
+
+        .book-notes-meta {
+            color: var(--text-secondary);
+            font-size: var(--font-size-xs);
+        }
+
+        .book-save-status.is-success {
+            color: var(--accent-green);
+        }
+
+        .book-save-status.is-error {
+            color: var(--danger-hover-text);
+        }
+
+        .book-notes-textarea {
+            width: 100%;
+            min-height: 320px;
+            resize: vertical;
+            border: 1px solid var(--border-light);
+            border-radius: 14px;
+            background: var(--bg-body);
+            color: var(--text-primary);
+            font: inherit;
+            line-height: 1.7;
+            padding: 16px 18px;
+            outline: none;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .book-notes-textarea:focus {
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-blue) 12%, transparent);
+        }
+
+        .book-highlights-panel {
+            border: 1px solid var(--border-light);
+            border-radius: 18px;
+            background: color-mix(in srgb, var(--bg-body) 72%, var(--bg-panel));
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .book-highlights-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: end;
+            gap: 16px;
+        }
+
+        .book-highlights-list {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .book-highlights-empty {
+            color: var(--text-secondary);
+            font-size: var(--font-size-sm);
+            line-height: 1.6;
+            padding: 4px 0;
+        }
+
+        .book-highlight-item {
+            border: 1px solid var(--border-light);
+            border-radius: 14px;
+            background: var(--bg-body);
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .book-highlight-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .book-highlight-label {
+            font-size: var(--font-size-xs);
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            font-weight: 700;
+        }
+
+        .book-highlight-textarea {
+            width: 100%;
+            min-height: 120px;
+            resize: vertical;
+            border: 0;
+            background: transparent;
+            color: var(--text-primary);
+            font: inherit;
+            line-height: 1.75;
+            padding: 0;
+            outline: none;
+        }
+
         .item-meta {
             display: flex;
             justify-content: space-between;
@@ -557,12 +963,14 @@
         }
 
         .pane-header {
-            padding: 0 32px;
+            padding: 12px 32px;
             border-bottom: 1px solid var(--border-light);
             display: flex;
             justify-content: space-between;
             align-items: center;
-            height: 60px;
+            min-height: 60px;
+            gap: 12px;
+            flex-wrap: wrap;
         }
 
         .pane-actions-left,
@@ -570,6 +978,7 @@
             display: flex;
             align-items: center;
             gap: 4px;
+            flex-wrap: wrap;
         }
 
         .pane-actions-right .pane-separator {
@@ -582,7 +991,7 @@
         .btn-outline {
             background-color: var(--bg-body);
             border: 1px solid var(--accent-orange-light);
-            color: var(--accent-orange);
+            color: var(--accent-orange-text);
             padding: 6px 12px;
             font-size: var(--font-size-sm);
             font-weight: 500;
@@ -596,7 +1005,7 @@
 
         .btn-outline:hover {
             background-color: var(--bg-btn-hover-warm);
-            border-color: var(--accent-orange);
+            border-color: var(--accent-orange-text);
         }
 
         .pane-content-scroll {
@@ -897,7 +1306,7 @@
         }
 
         .article-body a {
-            color: var(--accent-orange);
+            color: var(--accent-orange-text);
             text-decoration: underline;
             text-decoration-color: var(--accent-orange-light);
             text-underline-offset: 2px;
@@ -1192,7 +1601,7 @@
         }
 
         .inline-link {
-            color: var(--accent-orange);
+            color: var(--accent-orange-text);
             text-decoration: none;
             font-size: var(--font-size-sm);
             display: inline-flex;
@@ -1233,6 +1642,8 @@
             max-width: 440px;
             width: calc(100% - 32px);
             margin: auto;
+            background: var(--bg-body);
+            color: var(--text-primary);
         }
 
         .feed-dialog::backdrop {
@@ -1240,6 +1651,7 @@
         }
 
         .feed-dialog-card {
+            background: var(--bg-body);
             padding: 24px;
             display: flex;
             flex-direction: column;
@@ -1320,11 +1732,61 @@
             font: inherit;
             color: var(--text-primary);
             background: var(--bg-body);
+            width: 100%;
+        }
+
+        .text-input::placeholder {
+            color: var(--text-secondary);
+            opacity: 1;
+        }
+
+        select.text-input {
+            appearance: none;
+            -webkit-appearance: none;
+            -moz-appearance: none;
         }
 
         .text-input:focus {
             outline: 2px solid rgba(30, 58, 138, 0.12);
             border-color: var(--accent-blue);
+        }
+
+        textarea.text-input {
+            min-height: 120px;
+            resize: vertical;
+            line-height: 1.6;
+        }
+
+        .book-dialog-preview {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .book-dialog-preview-frame {
+            max-width: 220px;
+            border-radius: 18px;
+            overflow: hidden;
+            background: var(--bg-panel);
+            border: 1px solid var(--border-light);
+        }
+
+        .book-dialog-preview-frame .book-page-cover,
+        .book-dialog-preview-frame .book-cover {
+            min-height: 280px;
+        }
+
+        .book-cover-image {
+            display: block;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .book-page-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
         }
 
         .dialog-actions {
@@ -1343,6 +1805,13 @@
             font: inherit;
         }
 
+        .btn-secondary:hover,
+        .btn-secondary:focus-visible {
+            background: var(--bg-hover);
+            border-color: var(--border-medium);
+            outline: none;
+        }
+
         .btn-secondary.is-active {
             background: var(--bg-active);
             border-color: var(--accent-blue);
@@ -1357,6 +1826,12 @@
             padding: 8px 12px;
             cursor: pointer;
             font: inherit;
+        }
+
+        .btn-primary:hover,
+        .btn-primary:focus-visible {
+            filter: brightness(1.05);
+            outline: none;
         }
 
         .btn-danger {
@@ -1397,6 +1872,7 @@
         [data-theme="dark"] {
                 --bg-body: #111827;
                 --bg-panel: #1F2937;
+                --bg-muted: #1B2430;
                 --bg-hover: #374151;
                 --bg-active: #1E3A5F;
 
@@ -1405,6 +1881,7 @@
                 --text-heading: #F9FAFB;
 
                 --accent-orange: #FB923C;
+                --accent-orange-text: #FDBA74;
                 --accent-orange-light: #431407;
                 --accent-green: #34D399;
                 --accent-blue: #60A5FA;
@@ -1425,6 +1902,23 @@
                 --highlight-bg: #F59E0B;
                 --highlight-bg-hover: #FBBF24;
                 --highlight-text: #111827;
+        }
+
+        [data-theme="dark"] .feed-dialog,
+        [data-theme="dark"] .feed-dialog-card {
+            background: var(--bg-panel);
+            color: var(--text-primary);
+        }
+
+        [data-theme="dark"] .text-input {
+            background: var(--bg-body);
+            color: var(--text-primary);
+            border-color: var(--border-medium);
+        }
+
+        [data-theme="dark"] .book-dialog-preview-frame {
+            background: var(--bg-body);
+            border-color: var(--border-medium);
         }
 
         .shortcuts-list {
@@ -1463,16 +1957,26 @@
         }
 
         @media (max-width: 960px) {
+            .books-featured {
+                grid-template-columns: 1fr;
+            }
+
+            .books-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .book-page-hero {
+                grid-template-columns: 1fr;
+            }
+
+            .book-page-cover {
+                min-height: 240px;
+            }
+
             .pane-header,
             .pane-content-scroll {
                 padding-left: 20px;
                 padding-right: 20px;
-            }
-
-            .icon-btn,
-            .icon-rail-btn {
-                min-width: 44px;
-                min-height: 44px;
             }
 
             .pane-content-scroll {
@@ -1482,6 +1986,10 @@
 
             .pane-shell {
                 flex-direction: column;
+            }
+
+            .pane-header {
+                align-items: flex-start;
             }
 
             .inspector-panel {
@@ -1505,6 +2013,7 @@
             <button class="icon-rail-btn" id="nav-feeds" title="Feeds" aria-label="Feeds" type="button"></button>
             <button class="icon-rail-btn" id="nav-manual-articles" title="Library" aria-label="Library" type="button"></button>
             <button class="icon-rail-btn" id="nav-youtube" title="YouTube" aria-label="YouTube" type="button"></button>
+            <button class="icon-rail-btn" id="nav-books" title="Books" aria-label="Books" type="button"></button>
         </div>
         <div class="icon-rail-bottom">
             <button class="icon-rail-btn" id="settings-button" title="Settings" aria-label="Settings" type="button"></button>
@@ -1540,6 +2049,8 @@
                 <button class="icon-btn" id="next-article-button" title="Next article" aria-label="Next article"></button>
             </div>
             <div class="pane-actions-right">
+                <button class="icon-btn" id="book-edit-button" title="Edit book" aria-label="Edit book" type="button" hidden></button>
+                <span class="pane-separator" id="book-edit-separator" hidden></span>
                 <button class="icon-btn" id="save-article-button" title="Save article (s)" aria-label="Save article"></button>
                 <button class="icon-btn" id="share-article-button" title="Share" aria-label="Share"></button>
                 <button class="icon-btn" id="toggle-highlights-button" title="Toggle highlights" aria-label="Toggle highlights" type="button"></button>
@@ -1608,6 +2119,56 @@
         <div class="dialog-actions">
             <button class="btn-secondary" id="article-cancel-button" type="button">Cancel</button>
             <button class="btn-primary" type="submit">Save article</button>
+        </div>
+    </form>
+</dialog>
+<dialog class="feed-dialog" id="book-dialog">
+    <form class="feed-dialog-card" id="book-form" method="dialog">
+        <div>
+            <div class="dialog-title" id="book-dialog-title">Add book</div>
+            <p class="dialog-copy" id="book-dialog-copy">Create a new local book entry for notes, reactions, and quotes.</p>
+        </div>
+        <label class="form-field">
+            <span class="form-label">Title</span>
+            <input class="text-input" id="book-title-input" name="title" required type="text" placeholder="Deep Work">
+        </label>
+        <label class="form-field">
+            <span class="form-label">Author</span>
+            <input class="text-input" id="book-author-input" name="author" type="text" placeholder="Cal Newport">
+        </label>
+        <label class="form-field">
+            <span class="form-label">Description</span>
+            <textarea class="text-input" id="book-description-input" name="description" placeholder="What is this book about, and why do you want to keep notes here?"></textarea>
+        </label>
+        <label class="form-field">
+            <span class="form-label">Status</span>
+            <select class="text-input" id="book-status-input" name="status">
+                <option value="To Read">To Read</option>
+                <option value="Reading">Reading</option>
+                <option value="Revisiting">Revisiting</option>
+                <option value="Finished">Finished</option>
+                <option value="Reference">Reference</option>
+                <option value="Annotated">Annotated</option>
+            </select>
+        </label>
+        <label class="form-field">
+            <span class="form-label">Outline / TOC</span>
+            <textarea class="text-input" id="book-outline-input" name="outline" placeholder="## Hanging by a Thread&#10;## Risk Is What You Don't See&#10;## Expectations and Reality"></textarea>
+        </label>
+        <label class="form-field">
+            <span class="form-label">Book cover</span>
+            <input class="text-input" id="book-cover-file-input" name="cover" accept="image/*" type="file">
+        </label>
+        <div class="book-dialog-preview" id="book-cover-preview" hidden>
+            <div class="form-label">Cover preview</div>
+            <div class="book-dialog-preview-frame" id="book-cover-preview-frame"></div>
+            <div class="dialog-actions" style="justify-content:flex-start;">
+                <button class="btn-secondary" id="book-remove-cover-button" type="button">Remove cover</button>
+            </div>
+        </div>
+        <div class="dialog-actions">
+            <button class="btn-secondary" id="book-cancel-button" type="button">Cancel</button>
+            <button class="btn-primary" id="book-submit-button" type="submit">Add book</button>
         </div>
     </form>
 </dialog>

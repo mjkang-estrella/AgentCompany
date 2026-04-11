@@ -9,6 +9,7 @@
  */
 
 import type * as articles from "../articles.js";
+import type * as books from "../books.js";
 import type * as crons from "../crons.js";
 import type * as digest from "../digest.js";
 import type * as digestNode from "../digestNode.js";
@@ -27,6 +28,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   articles: typeof articles;
+  books: typeof books;
   crons: typeof crons;
   digest: typeof digest;
   digestNode: typeof digestNode;

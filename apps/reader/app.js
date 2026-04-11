@@ -1,7 +1,9 @@
 import {
   addIconHtml,
   allArticlesIconHtml,
+  booksIconHtml,
   deleteIconHtml,
+  editIconHtml,
   externalLinkIconHtml,
   fallbackFeedIconHtml,
   feedGroupIconHtml,
@@ -35,6 +37,11 @@ const sanitizeHtml = (dirty) =>
 const PAGE_LIMIT = 50;
 const LOAD_MORE_THRESHOLD = 240;
 const THEME_STORAGE_KEY = "reader.theme";
+const LEGACY_BOOKS_STORAGE_KEY = "reader.books.items";
+const LEGACY_BOOK_HIGHLIGHTS_STORAGE_KEY = "reader.books.highlights";
+const LEGACY_BOOK_NOTES_STORAGE_KEY = "reader.books.notes";
+const LEGACY_BOOKS_MIGRATION_KEY = "reader.books.migrated.v1";
+const MAX_BOOK_COVER_BYTES = 750_000;
 const DIGEST_DATE_LABEL = "Today";
 const emptyCounts = {
   all: 0,
@@ -51,6 +58,14 @@ const state = {
   calendarMonth: "",
   digest: null,
   digestDate: "",
+  books: [],
+  bookDialogCoverDataUrl: "",
+  bookDialogEditingId: "",
+  bookSaveFeedback: {
+    message: "Synced",
+    tone: "idle"
+  },
+  isLoadingBooks: false,
   feedGroup: "",
   hasMore: false,
   isHighlightsPanelOpen: true,
@@ -66,6 +81,8 @@ const state = {
   overlayOpen: false,
   browseFeedGroups: false,
   scope: "today",
+  selectedBookId: "",
+  selectedBookSectionId: "",
   theme: "auto",
   selectedArticle: null,
   selectedArticleId: ""
@@ -83,6 +100,23 @@ const elements = {
   articleListPanel: document.querySelector("#article-list-panel"),
   articleUrlInput: document.querySelector("#article-url-input"),
   articleView: document.querySelector("#article-view"),
+  bookCancelButton: document.querySelector("#book-cancel-button"),
+  bookCoverFileInput: document.querySelector("#book-cover-file-input"),
+  bookCoverPreview: document.querySelector("#book-cover-preview"),
+  bookCoverPreviewFrame: document.querySelector("#book-cover-preview-frame"),
+  bookDescriptionInput: document.querySelector("#book-description-input"),
+  bookDialog: document.querySelector("#book-dialog"),
+  bookDialogCopy: document.querySelector("#book-dialog-copy"),
+  bookDialogTitle: document.querySelector("#book-dialog-title"),
+  bookEditButton: document.querySelector("#book-edit-button"),
+  bookEditSeparator: document.querySelector("#book-edit-separator"),
+  bookForm: document.querySelector("#book-form"),
+  bookAuthorInput: document.querySelector("#book-author-input"),
+  bookOutlineInput: document.querySelector("#book-outline-input"),
+  bookRemoveCoverButton: document.querySelector("#book-remove-cover-button"),
+  bookSubmitButton: document.querySelector("#book-submit-button"),
+  bookStatusInput: document.querySelector("#book-status-input"),
+  bookTitleInput: document.querySelector("#book-title-input"),
   deleteArticleButton: document.querySelector("#delete-article-button"),
   inspectorCloseButton: document.querySelector("#inspector-close-button"),
   inspectorPanel: document.querySelector("#inspector-panel"),
@@ -100,6 +134,7 @@ const elements = {
   listTitle: document.querySelector("#list-title"),
   navAll: document.querySelector("#nav-all"),
   navFeeds: document.querySelector("#nav-feeds"),
+  navBooks: document.querySelector("#nav-books"),
   navManualArticles: document.querySelector("#nav-manual-articles"),
   navSaved: document.querySelector("#nav-saved"),
   navToday: document.querySelector("#nav-today"),
@@ -149,6 +184,8 @@ const applyStaticIcons = () => {
   elements.navFeeds.innerHTML = feedsIconHtml;
   elements.navManualArticles.innerHTML = libraryIconHtml;
   elements.navYoutube.innerHTML = youtubeIconHtml;
+  elements.navBooks.innerHTML = booksIconHtml;
+  elements.bookEditButton.innerHTML = editIconHtml;
   elements.addManualArticleButton.innerHTML = addIconHtml;
   elements.listBackButton.innerHTML = previousIconHtml.replace('width="20"', 'width="18"').replace('height="20"', 'height="18"');
   elements.listMenuButton.innerHTML = menuIconHtml;
@@ -181,6 +218,279 @@ const isYouTubeArticle = (article) =>
   );
 
 const isLibraryLikeScope = () => state.scope === "manual" || state.scope === "youtube";
+const isBooksMode = () => state.scope === "books";
+
+const BOOK_COVER_THEMES = [
+  { accent: "linear-gradient(160deg, #C96B3B 0%, #7B341E 100%)", coverTone: "Warm Copper" },
+  { accent: "linear-gradient(160deg, #234E52 0%, #0F172A 100%)", coverTone: "Sea Ink" },
+  { accent: "linear-gradient(160deg, #312E81 0%, #111827 100%)", coverTone: "Indigo Signal" },
+  { accent: "linear-gradient(160deg, #3F3F46 0%, #18181B 100%)", coverTone: "Stone Archive" },
+  { accent: "linear-gradient(160deg, #14532D 0%, #052E16 100%)", coverTone: "Forest Study" },
+  { accent: "linear-gradient(160deg, #7C2D12 0%, #431407 100%)", coverTone: "Editorial Brick" }
+];
+
+const saveBooksToState = (books) => {
+  state.books = books;
+};
+
+const getBookById = (bookId) => state.books.find((book) => book.id === bookId) || null;
+const getSelectedBookSection = (book) => {
+  if (!book) {
+    return null;
+  }
+
+  const sections = Array.isArray(book.sections) ? book.sections : [];
+  return sections.find((section) => section.id === state.selectedBookSectionId) || sections[0] || null;
+};
+
+const findBookBySlug = (slug) =>
+  state.books.find((book) => slugifySegment(book.title) === String(slug || "")) || null;
+
+const setBookSaveFeedback = (message, tone = "idle") => {
+  state.bookSaveFeedback = { message, tone };
+  const status = elements.articleView.querySelector("[data-book-save-status]");
+  if (status) {
+    status.textContent = message;
+    status.classList.remove("is-error", "is-success");
+    if (tone === "error") {
+      status.classList.add("is-error");
+    } else if (tone === "success") {
+      status.classList.add("is-success");
+    }
+  }
+};
+
+const readLegacyJson = (key, fallback) => {
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const updateBookInState = (bookId, updater) => {
+  state.books = state.books.map((book) => {
+    if (book.id !== bookId) {
+      return book;
+    }
+
+    return typeof updater === "function"
+      ? updater(book)
+      : { ...book, ...updater };
+  });
+};
+
+const replaceBookInState = (nextBook) => {
+  const existing = state.books.some((book) => book.id === nextBook.id);
+  state.books = existing
+    ? state.books.map((book) => book.id === nextBook.id ? nextBook : book)
+    : [nextBook, ...state.books];
+};
+
+const clearPendingBookSync = (key) => {
+  const timer = pendingBookSyncTimers.get(key);
+  if (timer) {
+    window.clearTimeout(timer);
+    pendingBookSyncTimers.delete(key);
+  }
+};
+
+const scheduleBookSync = (key, task, successMessage) => {
+  clearPendingBookSync(key);
+  setBookSaveFeedback("Saving…", "idle");
+  const timer = window.setTimeout(async () => {
+    pendingBookSyncTimers.delete(key);
+    try {
+      const savedBook = await task();
+      if (savedBook?.id) {
+        replaceBookInState(mapBookRecord(savedBook));
+      }
+      setBookSaveFeedback(successMessage, "success");
+    } catch (error) {
+      console.error(error);
+      setBookSaveFeedback("Couldn’t sync changes right now.", "error");
+      showToast(error.message || "Couldn’t sync changes right now.", { error: true });
+    }
+  }, 400);
+  pendingBookSyncTimers.set(key, timer);
+};
+
+const loadBooks = async ({ preserveSelection = true } = {}) => {
+  state.isLoadingBooks = true;
+  if (isBooksMode()) {
+    render();
+  }
+
+  try {
+    const legacyMigrationDone = window.localStorage.getItem(LEGACY_BOOKS_MIGRATION_KEY) === "1";
+    if (!legacyMigrationDone) {
+      const legacyBooks = readLegacyJson(LEGACY_BOOKS_STORAGE_KEY, null);
+      const legacyNotes = readLegacyJson(LEGACY_BOOK_NOTES_STORAGE_KEY, {});
+      const legacyHighlights = readLegacyJson(LEGACY_BOOK_HIGHLIGHTS_STORAGE_KEY, {});
+
+      if (Array.isArray(legacyBooks) && legacyBooks.length > 0) {
+        await convexRequest("mutation", "books:migrateLegacyShelf", {
+          books: legacyBooks,
+          highlightParagraphsByBookId: legacyHighlights,
+          notesByBookId: legacyNotes
+        });
+        window.localStorage.setItem(LEGACY_BOOKS_MIGRATION_KEY, "1");
+        window.localStorage.removeItem(LEGACY_BOOKS_STORAGE_KEY);
+        window.localStorage.removeItem(LEGACY_BOOK_NOTES_STORAGE_KEY);
+        window.localStorage.removeItem(LEGACY_BOOK_HIGHLIGHTS_STORAGE_KEY);
+      } else {
+        window.localStorage.setItem(LEGACY_BOOKS_MIGRATION_KEY, "1");
+      }
+    }
+
+    await convexRequest("mutation", "books:ensureDefaultShelf", {});
+    const books = await convexRequest("query", "books:list", {});
+    saveBooksToState(books.map(mapBookRecord));
+
+    if (preserveSelection && state.selectedBookId) {
+      state.selectedBookId = getBookById(state.selectedBookId)?.id || books[0]?.id || "";
+    } else {
+      state.selectedBookId = books[0]?.id || "";
+    }
+    const currentBook = getBookById(state.selectedBookId);
+    state.selectedBookSectionId = getSelectedBookSection(currentBook)?.id || "";
+  } finally {
+    state.isLoadingBooks = false;
+  }
+};
+
+const mapBookRecord = (book) => ({
+  accent: book.accent || getBookTheme(book.title).accent,
+  author: book.author || "",
+  coverImage: book.coverImage || "",
+  coverTone: book.coverTone || getBookTheme(book.title).coverTone,
+  description: book.description || "",
+  id: book.id,
+  sections: Array.isArray(book.sections) && book.sections.length > 0
+    ? book.sections.map((section) => ({
+      highlightParagraphs: Array.isArray(section.highlightParagraphs) ? section.highlightParagraphs : [],
+      id: section.id,
+      notes: section.notes || "",
+      status: section.status || "todo",
+      title: section.title || "Untitled section"
+    }))
+    : [createBookSection("Overview")],
+  slug: book.slug || slugifySegment(book.title),
+  status: book.status || "Reading",
+  title: book.title || "Untitled book",
+  updatedAt: book.updatedAt || ""
+});
+
+const getBookTheme = (seed) => {
+  const normalized = String(seed || "");
+  let total = 0;
+  for (const character of normalized) {
+    total += character.charCodeAt(0);
+  }
+  return BOOK_COVER_THEMES[total % BOOK_COVER_THEMES.length];
+};
+
+const createBookId = (title) => {
+  const base = slugifySegment(title || "book");
+  const existingIds = new Set(state.books.map((book) => book.id));
+  if (!existingIds.has(base)) {
+    return base;
+  }
+
+  let counter = 2;
+  while (existingIds.has(`${base}-${counter}`)) {
+    counter += 1;
+  }
+  return `${base}-${counter}`;
+};
+
+const createBookSection = (title = "Untitled section", index = 0) => ({
+  highlightParagraphs: [],
+  id: `${slugifySegment(title || "section")}-${Date.now()}-${index + 1}`,
+  notes: "",
+  status: "todo",
+  title
+});
+
+const parseBookOutlineSections = (outlineText) => {
+  const lines = String(outlineText || "")
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const headingLines = lines
+    .map((line) => line.replace(/^#{2,}\s*/u, "").trim())
+    .filter((line, index) => /^#{2,}\s/u.test(lines[index]));
+
+  const candidateLines = headingLines.length > 0
+    ? headingLines
+    : lines
+      .map((line) => line
+        .replace(/^[-*]\s+/u, "")
+        .replace(/^\d+\.\s+/u, "")
+        .trim()
+      )
+      .filter((line) => line.length > 0 && line.length < 160);
+
+  return candidateLines.filter((line, index, array) =>
+    array.findIndex((candidate) => slugifySegment(candidate) === slugifySegment(line)) === index
+  );
+};
+
+const mergeSectionsFromOutline = (existingSections, outlineText) => {
+  const titles = parseBookOutlineSections(outlineText);
+  if (titles.length === 0) {
+    return existingSections;
+  }
+
+  const existingBySlug = new Map(
+    existingSections.map((section) => [slugifySegment(section.title), section])
+  );
+
+  return titles.map((title, index) => {
+    const existing = existingBySlug.get(slugifySegment(title));
+    if (existing) {
+      return {
+        ...existing,
+        title
+      };
+    }
+
+    return createBookSection(title, index);
+  });
+};
+
+const patchBookSections = (bookId, updater) => {
+  const book = getBookById(bookId);
+  if (!book) {
+    return [];
+  }
+
+  const nextSections = updater(Array.isArray(book.sections) ? book.sections : []);
+  updateBookInState(bookId, { sections: nextSections });
+  return nextSections;
+};
+
+const renderBookCoverMarkup = (book, className = "book-cover") => {
+  const tone = book.coverTone || "";
+
+  if (book.coverImage) {
+    return `
+      <div class="${className} is-image-cover" style="--book-accent:${book.accent}">
+        <img class="book-cover-image" src="${escapeHtml(book.coverImage)}" alt="${escapeHtml(book.title)} cover">
+      </div>
+    `;
+  }
+
+  return `
+    <div class="${className}" style="--book-accent:${book.accent}">
+      <div class="book-cover-tone">${escapeHtml(tone)}</div>
+      <div class="book-cover-title">${escapeHtml(book.title)}</div>
+      <div class="book-cover-author">${escapeHtml(book.author)}</div>
+    </div>
+  `;
+};
 
 const getYouTubeVideoIdFromUrl = (value) => {
   try {
@@ -629,6 +939,10 @@ const listTitle = () => {
 
   if (state.scope === "youtube") {
     return "YouTube";
+  }
+
+  if (state.scope === "books") {
+    return "Books";
   }
 
   return "All Articles";
@@ -1180,15 +1494,20 @@ const clearSelection = () => {
   articleRequestToken += 1;
   state.explicitArticleSelection = false;
   state.isLoadingArticle = false;
+  state.selectedBookId = "";
+  state.selectedBookSectionId = "";
   state.selectedArticle = null;
   state.selectedArticleId = "";
 };
 
 const currentRoutePath = () => {
+  const selectedBook = getBookById(state.selectedBookId);
   const summaryArticle = state.articles.find((article) => article.id === state.selectedArticleId);
 
   return buildReaderPath({
-    articleTitle: summaryArticle?.title || state.selectedArticle?.title || "",
+    articleTitle: isBooksMode()
+      ? (selectedBook?.title || "")
+      : (summaryArticle?.title || state.selectedArticle?.title || ""),
     browseFeedGroups: state.browseFeedGroups,
     digestDate: state.digestDate,
     explicitArticleSelection: state.explicitArticleSelection,
@@ -1246,6 +1565,7 @@ const renderRail = () => {
   elements.navFeeds.classList.toggle("is-active", state.browseFeedGroups || Boolean(state.feedGroup));
   elements.navManualArticles.classList.toggle("is-active", state.scope === "manual" && !state.feedGroup && !state.browseFeedGroups);
   elements.navYoutube.classList.toggle("is-active", state.scope === "youtube" && !state.feedGroup && !state.browseFeedGroups);
+  elements.navBooks.classList.toggle("is-active", state.scope === "books" && !state.feedGroup && !state.browseFeedGroups);
 
   const feedGroups = Object.entries(state.counts.feedGroups || {}).sort((left, right) =>
     left[0].localeCompare(right[0])
@@ -1312,7 +1632,213 @@ const renderTodaySidebar = () => {
   `;
 };
 
+const renderBookCovers = (books = state.books) => `
+  <div class="books-grid">
+    ${books.map((book) => `
+      <button
+        class="book-card ${state.selectedBookId === book.id ? "is-active" : ""}"
+        data-book-id="${book.id}"
+        type="button"
+        aria-label="${escapeHtml(book.title)} by ${escapeHtml(book.author)}"
+      >
+        ${renderBookCoverMarkup(book)}
+        <div class="book-card-meta">
+          <div class="book-card-title">${escapeHtml(book.title)}</div>
+          <div class="book-card-author">${escapeHtml(book.author)}</div>
+        </div>
+      </button>
+    `).join("")}
+  </div>
+`;
+
+const renderBooksList = () => {
+  elements.listTitle.textContent = "Books";
+  elements.listBackButton.hidden = true;
+  elements.addManualArticleButton.hidden = false;
+  elements.addManualArticleButton.title = "Add book";
+  elements.addManualArticleButton.setAttribute("aria-label", "Add book");
+  elements.feedGroupList.hidden = true;
+  elements.articleList.hidden = false;
+  elements.listActions.hidden = false;
+  elements.listMenuButton.hidden = true;
+  elements.addFeedMenuButton.hidden = true;
+  elements.renameFeedGroupButton.hidden = true;
+  elements.removeFeedGroupButton.hidden = true;
+
+  elements.articleList.innerHTML = `
+    <div class="books-sidebar">
+      ${state.books.length === 0 ? `
+        <div class="empty-state">
+          No books yet. Add one to start a reading notebook.
+        </div>
+      ` : renderBookCovers(state.books)}
+    </div>
+  `;
+};
+
+const renderBookView = () => {
+  if (state.isLoadingBooks) {
+    elements.bookEditButton.hidden = true;
+    elements.bookEditButton.disabled = true;
+    elements.bookEditSeparator.hidden = true;
+    elements.articleView.innerHTML = `
+      <div class="books-empty-state">
+        <div class="books-empty-copy">
+          <div class="books-empty-kicker">Books</div>
+          <h1 class="books-empty-title">Loading your shelf…</h1>
+          <p class="books-empty-text">Fetching synced books, notes, and highlights.</p>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  const book = getBookById(state.selectedBookId);
+  elements.bookEditButton.hidden = !book;
+  elements.bookEditButton.disabled = !book;
+  elements.bookEditSeparator.hidden = !book;
+  elements.previousArticleButton.disabled = true;
+  elements.nextArticleButton.disabled = true;
+  elements.saveArticleButton.disabled = true;
+  elements.deleteArticleButton.disabled = !book;
+  elements.deleteArticleButton.title = "Delete book";
+  elements.deleteArticleButton.setAttribute("aria-label", "Delete book");
+  elements.shareArticleButton.disabled = true;
+  elements.toggleHighlightsButton.disabled = true;
+  elements.openArticleButton.disabled = true;
+  elements.saveArticleButton.classList.remove("is-active");
+  elements.toggleHighlightsButton.classList.remove("is-active");
+
+  if (!book) {
+    elements.articleView.innerHTML = `
+      <div class="books-empty-state">
+        <div class="books-empty-copy">
+          <div class="books-empty-kicker">Shelf notes</div>
+          <h1 class="books-empty-title">Pick a book cover to start a memo.</h1>
+          <p class="books-empty-text">Use this synced reading workspace to sketch ideas, save quotes, or keep a running reaction log while you read.</p>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  const sections = Array.isArray(book.sections) ? book.sections : [];
+  const selectedSection = getSelectedBookSection(book);
+  const completedCount = sections.filter((section) => section.status === "done").length;
+  elements.articleView.innerHTML = `
+    <div class="book-page">
+      <div class="book-page-hero">
+        ${renderBookCoverMarkup(book, "book-page-cover")}
+        <div class="book-page-header">
+          <div class="book-page-kicker">Books</div>
+          <h1 class="book-page-title">${escapeHtml(book.title)}</h1>
+          <div class="book-page-author">${escapeHtml(book.author)}</div>
+          <div class="book-page-progress">${completedCount}/${sections.length || 1} sections complete</div>
+          <p class="book-page-blurb">${escapeHtml(book.description)}</p>
+        </div>
+      </div>
+      <div class="book-sections-layout">
+        <aside class="book-sections-panel">
+          <div class="book-sections-header">
+            <div>
+              <div class="book-notes-kicker">Contents</div>
+              <h2 class="book-notes-title">Sections</h2>
+            </div>
+            <button class="btn-secondary" data-book-section-add="${book.id}" type="button">Add section</button>
+          </div>
+          <div class="book-sections-list">
+            ${sections.map((section, index) => `
+              <button class="book-section-item ${selectedSection?.id === section.id ? "is-active" : ""}" data-book-section-id="${section.id}" type="button">
+                <div class="book-section-index">${index + 1}</div>
+                <div class="book-section-copy">
+                  <div class="book-section-title">${escapeHtml(section.title)}</div>
+                  <div class="book-section-meta">${section.status === "done" ? "Complete" : "In progress"}</div>
+                </div>
+              </button>
+            `).join("")}
+          </div>
+        </aside>
+        <div class="book-section-editor">
+          ${selectedSection ? `
+            <section class="book-notes-panel">
+              <div class="book-notes-header">
+                <div>
+                  <div class="book-notes-kicker">Section</div>
+                  <h2 class="book-notes-title">Notes editor</h2>
+                </div>
+                <div class="book-notes-meta book-save-status ${state.bookSaveFeedback.tone === "success" ? "is-success" : state.bookSaveFeedback.tone === "error" ? "is-error" : ""}" data-book-save-status>${escapeHtml(state.bookSaveFeedback.message)}</div>
+              </div>
+              <input
+                class="text-input"
+                data-book-section-title-input="${book.id}:${selectedSection.id}"
+                type="text"
+                value="${escapeHtml(selectedSection.title)}"
+                placeholder="Section title"
+              >
+              <div class="book-section-actions">
+                <button class="btn-secondary ${selectedSection.status === "done" ? "is-active" : ""}" data-book-section-toggle="${book.id}:${selectedSection.id}" type="button">
+                  ${selectedSection.status === "done" ? "Completed" : "Mark complete"}
+                </button>
+                <button class="btn-secondary" data-book-section-remove="${book.id}:${selectedSection.id}" type="button">Delete section</button>
+              </div>
+              <textarea
+                class="book-notes-textarea"
+                data-book-section-notes-input="${book.id}:${selectedSection.id}"
+                placeholder="Capture quotes, arguments, open questions, chapter reactions, or anything you want to revisit later."
+              >${escapeHtml(selectedSection.notes || "")}</textarea>
+            </section>
+            <section class="book-highlights-panel">
+              <div class="book-highlights-header">
+                <div>
+                  <div class="book-notes-kicker">Highlights</div>
+                  <h2 class="book-notes-title">Paragraph highlights</h2>
+                </div>
+                <button class="btn-secondary" data-book-highlight-add="${book.id}:${selectedSection.id}" type="button">Add paragraph</button>
+              </div>
+              <div class="book-highlights-list">
+                ${selectedSection.highlightParagraphs.length === 0 ? `
+                  <div class="book-highlights-empty">
+                    Add highlighted passages one paragraph at a time.
+                  </div>
+                ` : selectedSection.highlightParagraphs.map((paragraph, index) => `
+                  <div class="book-highlight-item">
+                    <div class="book-highlight-toolbar">
+                      <div class="book-highlight-label">Paragraph ${index + 1}</div>
+                      <button class="icon-btn" data-book-highlight-remove="${book.id}:${selectedSection.id}:${index}" title="Remove paragraph" aria-label="Remove paragraph" type="button">×</button>
+                    </div>
+                    <textarea
+                      class="book-highlight-textarea"
+                      data-book-highlight-input="${book.id}:${selectedSection.id}:${index}"
+                      placeholder="Write one highlight paragraph here."
+                    >${escapeHtml(paragraph)}</textarea>
+                  </div>
+                `).join("")}
+              </div>
+            </section>
+          ` : `
+            <div class="books-empty-state">
+              <div class="books-empty-copy">
+                <div class="books-empty-kicker">Sections</div>
+                <h1 class="books-empty-title">Add your first section.</h1>
+                <p class="books-empty-text">Break notes down by chapter or idea, then track progress section by section.</p>
+              </div>
+            </div>
+          `}
+        </div>
+      </div>
+    </div>
+  `;
+};
+
 const renderArticleList = () => {
+  if (isBooksMode()) {
+    renderBooksList();
+    return;
+  }
+
+  elements.addManualArticleButton.title = "Add article";
+  elements.addManualArticleButton.setAttribute("aria-label", "Add article");
+
   elements.listTitle.textContent = state.browseFeedGroups ? "Feeds" : listTitle();
   elements.listBackButton.hidden = !(
     state.canReturnToFeedGroups &&
@@ -1465,6 +1991,17 @@ const renderDigestView = () => {
 };
 
 const renderArticle = () => {
+  if (isBooksMode()) {
+    renderBookView();
+    return;
+  }
+
+  elements.bookEditButton.hidden = true;
+  elements.bookEditButton.disabled = true;
+  elements.bookEditSeparator.hidden = true;
+  elements.deleteArticleButton.title = "Delete article";
+  elements.deleteArticleButton.setAttribute("aria-label", "Delete article");
+
   const article = state.selectedArticle;
   const selectedIndex = articleIndex();
   const hasSelection = Boolean(state.selectedArticleId);
@@ -1857,6 +2394,170 @@ const closeArticleDialog = () => {
   elements.articleForm.reset();
 };
 
+const renderBookCoverPreview = () => {
+  const coverImage = state.bookDialogCoverDataUrl;
+  if (!elements.bookCoverPreview || !elements.bookCoverPreviewFrame) {
+    return;
+  }
+
+  if (coverImage) {
+    elements.bookCoverPreview.hidden = false;
+    elements.bookCoverPreviewFrame.innerHTML = `
+      <img class="book-cover-image" src="${escapeHtml(coverImage)}" alt="Book cover preview">
+    `;
+    return;
+  }
+
+  elements.bookCoverPreview.hidden = true;
+  elements.bookCoverPreviewFrame.innerHTML = "";
+};
+
+const estimateDataUrlBytes = (value) => {
+  const encoded = String(value || "").split(",")[1] || "";
+  return Math.ceil((encoded.length * 3) / 4);
+};
+
+const loadImageElement = (dataUrl) => new Promise((resolve, reject) => {
+  const image = new Image();
+  image.onload = () => resolve(image);
+  image.onerror = () => reject(new Error("Could not load the selected cover image"));
+  image.src = dataUrl;
+});
+
+const resizeBookCover = async (file) => {
+  const originalDataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Could not read the selected cover image"));
+    reader.readAsDataURL(file);
+  });
+
+  if (file.size <= MAX_BOOK_COVER_BYTES) {
+    return originalDataUrl;
+  }
+
+  const image = await loadImageElement(originalDataUrl);
+  const maxWidth = 900;
+  const maxHeight = 1400;
+  const scale = Math.min(1, maxWidth / image.width, maxHeight / image.height);
+  const width = Math.max(1, Math.round(image.width * scale));
+  const height = Math.max(1, Math.round(image.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("Could not process the selected cover image");
+  }
+
+  context.drawImage(image, 0, 0, width, height);
+
+  let quality = 0.86;
+  let candidate = canvas.toDataURL("image/jpeg", quality);
+  while (estimateDataUrlBytes(candidate) > MAX_BOOK_COVER_BYTES && quality > 0.46) {
+    quality -= 0.08;
+    candidate = canvas.toDataURL("image/jpeg", quality);
+  }
+
+  if (estimateDataUrlBytes(candidate) > MAX_BOOK_COVER_BYTES) {
+    throw new Error("Cover image is too large even after compression. Try a smaller image.");
+  }
+
+  return candidate;
+};
+
+const openBookDialog = (bookId = "") => {
+  const book = getBookById(bookId);
+  state.bookDialogEditingId = book?.id || "";
+  state.bookDialogCoverDataUrl = book?.coverImage || "";
+  setBookSaveFeedback("Synced", "idle");
+
+  elements.bookDialogTitle.textContent = book ? "Edit book" : "Add book";
+  elements.bookDialogCopy.textContent = book
+    ? "Update the title, author, description, or book cover for this synced shelf entry."
+    : "Create a new synced book entry for notes, reactions, and quotes.";
+  elements.bookSubmitButton.textContent = book ? "Save book" : "Add book";
+  elements.bookTitleInput.value = book?.title || "";
+  elements.bookAuthorInput.value = book?.author || "";
+  elements.bookDescriptionInput.value = book?.description || "";
+  elements.bookOutlineInput.value = Array.isArray(book?.sections)
+    ? book.sections.map((section) => `## ${section.title}`).join("\n")
+    : "";
+  elements.bookStatusInput.value = book?.status || "Reading";
+  elements.bookCoverFileInput.value = "";
+  elements.bookRemoveCoverButton.hidden = !state.bookDialogCoverDataUrl;
+  renderBookCoverPreview();
+  elements.bookDialog.showModal();
+  elements.bookTitleInput.focus();
+};
+
+const closeBookDialog = () => {
+  state.bookDialogEditingId = "";
+  state.bookDialogCoverDataUrl = "";
+  elements.bookDialog.close();
+  elements.bookForm.reset();
+  renderBookCoverPreview();
+};
+
+const saveBook = async () => {
+  const title = elements.bookTitleInput.value.trim();
+  const author = elements.bookAuthorInput.value.trim();
+  const description = elements.bookDescriptionInput.value.trim();
+  const outline = elements.bookOutlineInput.value;
+  const status = elements.bookStatusInput.value.trim() || "Reading";
+
+  if (!title) {
+    throw new Error("Book title is required");
+  }
+
+  const existing = getBookById(state.bookDialogEditingId);
+  const theme = getBookTheme(title);
+  const nextBook = {
+    accent: existing?.accent || theme.accent,
+    author,
+    coverImage: state.bookDialogCoverDataUrl || "",
+    coverTone: existing?.coverTone || theme.coverTone,
+    description,
+    id: existing?.id || createBookId(title),
+    status,
+    title
+  };
+
+  const savedBook = await convexRequest("mutation", "books:upsert", {
+    accent: nextBook.accent,
+    author: nextBook.author,
+    bookId: existing?.id || undefined,
+    coverImage: nextBook.coverImage || undefined,
+    coverTone: nextBook.coverTone,
+    description: nextBook.description,
+    status: nextBook.status,
+    title: nextBook.title
+  });
+
+  const normalizedSavedBook = mapBookRecord(savedBook);
+  replaceBookInState(normalizedSavedBook);
+  const mergedSections = mergeSectionsFromOutline(normalizedSavedBook.sections || [], outline);
+  let finalBook = normalizedSavedBook;
+  if (mergedSections !== normalizedSavedBook.sections) {
+    const updatedBook = await convexRequest("mutation", "books:updateSections", {
+      bookId: savedBook.id,
+      sections: mergedSections
+    });
+    finalBook = mapBookRecord(updatedBook);
+    replaceBookInState(finalBook);
+  }
+  state.scope = "books";
+  state.selectedBookId = finalBook.id;
+  state.selectedBookSectionId = finalBook.sections?.[0]?.id || "";
+  state.explicitArticleSelection = true;
+  closeBookDialog();
+  setBookSaveFeedback(existing ? "Book synced" : "Book created", "success");
+  openPanel();
+  syncRoute({ replace: false });
+  render();
+  showToast(existing ? `Updated ${finalBook.title}.` : `Added ${finalBook.title}.`);
+};
+
 const openRenameFeedGroupDialog = (feedGroup) => {
   if (!feedGroup) {
     return;
@@ -2021,6 +2722,28 @@ const removeFeedGroup = async () => {
   showToast(`Removed ${result.removedFeeds} feed${result.removedFeeds === 1 ? "" : "s"} from ${feedGroup}.`);
 };
 
+const deleteSelectedBook = async () => {
+  const book = getBookById(state.selectedBookId);
+  if (!book) {
+    return;
+  }
+
+  const confirmed = window.confirm(`Delete "${book.title}" from Books?`);
+  if (!confirmed) {
+    return;
+  }
+
+  clearPendingBookSync(`notes:${book.id}`);
+  clearPendingBookSync(`highlights:${book.id}`);
+  await convexRequest("mutation", "books:remove", { bookId: book.id });
+  saveBooksToState(state.books.filter((entry) => entry.id !== book.id));
+  state.selectedBookId = state.books[0]?.id || "";
+  setBookSaveFeedback("Synced", "idle");
+  syncRoute({ replace: false });
+  render();
+  showToast(`Deleted ${book.title}.`);
+};
+
 const shareArticle = async () => {
   if (!state.selectedArticle) {
     return;
@@ -2142,6 +2865,24 @@ elements.navYoutube.addEventListener("click", async () => {
   await bootstrap();
 });
 
+elements.navBooks.addEventListener("click", async () => {
+  if (state.scope === "books" && state.overlayOpen) {
+    closePanel();
+    return;
+  }
+  state.canReturnToFeedGroups = false;
+  state.scope = "books";
+  state.feedGroup = "";
+  state.browseFeedGroups = false;
+  clearSelection();
+  state.explicitArticleSelection = false;
+  setBookSaveFeedback("Synced", "idle");
+  openPanel();
+  syncRoute({ replace: false });
+  await loadBooks({ preserveSelection: true });
+  render();
+});
+
 elements.navFeeds.addEventListener("click", () => {
   if (state.browseFeedGroups && state.overlayOpen) {
     closePanel();
@@ -2210,14 +2951,141 @@ elements.articleList.addEventListener("click", async (event) => {
   }
 
   const item = event.target.closest("[data-article-id]");
-  if (!item) {
+  if (item) {
+    await selectArticle(item.dataset.articleId, { explicit: true, updateRoute: true });
     return;
   }
 
-  await selectArticle(item.dataset.articleId, { explicit: true, updateRoute: true });
+  const bookCard = event.target.closest("[data-book-id]");
+  if (!bookCard) {
+    return;
+  }
+
+  state.selectedBookId = bookCard.dataset.bookId;
+  state.selectedBookSectionId = getSelectedBookSection(getBookById(state.selectedBookId))?.id || "";
+  state.explicitArticleSelection = true;
+  setBookSaveFeedback("Synced", "idle");
+  syncRoute({ replace: false });
+  render();
 });
 
 elements.articleView.addEventListener("click", async (event) => {
+  const addBookSectionButton = event.target.closest("[data-book-section-add]");
+  if (addBookSectionButton) {
+    const bookId = addBookSectionButton.dataset.bookSectionAdd;
+    const nextSections = patchBookSections(bookId, (sections) => [...sections, createBookSection(`Section ${sections.length + 1}`, sections.length)]);
+    state.selectedBookSectionId = nextSections[nextSections.length - 1]?.id || "";
+    scheduleBookSync(`sections:${bookId}`, () =>
+      convexRequest("mutation", "books:updateSections", {
+        bookId,
+        sections: nextSections
+      }),
+    "Sections synced");
+    render();
+    return;
+  }
+
+  const removeBookSectionButton = event.target.closest("[data-book-section-remove]");
+  if (removeBookSectionButton) {
+    const [bookId, sectionId] = String(removeBookSectionButton.dataset.bookSectionRemove || "").split(":");
+    if (!bookId || !sectionId) {
+      return;
+    }
+
+    const nextSections = patchBookSections(bookId, (sections) => sections.filter((section) => section.id !== sectionId));
+    state.selectedBookSectionId = nextSections[0]?.id || "";
+    scheduleBookSync(`sections:${bookId}`, () =>
+      convexRequest("mutation", "books:updateSections", {
+        bookId,
+        sections: nextSections
+      }),
+    "Sections synced");
+    render();
+    return;
+  }
+
+  const toggleBookSectionButton = event.target.closest("[data-book-section-toggle]");
+  if (toggleBookSectionButton) {
+    const [bookId, sectionId] = String(toggleBookSectionButton.dataset.bookSectionToggle || "").split(":");
+    if (!bookId || !sectionId) {
+      return;
+    }
+
+    const nextSections = patchBookSections(bookId, (sections) =>
+      sections.map((section) => section.id === sectionId
+        ? { ...section, status: section.status === "done" ? "todo" : "done" }
+        : section)
+    );
+    scheduleBookSync(`sections:${bookId}`, () =>
+      convexRequest("mutation", "books:updateSections", {
+        bookId,
+        sections: nextSections
+      }),
+    "Sections synced");
+    render();
+    return;
+  }
+
+  const addBookHighlightButton = event.target.closest("[data-book-highlight-add]");
+  if (addBookHighlightButton) {
+    const [bookId, sectionId] = String(addBookHighlightButton.dataset.bookHighlightAdd || "").split(":");
+    if (!bookId || !sectionId) {
+      return;
+    }
+
+    const nextSections = patchBookSections(bookId, (sections) =>
+      sections.map((section) => section.id === sectionId
+        ? { ...section, highlightParagraphs: [...section.highlightParagraphs, ""] }
+        : section)
+    );
+    scheduleBookSync(`sections:${bookId}`, () =>
+      convexRequest("mutation", "books:updateSections", {
+        bookId,
+        sections: nextSections
+      }),
+    "Highlights synced");
+    render();
+    const targetSection = nextSections.find((section) => section.id === sectionId);
+    const nextIndex = (targetSection?.highlightParagraphs.length || 1) - 1;
+    const nextInput = elements.articleView.querySelector(`[data-book-highlight-input="${CSS.escape(`${bookId}:${sectionId}:${nextIndex}`)}"]`);
+    if (nextInput) {
+      nextInput.focus();
+    }
+    return;
+  }
+
+  const removeBookHighlightButton = event.target.closest("[data-book-highlight-remove]");
+  if (removeBookHighlightButton) {
+    const [bookId, sectionId, indexValue] = String(removeBookHighlightButton.dataset.bookHighlightRemove || "").split(":");
+    const index = Number(indexValue);
+    if (!bookId || !sectionId || !Number.isInteger(index)) {
+      return;
+    }
+
+    const nextSections = patchBookSections(bookId, (sections) =>
+      sections.map((section) => section.id === sectionId
+        ? { ...section, highlightParagraphs: section.highlightParagraphs.filter((_, itemIndex) => itemIndex !== index) }
+        : section)
+    );
+    scheduleBookSync(`sections:${bookId}`, () =>
+      convexRequest("mutation", "books:updateSections", {
+        bookId,
+        sections: nextSections
+      }),
+    "Highlights synced");
+    render();
+    return;
+  }
+
+  const sectionButton = event.target.closest("[data-book-section-id]");
+  if (sectionButton) {
+    state.selectedBookSectionId = sectionButton.dataset.bookSectionId;
+    state.explicitArticleSelection = true;
+    syncRoute({ replace: false });
+    render();
+    return;
+  }
+
   const highlightMark = event.target.closest("[data-highlight-id]");
   if (highlightMark) {
     event.preventDefault();
@@ -2304,6 +3172,76 @@ elements.articleView.addEventListener("click", async (event) => {
   await loadDigestForDate(shiftLocalDate(baseDate, offset), { updateRoute: true });
 });
 
+elements.articleView.addEventListener("input", (event) => {
+  const notesInput = event.target.closest("[data-book-notes-input]");
+  if (!notesInput) {
+    const sectionTitleInput = event.target.closest("[data-book-section-title-input]");
+    if (sectionTitleInput) {
+      const [bookId, sectionId] = String(sectionTitleInput.dataset.bookSectionTitleInput || "").split(":");
+      if (!bookId || !sectionId) {
+        return;
+      }
+
+      const nextSections = patchBookSections(bookId, (sections) =>
+        sections.map((section) => section.id === sectionId
+          ? { ...section, title: sectionTitleInput.value }
+          : section)
+      );
+      scheduleBookSync(`sections:${bookId}`, () =>
+        convexRequest("mutation", "books:updateSections", {
+          bookId,
+          sections: nextSections
+        }),
+      "Sections synced");
+      return;
+    }
+
+    const highlightInput = event.target.closest("[data-book-highlight-input]");
+    if (!highlightInput) {
+      return;
+    }
+
+    const [bookId, sectionId, indexValue] = String(highlightInput.dataset.bookHighlightInput || "").split(":");
+    const index = Number(indexValue);
+    if (!bookId || !sectionId || !Number.isInteger(index)) {
+      return;
+    }
+
+    const nextSections = patchBookSections(bookId, (sections) =>
+      sections.map((section) => {
+        if (section.id !== sectionId) {
+          return section;
+        }
+
+        const nextHighlights = [...section.highlightParagraphs];
+        nextHighlights[index] = highlightInput.value;
+        return { ...section, highlightParagraphs: nextHighlights };
+      })
+    );
+    scheduleBookSync(`sections:${bookId}`, () =>
+      convexRequest("mutation", "books:updateSections", {
+        bookId,
+        sections: nextSections
+      }),
+    "Highlights synced");
+    return;
+  }
+
+  const bookId = notesInput.dataset.bookNotesInput;
+  const sectionId = state.selectedBookSectionId;
+  const nextSections = patchBookSections(bookId, (sections) =>
+    sections.map((section) => section.id === sectionId
+      ? { ...section, notes: notesInput.value }
+      : section)
+  );
+  scheduleBookSync(`sections:${bookId}`, () =>
+    convexRequest("mutation", "books:updateSections", {
+      bookId,
+      sections: nextSections
+    }),
+  "Notes synced");
+});
+
 elements.inspectorPanelBody.addEventListener("click", async (event) => {
   const highlightJump = event.target.closest("[data-highlight-jump-id]");
   if (highlightJump) {
@@ -2371,6 +3309,11 @@ elements.saveArticleButton.addEventListener("click", async () => {
 
 elements.deleteArticleButton.addEventListener("click", async () => {
   try {
+    if (isBooksMode()) {
+      await deleteSelectedBook();
+      return;
+    }
+
     await deleteSelectedArticle();
   } catch (error) {
     showToast(error.message, { error: true });
@@ -2399,7 +3342,21 @@ elements.addFeedMenuButton.addEventListener("click", () => {
   closeListMenu();
   openDialog();
 });
-elements.addManualArticleButton.addEventListener("click", openArticleDialog);
+elements.addManualArticleButton.addEventListener("click", () => {
+  if (isBooksMode()) {
+    openBookDialog();
+    return;
+  }
+
+  openArticleDialog();
+});
+elements.bookEditButton.addEventListener("click", () => {
+  if (!state.selectedBookId) {
+    return;
+  }
+
+  openBookDialog(state.selectedBookId);
+});
 elements.settingsButton.addEventListener("click", openSettingsDialog);
 elements.settingsCloseButton.addEventListener("click", closeSettingsDialog);
 elements.manualSyncButton.addEventListener("click", async () => {
@@ -2419,8 +3376,32 @@ elements.manualSyncButton.addEventListener("click", async () => {
 
 elements.feedCancelButton.addEventListener("click", closeDialog);
 elements.articleCancelButton.addEventListener("click", closeArticleDialog);
+elements.bookCancelButton.addEventListener("click", closeBookDialog);
 elements.renameFeedGroupCancelButton.addEventListener("click", closeRenameFeedGroupDialog);
 elements.removeFeedGroupCancelButton.addEventListener("click", closeRemoveFeedGroupDialog);
+elements.bookCoverFileInput.addEventListener("change", async (event) => {
+  const file = event.target.files?.[0];
+  if (!file) {
+    return;
+  }
+  try {
+    const dataUrl = await resizeBookCover(file);
+    state.bookDialogCoverDataUrl = dataUrl;
+    elements.bookRemoveCoverButton.hidden = false;
+    renderBookCoverPreview();
+    setBookSaveFeedback("Cover ready to sync", "idle");
+  } catch (error) {
+    elements.bookCoverFileInput.value = "";
+    setBookSaveFeedback(error.message, "error");
+    showToast(error.message, { error: true });
+  }
+});
+elements.bookRemoveCoverButton.addEventListener("click", () => {
+  state.bookDialogCoverDataUrl = "";
+  elements.bookCoverFileInput.value = "";
+  elements.bookRemoveCoverButton.hidden = true;
+  renderBookCoverPreview();
+});
 elements.feedUrlInput.addEventListener("input", () => {
   if (feedGroupEditedManually && elements.feedGroupInput.value.trim()) {
     return;
@@ -2455,6 +3436,19 @@ elements.articleForm.addEventListener("submit", async (event) => {
     showToast(error.message, { error: true });
   } finally {
     setFormSubmitting(elements.articleForm, false);
+  }
+});
+
+elements.bookForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  setFormSubmitting(elements.bookForm, true);
+  try {
+    await saveBook();
+  } catch (error) {
+    showToast(error.message, { error: true });
+  } finally {
+    setFormSubmitting(elements.bookForm, false);
   }
 });
 
@@ -2721,6 +3715,18 @@ const start = async () => {
           await selectArticle(article.id, { explicit: true, updateRoute: false });
         }
       }
+    } else if (route.scope === "books") {
+      state.scope = "books";
+      state.feedGroup = "";
+      state.browseFeedGroups = false;
+      state.canReturnToFeedGroups = false;
+      clearSelection();
+      await loadBooks({ preserveSelection: false });
+      state.explicitArticleSelection = Boolean(route.articleSlug);
+      state.selectedBookId = findBookBySlug(route.articleSlug)?.id || state.books[0]?.id || "";
+      setBookSaveFeedback("Synced", "idle");
+      openPanel();
+      render();
     } else {
       state.scope = route.scope;
       state.feedGroup = "";

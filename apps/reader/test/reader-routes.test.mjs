@@ -65,3 +65,28 @@ test("buildReaderPath creates youtube article routes", () => {
     "/youtube/how-agents-use-claude-code"
   );
 });
+
+test("parseReaderPath handles book routes", () => {
+  assert.deepEqual(
+    parseReaderPath("/books/deep-work"),
+    {
+      articleSlug: "deep-work",
+      browseFeedGroups: false,
+      feedGroupSlug: "",
+      localDate: "",
+      route: "books",
+      scope: "books"
+    }
+  );
+});
+
+test("buildReaderPath creates book routes", () => {
+  assert.equal(
+    buildReaderPath({
+      articleTitle: "Deep Work",
+      explicitArticleSelection: true,
+      scope: "books"
+    }),
+    "/books/deep-work"
+  );
+});

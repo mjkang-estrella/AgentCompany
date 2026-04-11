@@ -93,6 +93,30 @@ export default defineSchema({
     .index("by_article_id", ["articleId"])
     .index("by_article_id_and_start_offset", ["articleId", "startOffset"]),
 
+  books: defineTable({
+    accent: v.string(),
+    author: v.string(),
+    coverImage: v.optional(v.string()),
+    coverTone: v.string(),
+    createdAt: v.number(),
+    description: v.string(),
+    highlightParagraphs: v.optional(v.array(v.string())),
+    slug: v.string(),
+    notes: v.optional(v.string()),
+    sections: v.optional(v.array(v.object({
+      highlightParagraphs: v.array(v.string()),
+      id: v.string(),
+      notes: v.string(),
+      status: v.string(),
+      title: v.string()
+    }))),
+    status: v.string(),
+    title: v.string(),
+    updatedAt: v.number()
+  })
+    .index("by_created_at", ["createdAt"])
+    .index("by_slug", ["slug"]),
+
   readerStats: defineTable({
     all: v.number(),
     feedGroups: v.record(v.string(), v.number()),

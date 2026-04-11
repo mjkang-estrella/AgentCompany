@@ -42,7 +42,7 @@ export const parseReaderPath = (pathname) => {
     };
   }
 
-  if (head === "all" || head === "saved" || head === "library" || head === "youtube") {
+  if (head === "all" || head === "saved" || head === "library" || head === "youtube" || head === "books") {
     return {
       browseFeedGroups: false,
       feedGroupSlug: "",
@@ -50,7 +50,7 @@ export const parseReaderPath = (pathname) => {
       route: head,
       scope: head === "library"
         ? "manual"
-        : (head === "youtube" ? "youtube" : head),
+        : (head === "youtube" ? "youtube" : (head === "books" ? "books" : head)),
       articleSlug: second || ""
     };
   }
@@ -111,6 +111,10 @@ export const buildReaderPath = ({
 
   if (scope === "youtube") {
     return `/youtube${articleSlug}`;
+  }
+
+  if (scope === "books") {
+    return `/books${articleSlug}`;
   }
 
   if (scope === "all") {
