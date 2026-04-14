@@ -15,6 +15,7 @@ import {
   getAgentMailApiKey,
   getNewsletterInboxEmail
 } from "../lib/newsletters.mjs";
+import { buildArticleQueryFields } from "./readerStats";
 
 const AGENTMAIL_API_BASE = "https://api.agentmail.to/v0";
 const MAX_NEWSLETTER_MESSAGES = 25;
@@ -199,6 +200,11 @@ export const syncInbox = internalAction({
           feedId = await ctx.runMutation(internal.newsletters.ensureNewsletterFeed, normalized.feed);
           feedIds.set(normalized.feed.key, feedId);
         }
+        const queryFields = buildArticleQueryFields({
+          feedTitle: normalized.feed.title,
+          publishedAt: normalized.article.publishedAt,
+          sourceType: "feed"
+        });
 
         articles.push({
           ...normalized.article,
@@ -217,6 +223,8 @@ export const syncInbox = internalAction({
           feedId,
           feedIconUrl: undefined,
           feedTitle: normalized.feed.title,
+          isYoutube: queryFields.isYoutube,
+          publishedDigestDate: queryFields.publishedDigestDate,
           thumbnailUrl: undefined
         });
         ingestedMessageIds.push(messageId);

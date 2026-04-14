@@ -6,74 +6,10 @@ import { action, internalMutation, internalQuery } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { normalizeFeedGroupName } from "../lib/feed-group-name.mjs";
 import { resolveFeedInput } from "../lib/feed-discovery.mjs";
+import { applyStatsDeltaInDb, emptyStatsDelta, getDigestDateForTimestamp } from "./readerStats";
 
 const getFeedGroup = (value) =>
   normalizeFeedGroupName(value.feedGroup || value.folder || "Uncategorized");
-
-const clampCount = (value: number) => Math.max(0, value || 0);
-
-const mergeFeedGroupCounts = (
-  current: Record<string, number>,
-  delta: Record<string, number>
-) => {
-  const next = { ...current };
-
-  for (const [feedGroup, change] of Object.entries(delta)) {
-    const candidate = clampCount((next[feedGroup] || 0) + change);
-    if (candidate === 0) {
-      delete next[feedGroup];
-      continue;
-    }
-
-    next[feedGroup] = candidate;
-  }
-
-  return next;
-};
-
-const applyStatsDeltaInDb = async (
-  ctx: { db: any },
-  delta: {
-    all: number;
-    feedGroups: Record<string, number>;
-    manual: number;
-    saved: number;
-  }
-) => {
-  const existing = await ctx.db
-    .query("readerStats")
-    .withIndex("by_name", (q: any) => q.eq("name", "global"))
-    .unique();
-
-  const current = existing ? {
-    all: existing.all,
-    feedGroups: existing.feedGroups,
-    manual: existing.manual,
-    saved: existing.saved
-  } : {
-    all: 0,
-    feedGroups: {} as Record<string, number>,
-    manual: 0,
-    saved: 0
-  };
-
-  const next = {
-    all: clampCount(current.all + delta.all),
-    feedGroups: mergeFeedGroupCounts(current.feedGroups, delta.feedGroups),
-    manual: clampCount(current.manual + delta.manual),
-    saved: clampCount(current.saved + delta.saved)
-  };
-
-  if (existing) {
-    await ctx.db.patch(existing._id, next);
-    return existing._id;
-  }
-
-  return ctx.db.insert("readerStats", {
-    ...next,
-    name: "global"
-  });
-};
 
 const mapFeed = (feed: Doc<"feeds">) => ({
   feedGroup: getFeedGroup(feed),
@@ -257,12 +193,7 @@ export const deleteArticleIds = internalMutation({
     articleIds: v.array(v.id("articles"))
   },
   handler: async (ctx, args) => {
-    const delta = {
-      all: 0,
-      feedGroups: {} as Record<string, number>,
-      manual: 0,
-      saved: 0
-    };
+    const delta = emptyStatsDelta();
 
     for (const articleId of args.articleIds) {
       const article = await ctx.db.get(articleId);
@@ -287,6 +218,11 @@ export const deleteArticleIds = internalMutation({
           if (feedGroup) {
             delta.feedGroups[feedGroup] = (delta.feedGroups[feedGroup] || 0) - 1;
           }
+          const digestDate = article.publishedDigestDate || getDigestDateForTimestamp(article.publishedAt);
+          if (digestDate) {
+            delta.dailyFeedCounts[digestDate] =
+              (delta.dailyFeedCounts[digestDate] || 0) - 1;
+          }
         }
       }
 
@@ -297,7 +233,8 @@ export const deleteArticleIds = internalMutation({
       delta.all !== 0 ||
       delta.saved !== 0 ||
       delta.manual !== 0 ||
-      Object.keys(delta.feedGroups).length > 0
+      Object.keys(delta.feedGroups).length > 0 ||
+      Object.keys(delta.dailyFeedCounts).length > 0
     ) {
       await applyStatsDeltaInDb(ctx, delta);
     }

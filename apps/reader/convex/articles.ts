@@ -9,6 +9,7 @@ import { normalizeArticleContent } from "../lib/article-body-normalizer.mjs";
 import { canonicalizeUrl, stripHtml } from "../lib/html.mjs";
 import { extractXPostFromUrl, isXStatusUrl } from "../lib/x-extractor.mjs";
 import { extractYouTubeArticleFromHtml, isYouTubeUrl } from "../lib/youtube-extractor.mjs";
+import { applyStatsDeltaInDb, buildArticleQueryFields, statsDeltaForArticle } from "./readerStats";
 
 const DEFAULT_HEADERS = {
   "user-agent": "AgentCompany Reader/1.0 (+https://agent.company)"
@@ -59,71 +60,6 @@ const deriveSiteTitle = (finalUrl: string, siteName: string) => {
 const normalizePublishedAt = (value: string) => {
   const parsed = new Date(value || "");
   return Number.isNaN(parsed.valueOf()) ? Date.now() : parsed.valueOf();
-};
-
-const clampCount = (value: number) => Math.max(0, value || 0);
-
-const mergeFeedGroupCounts = (
-  current: Record<string, number>,
-  delta: Record<string, number>
-) => {
-  const next = { ...current };
-
-  for (const [feedGroup, change] of Object.entries(delta)) {
-    const candidate = clampCount((next[feedGroup] || 0) + change);
-    if (candidate === 0) {
-      delete next[feedGroup];
-      continue;
-    }
-
-    next[feedGroup] = candidate;
-  }
-
-  return next;
-};
-
-const applyStatsDeltaInDb = async (
-  ctx: { db: any },
-  delta: {
-    all: number;
-    feedGroups: Record<string, number>;
-    manual: number;
-    saved: number;
-  }
-) => {
-  const existing = await ctx.db
-    .query("readerStats")
-    .withIndex("by_name", (q: any) => q.eq("name", "global"))
-    .unique();
-
-  const current = existing ? {
-    all: existing.all,
-    feedGroups: existing.feedGroups,
-    manual: existing.manual,
-    saved: existing.saved
-  } : {
-    all: 0,
-    feedGroups: {} as Record<string, number>,
-    manual: 0,
-    saved: 0
-  };
-
-  const next = {
-    all: clampCount(current.all + delta.all),
-    feedGroups: mergeFeedGroupCounts(current.feedGroups, delta.feedGroups),
-    manual: clampCount(current.manual + delta.manual),
-    saved: clampCount(current.saved + delta.saved)
-  };
-
-  if (existing) {
-    await ctx.db.patch(existing._id, next);
-    return existing._id;
-  }
-
-  return ctx.db.insert("readerStats", {
-    ...next,
-    name: "global"
-  });
 };
 
 const getBodyDoc = async (ctx: { db: any }, articleId: any) =>
@@ -382,6 +318,11 @@ export const upsertManualArticle = internalMutation({
     })
   },
   handler: async (ctx, args) => {
+    const queryFields = buildArticleQueryFields({
+      feedTitle: args.article.feedTitle,
+      publishedAt: args.article.publishedAt,
+      sourceType: "manual"
+    });
     const existing = await ctx.db
       .query("articles")
       .withIndex("by_canonical_url", (q) => q.eq("canonicalUrl", args.article.canonicalUrl))
@@ -404,7 +345,9 @@ export const upsertManualArticle = internalMutation({
         feedTitle: args.article.feedTitle,
         isRead: false,
         isSaved: false,
+        isYoutube: queryFields.isYoutube,
         previewText: args.article.previewText,
+        publishedDigestDate: queryFields.publishedDigestDate,
         publishedAt: args.article.publishedAt,
         readTimeMinutes: args.article.readTimeMinutes,
         sourceType: "manual",
@@ -421,12 +364,13 @@ export const upsertManualArticle = internalMutation({
         bodySource: args.article.bodySource,
         summaryHtml: args.article.summaryHtml
       });
-      await applyStatsDeltaInDb(ctx, {
-        all: 1,
-        feedGroups: {},
-        manual: 1,
-        saved: 0
-      });
+      await applyStatsDeltaInDb(
+        ctx,
+        statsDeltaForArticle({
+          publishedDigestDate: queryFields.publishedDigestDate,
+          sourceType: "manual"
+        })
+      );
 
       return {
         articleId,
@@ -451,7 +395,9 @@ export const upsertManualArticle = internalMutation({
         feedTitle: args.article.feedTitle || existing.feedTitle,
         isRead: shouldRestore ? false : existing.isRead,
         isSaved: shouldRestore ? false : existing.isSaved,
+        isYoutube: queryFields.isYoutube,
         previewText: args.article.previewText,
+        publishedDigestDate: queryFields.publishedDigestDate,
         readAt: shouldRestore ? undefined : existing.readAt,
         readTimeMinutes: args.article.readTimeMinutes,
         savedAt: shouldRestore ? undefined : existing.savedAt,
@@ -480,14 +426,15 @@ export const upsertManualArticle = internalMutation({
 
     if (shouldRestore) {
       const sourceType = existing.sourceType || "manual";
-      await applyStatsDeltaInDb(ctx, {
-        all: 1,
-        feedGroups: sourceType === "feed" && existing.feedGroup
-          ? { [existing.feedGroup]: 1 }
-          : {},
-        manual: sourceType === "manual" ? 1 : 0,
-        saved: 0
-      });
+      await applyStatsDeltaInDb(
+        ctx,
+        statsDeltaForArticle({
+          feedGroup: sourceType === "feed" ? existing.feedGroup || "" : "",
+          publishedDigestDate: queryFields.publishedDigestDate,
+          sourceType,
+          isSaved: false
+        })
+      );
     }
 
     return {

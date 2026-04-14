@@ -6,6 +6,7 @@ import { action, internalMutation, internalQuery } from "./_generated/server";
 import { hashArticleContent } from "../lib/content-hash.mjs";
 import { normalizeFeedGroupName } from "../lib/feed-group-name.mjs";
 import { canonicalizeUrl } from "../lib/html.mjs";
+import { buildArticleQueryFields } from "./readerStats";
 
 const normalizeFeedGroup = (value: { feedGroup?: string; feedFolder?: string; folder?: string }) =>
   normalizeFeedGroupName(value.feedGroup || value.feedFolder || value.folder || "Uncategorized");
@@ -86,6 +87,11 @@ export const backfillFeedGroups = action({
             resolvedFeedGroup ||
             "Uncategorized"
           );
+      const queryFields = buildArticleQueryFields({
+        feedTitle: article.feedTitle,
+        publishedAt: article.publishedAt,
+        sourceType
+      });
 
       const canonicalUrl = canonicalizeUrl(article.url);
       await ctx.runMutation(internal.migration.patchArticleDocument, {
@@ -105,6 +111,8 @@ export const backfillFeedGroups = action({
           url: article.url
         }),
         feedGroup,
+        isYoutube: queryFields.isYoutube,
+        publishedDigestDate: queryFields.publishedDigestDate,
         sourceType,
         summaryHtml: article.summaryHtml || article.bodyHtml || ""
       });
@@ -156,6 +164,8 @@ export const patchArticleDocument = internalMutation({
     bodyHtml: v.optional(v.string()),
     bodySource: v.optional(v.union(v.literal("feed"), v.literal("fetched"))),
     feedGroup: v.string(),
+    isYoutube: v.boolean(),
+    publishedDigestDate: v.string(),
     sourceType: v.union(v.literal("feed"), v.literal("manual")),
     summaryHtml: v.optional(v.string())
   },
@@ -167,6 +177,8 @@ export const patchArticleDocument = internalMutation({
       contentHash: args.contentHash,
       feedGroup: args.feedGroup,
       feedFolder: undefined,
+      isYoutube: args.isYoutube,
+      publishedDigestDate: args.publishedDigestDate,
       sourceType: args.sourceType,
       summaryHtml: undefined
     });
@@ -186,6 +198,7 @@ export const backfillBodiesAndStats = action({
       manual: 0,
       saved: 0
     };
+    const dailyFeedCounts = {} as Record<string, number>;
 
     for (const articleId of articleIds) {
       const article = await ctx.runQuery(internal.migration.getArticleDocument, { articleId });
@@ -208,6 +221,11 @@ export const backfillBodiesAndStats = action({
       const bodyHtml = article.bodyHtml || "";
       const summaryHtml = article.summaryHtml || bodyHtml;
       const bodySource = article.bodySource || "feed";
+      const queryFields = buildArticleQueryFields({
+        feedTitle: article.feedTitle,
+        publishedAt: article.publishedAt,
+        sourceType
+      });
       const contentHash = hashArticleContent({
         author: article.author || "",
         bodyHtml,
@@ -233,6 +251,8 @@ export const backfillBodiesAndStats = action({
         canonicalUrl,
         contentHash,
         feedGroup,
+        isYoutube: queryFields.isYoutube,
+        publishedDigestDate: queryFields.publishedDigestDate,
         sourceType,
         summaryHtml
       });
@@ -247,10 +267,17 @@ export const backfillBodiesAndStats = action({
         } else if (feedGroup) {
           stats.feedGroups[feedGroup] = (stats.feedGroups[feedGroup] || 0) + 1;
         }
+        if (sourceType === "feed") {
+          dailyFeedCounts[queryFields.publishedDigestDate] =
+            (dailyFeedCounts[queryFields.publishedDigestDate] || 0) + 1;
+        }
       }
     }
 
-    await ctx.runMutation(internal.reader.replaceStats, { stats });
+    await ctx.runMutation(internal.reader.replaceStats, {
+      dailyFeedCounts,
+      stats
+    });
 
     return {
       migratedArticles: articleIds.length,

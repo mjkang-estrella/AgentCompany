@@ -54,7 +54,9 @@ export default defineSchema({
     feedTitle: v.string(),
     isRead: v.boolean(),
     isSaved: v.boolean(),
+    isYoutube: v.optional(v.boolean()),
     previewText: v.string(),
+    publishedDigestDate: v.optional(v.string()),
     publishedAt: v.number(),
     readAt: v.optional(v.number()),
     readTimeMinutes: v.number(),
@@ -68,8 +70,13 @@ export default defineSchema({
   })
     .index("by_feed_and_external_id", ["feedId", "externalId"])
     .index("by_published_at", ["publishedAt"])
-    .index("by_feed_group_and_published_at", ["feedGroup", "publishedAt"])
-    .index("by_saved_and_published_at", ["isSaved", "publishedAt"])
+    .index("by_deleted_published_at", ["deletedAt", "publishedAt"])
+    .index("by_feed_group_source_deleted_published_at", ["feedGroup", "sourceType", "deletedAt", "publishedAt"])
+    .index("by_saved_deleted_published_at", ["isSaved", "deletedAt", "publishedAt"])
+    .index("by_saved_source_deleted_feed_group_published_at", ["isSaved", "sourceType", "deletedAt", "feedGroup", "publishedAt"])
+    .index("by_source_deleted_published_at", ["sourceType", "deletedAt", "publishedAt"])
+    .index("by_source_title_deleted_published_at", ["sourceType", "feedTitle", "deletedAt", "publishedAt"])
+    .index("by_digest_date_source_deleted_published_at", ["publishedDigestDate", "sourceType", "deletedAt", "publishedAt"])
     .index("by_feed_id_and_published_at", ["feedId", "publishedAt"])
     .index("by_canonical_url", ["canonicalUrl"]),
 
@@ -124,6 +131,11 @@ export default defineSchema({
     name: v.string(),
     saved: v.number()
   }).index("by_name", ["name"]),
+
+  readerDailyStats: defineTable({
+    feedCount: v.number(),
+    localDate: v.string()
+  }).index("by_local_date", ["localDate"]),
 
   dailyDigests: defineTable({
     articleCount: v.number(),

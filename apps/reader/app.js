@@ -1531,15 +1531,22 @@ const seekYouTubeHeroPlayer = (seconds) => {
   iframe.scrollIntoView({ behavior: "smooth", block: "center" });
 };
 
-const buildRequestArgs = ({ cursor = null, includeSelectedArticleId = false } = {}) => {
+const buildRequestArgs = ({
+  cursor = null,
+  includeCounts = true,
+  includeSelectedArticleId = false
+} = {}) => {
   const args = {
     limit: PAGE_LIMIT,
-    scope: state.scope,
-    timezoneOffsetMinutes: new Date().getTimezoneOffset()
+    scope: state.scope
   };
 
   if (state.feedGroup) {
     args.feedGroup = state.feedGroup;
+  }
+
+  if (!includeCounts) {
+    args.includeCounts = false;
   }
 
   if (includeSelectedArticleId && state.selectedArticleId) {
@@ -1613,10 +1620,36 @@ const ensureArticleInCurrentList = async (articleSlug) => {
   return article;
 };
 
+const flattenDigestArticles = (digest) =>
+  (digest?.sections || []).flatMap((section) =>
+    (section.articles || []).map((article) => ({
+      ...article,
+      feedGroup: article.feedGroup || section.feedGroup || "",
+      feedIconUrl: article.feedIconUrl || section.feedIconUrl || "",
+      feedTitle: article.feedTitle || section.feedTitle
+    }))
+  );
+
+const mergeArticleUpdateIntoState = (updated) => {
+  if (!updated?.id) {
+    return;
+  }
+
+  if (state.selectedArticle?.id === updated.id) {
+    state.selectedArticle = {
+      ...state.selectedArticle,
+      ...updated
+    };
+  }
+
+  const summary = state.articles.find((article) => article.id === updated.id);
+  if (summary) {
+    Object.assign(summary, updated);
+  }
+};
+
 const loadCountsOnly = async () => {
-  const payload = await convexRequest("query", "reader:getCounts", {
-    timezoneOffsetMinutes: new Date().getTimezoneOffset()
-  });
+  const payload = await convexRequest("query", "reader:getCounts", {});
   state.counts = payload.counts || { ...emptyCounts };
   return state.counts;
 };
@@ -2164,11 +2197,9 @@ const pollTodayDigest = async (attempts = 6) => {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     await new Promise((resolve) => window.setTimeout(resolve, 1500));
     const payload = await convexRequest("query", "digest:getToday", {
-      timezoneOffsetMinutes: new Date().getTimezoneOffset()
+      includeCounts: false
     });
 
-    state.articles = payload.articles || [];
-    state.counts = payload.counts || { ...emptyCounts };
     state.digest = payload.digest
       ? {
         ...payload.digest,
@@ -2177,6 +2208,7 @@ const pollTodayDigest = async (attempts = 6) => {
         todayLocalDate: payload.todayLocalDate
       }
       : null;
+    state.articles = flattenDigestArticles(state.digest);
     state.digestDate = payload.localDate || "";
     state.calendarMonth = startOfMonthKey(state.digestDate || payload.todayLocalDate || "");
     state.isLoadingDigest = false;
@@ -2213,12 +2245,11 @@ const loadDigestForDate = async (localDate = "", options = {}) => {
 
   const payload = localDate
     ? await convexRequest("query", "digest:getForDate", { localDate })
-    : await convexRequest("query", "digest:getToday", {
-      timezoneOffsetMinutes: new Date().getTimezoneOffset()
-    });
+    : await convexRequest("query", "digest:getToday", {});
 
-  state.articles = payload.articles || [];
-  state.counts = payload.counts || { ...emptyCounts };
+  if (payload.counts) {
+    state.counts = payload.counts;
+  }
   state.digest = payload.digest
     ? {
       ...payload.digest,
@@ -2227,6 +2258,7 @@ const loadDigestForDate = async (localDate = "", options = {}) => {
       todayLocalDate: payload.todayLocalDate
     }
     : null;
+  state.articles = flattenDigestArticles(state.digest);
   state.digestDate = payload.localDate || localDate || "";
   state.calendarMonth = startOfMonthKey(state.digestDate || payload.todayLocalDate || "");
   state.isLoadingDigest = false;
@@ -2240,15 +2272,17 @@ const loadDigestForDate = async (localDate = "", options = {}) => {
   }
 };
 
-const bootstrap = async () => {
+const bootstrap = async ({ includeCounts = true } = {}) => {
   const payload = await convexRequest(
     "query",
     "reader:bootstrap",
-    buildRequestArgs({ includeSelectedArticleId: true })
+    buildRequestArgs({ includeCounts, includeSelectedArticleId: true })
   );
   articleRequestToken += 1;
   state.articles = payload.articles || [];
-  state.counts = payload.counts || { ...emptyCounts };
+  if (payload.counts) {
+    state.counts = payload.counts;
+  }
   state.hasMore = Boolean(payload.hasMore);
   state.nextCursor = payload.nextCursor || null;
   state.selectedArticle = null;
@@ -2317,9 +2351,13 @@ const selectArticle = async (articleId, options = {}) => {
     convexRequest("mutation", "reader:updateArticle", {
       articleId,
       isRead: true
-    }).catch((error) => {
-      showToast(error.message, { error: true });
-    });
+    })
+      .then((updated) => {
+        mergeArticleUpdateIntoState(updated);
+      })
+      .catch((error) => {
+        showToast(error.message, { error: true });
+      });
   }
 
   if (updateRoute) {
@@ -2339,11 +2377,7 @@ const toggleSave = async () => {
     isSaved: !state.selectedArticle.isSaved
   });
 
-  state.selectedArticle = updated;
-  const summary = state.articles.find((article) => article.id === updated.id);
-  if (summary) {
-    summary.isSaved = updated.isSaved;
-  }
+  mergeArticleUpdateIntoState(updated);
 
   if (state.scope === "saved" && !updated.isSaved) {
     clearSelection();
@@ -2385,8 +2419,7 @@ const deleteSelectedArticle = async () => {
 const markAllRead = async () => {
   await convexRequest("action", "reader:markAllRead", {
     feedGroup: state.feedGroup,
-    scope: state.scope,
-    timezoneOffsetMinutes: new Date().getTimezoneOffset()
+    scope: state.scope
   });
 
   clearSelection();
@@ -3664,7 +3697,7 @@ const start = async () => {
       state.feedGroup = findFeedGroupBySlug(route.feedGroupSlug);
       clearSelection();
       openPanel();
-      await bootstrap();
+      await bootstrap({ includeCounts: false });
       if (route.articleSlug) {
         const article = await ensureArticleInCurrentList(route.articleSlug);
         if (article) {

@@ -18,6 +18,7 @@ import type * as migration from "../migration.js";
 import type * as newsletters from "../newsletters.js";
 import type * as newslettersNode from "../newslettersNode.js";
 import type * as reader from "../reader.js";
+import type * as readerStats from "../readerStats.js";
 import type * as sync from "../sync.js";
 
 import type {
@@ -37,6 +38,7 @@ declare const fullApi: ApiFromModules<{
   newsletters: typeof newsletters;
   newslettersNode: typeof newslettersNode;
   reader: typeof reader;
+  readerStats: typeof readerStats;
   sync: typeof sync;
 }>;
 

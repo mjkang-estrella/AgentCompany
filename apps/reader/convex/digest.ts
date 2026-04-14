@@ -11,41 +11,16 @@ import {
   groupDigestInputs
 } from "../lib/daily-digest.mjs";
 import { stripHtml } from "../lib/html.mjs";
+import { emptyStoredStats, getTodayFeedCount } from "./readerStats";
 
 const DIGEST_TIMEZONE = getDigestTimezone();
 
-const emptyCounts = () => ({
-  all: 0,
-  feedGroups: {} as Record<string, number>,
-  manual: 0,
-  saved: 0,
-  today: 0
-});
-
-const getDigestTodayCount = async (ctx: any, timezone: string) => {
-  const range = getTimeZoneDayRange(timezone);
-  const articles = await ctx.db
-    .query("articles")
-    .withIndex("by_published_at")
-    .order("desc")
-    .filter((q: any) =>
-      q.and(
-        q.eq(q.field("deletedAt"), undefined),
-        q.eq(q.field("sourceType"), "feed"),
-        q.gte(q.field("publishedAt"), range.start),
-        q.lt(q.field("publishedAt"), range.end)
-      )
-    )
-    .collect();
-
-  return articles.length;
-};
-
-const buildCounts = async (ctx: any, timezone: string) => {
+const buildCounts = async (ctx: any) => {
   const stats = await ctx.db
     .query("readerStats")
     .withIndex("by_name", (q: any) => q.eq("name", "global"))
     .unique();
+  const today = await getTodayFeedCount(ctx);
 
   const counts = {
     ...(stats ? {
@@ -53,13 +28,8 @@ const buildCounts = async (ctx: any, timezone: string) => {
       feedGroups: { ...stats.feedGroups },
       manual: stats.manual,
       saved: stats.saved
-    } : {
-      all: 0,
-      feedGroups: {} as Record<string, number>,
-      manual: 0,
-      saved: 0
-    }),
-    today: await getDigestTodayCount(ctx, timezone)
+    } : emptyStoredStats()),
+    today: today.count
   };
 
   const feeds = await ctx.db.query("feeds").collect();
@@ -73,44 +43,14 @@ const buildCounts = async (ctx: any, timezone: string) => {
   return counts;
 };
 
-const mapDigest = (digest: any) => ({
+const mapDigest = (digest: any, liveArticles: Map<string, any>) => ({
   articleCount: digest.articleCount || 0,
   error: digest.error || "",
   generatedAt: digest.generatedAt ? new Date(digest.generatedAt).toISOString() : "",
   intro: digest.intro || "",
   localDate: digest.localDate,
   sections: (digest.sections || []).map((section: any) => ({
-    articles: (section.articles || []).map((article: any) => ({
-      author: article.author || "",
-      id: article.id,
-      previewText: article.previewText || "",
-      publishedAt: article.publishedAt,
-      subtitle: article.subtitle || "",
-      title: article.title,
-      url: article.url
-    })),
-    feedGroup: section.feedGroup || "",
-    feedIconUrl: section.feedIconUrl || "",
-    feedTitle: section.feedTitle,
-    summary: section.summary
-  })),
-  status: digest.status,
-  timezone: digest.timezone
-});
-
-const buildDigestArticleList = async (ctx: any, digest: any) => {
-  if (!digest) {
-    return [];
-  }
-
-  const liveArticles = new Map(
-    (await Promise.all((digest.articleIds || []).map((articleId: any) => ctx.db.get(articleId))))
-      .filter(Boolean)
-      .map((article: any) => [String(article._id), article])
-  );
-
-  return (digest.sections || []).flatMap((section: any) =>
-    (section.articles || []).map((article: any) => {
+    articles: (section.articles || []).map((article: any) => {
       const live = liveArticles.get(String(article.id));
 
       return {
@@ -133,16 +73,24 @@ const buildDigestArticleList = async (ctx: any, digest: any) => {
         title: live?.title || article.title,
         url: live?.url || article.url
       };
-    })
-  );
-};
+    }),
+    feedGroup: section.feedGroup || "",
+    feedIconUrl: section.feedIconUrl || "",
+    feedTitle: section.feedTitle,
+    summary: section.summary
+  })),
+  status: digest.status,
+  timezone: digest.timezone
+});
 
 const buildDigestPayload = async (
   ctx: any,
   {
+    includeCounts,
     localDate,
     timezone
   }: {
+    includeCounts: boolean;
     localDate: string;
     timezone: string;
   }
@@ -153,13 +101,17 @@ const buildDigestPayload = async (
       q.eq("localDate", localDate).eq("timezone", timezone)
     )
     .unique();
+  const liveArticles = new Map(
+    (await Promise.all((digest?.articleIds || []).map((articleId: any) => ctx.db.get(articleId))))
+      .filter(Boolean)
+      .map((article: any) => [String(article._id), article])
+  );
 
   const todayLocalDate = getTimeZoneDateKey(timezone);
 
   return {
-    articles: await buildDigestArticleList(ctx, digest),
-    counts: await buildCounts(ctx, timezone),
-    digest: digest ? mapDigest(digest) : null,
+    counts: includeCounts ? await buildCounts(ctx) : undefined,
+    digest: digest ? mapDigest(digest, liveArticles) : null,
     isToday: localDate === todayLocalDate,
     localDate,
     localDateLabel: formatDigestDateLabel(localDate),
@@ -348,22 +300,28 @@ export const saveGeneratedDigest = internalMutation({
 
 export const getToday = query({
   args: {
-    timezoneOffsetMinutes: v.number()
+    includeCounts: v.optional(v.boolean())
   },
-  handler: async (ctx) => {
+  handler: async (ctx, args) => {
     const timezone = DIGEST_TIMEZONE;
     const localDate = getTimeZoneDateKey(timezone);
-    return buildDigestPayload(ctx, { localDate, timezone });
+    return buildDigestPayload(ctx, {
+      includeCounts: args.includeCounts !== false,
+      localDate,
+      timezone
+    });
   }
 });
 
 export const getForDate = query({
   args: {
+    includeCounts: v.optional(v.boolean()),
     localDate: v.string()
   },
   handler: async (ctx, args) => {
     const timezone = DIGEST_TIMEZONE;
     return buildDigestPayload(ctx, {
+      includeCounts: args.includeCounts !== false,
       localDate: args.localDate,
       timezone
     });

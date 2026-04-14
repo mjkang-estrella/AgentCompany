@@ -10,23 +10,17 @@ import {
   highlightsOverlap
 } from "../lib/highlight-anchors.mjs";
 import { stripHtml } from "../lib/html.mjs";
-import { getDigestTimezone, getTimeZoneDayRange } from "../lib/daily-digest.mjs";
-
-const STATS_NAME = "global";
-const defaultCounts = () => ({
-  all: 0,
-  feedGroups: {} as Record<string, number>,
-  manual: 0,
-  saved: 0,
-  today: 0
-});
-
-const emptyStoredStats = () => ({
-  all: 0,
-  feedGroups: {} as Record<string, number>,
-  manual: 0,
-  saved: 0
-});
+import {
+  applyStatsDeltaInDb,
+  emptyStatsDelta,
+  emptyStoredStats,
+  getDigestDateForTimestamp,
+  getTodayDigestLocalDate,
+  getTodayFeedCount,
+  negateStatsDelta,
+  replaceStatsDocument,
+  statsDeltaForArticle
+} from "./readerStats";
 
 const scopeValidator = v.union(
   v.literal("all"),
@@ -38,6 +32,7 @@ const scopeValidator = v.union(
 
 const statsDeltaValidator = v.object({
   all: v.number(),
+  dailyFeedCounts: v.record(v.string(), v.number()),
   feedGroups: v.record(v.string(), v.number()),
   manual: v.number(),
   saved: v.number()
@@ -101,49 +96,8 @@ const articleDetail = (
   };
 };
 
-const withoutDeleted = (queryBuilder: any) =>
-  queryBuilder.filter((q: any) => q.eq(q.field("deletedAt"), undefined));
-
-const getTodayRange = (timezoneOffsetMinutes: number) => {
-  const localNowMs = Date.now() - timezoneOffsetMinutes * 60_000;
-  const localStart = new Date(localNowMs);
-  localStart.setUTCHours(0, 0, 0, 0);
-  const start = localStart.getTime() + timezoneOffsetMinutes * 60_000;
-  return {
-    end: start + 86_400_000,
-    start
-  };
-};
-
 const normalizeFeedGroupArg = (args: { feedGroup?: string; folder?: string }) =>
   args.feedGroup || args.folder || "";
-
-const clampCount = (value: number) => Math.max(0, value || 0);
-
-const mergeFeedGroupCounts = (
-  current: Record<string, number>,
-  delta: Record<string, number>
-) => {
-  const next = { ...current };
-
-  for (const [feedGroup, change] of Object.entries(delta)) {
-    const candidate = clampCount((next[feedGroup] || 0) + change);
-    if (candidate === 0) {
-      delete next[feedGroup];
-      continue;
-    }
-
-    next[feedGroup] = candidate;
-  }
-
-  return next;
-};
-
-const getStatsDocument = async (ctx: { db: any }) =>
-  ctx.db
-    .query("readerStats")
-    .withIndex("by_name", (q: any) => q.eq("name", STATS_NAME))
-    .unique();
 
 const getArticleBodyDocument = async (ctx: { db: any }, articleId: Id<"articles">) =>
   ctx.db
@@ -188,168 +142,88 @@ const deleteArticleBodyDocument = async (ctx: { db: any }, articleId: Id<"articl
   }
 };
 
-const replaceStatsDocument = async (
-  ctx: { db: any },
-  stats: ReturnType<typeof emptyStoredStats>
-) => {
-  const existing = await getStatsDocument(ctx);
-
-  if (existing) {
-    await ctx.db.patch(existing._id, stats);
-    return existing._id;
-  }
-
-  return ctx.db.insert("readerStats", {
-    ...stats,
-    name: STATS_NAME
-  });
-};
-
-const applyStatsDeltaInDb = async (
-  ctx: { db: any },
-  delta: ReturnType<typeof emptyStoredStats>
-) => {
-  const existing = await getStatsDocument(ctx);
-  const current = existing ? {
-    all: existing.all,
-    feedGroups: existing.feedGroups,
-    manual: existing.manual,
-    saved: existing.saved
-  } : emptyStoredStats();
-
-  const next = {
-    all: clampCount(current.all + delta.all),
-    feedGroups: mergeFeedGroupCounts(current.feedGroups, delta.feedGroups),
-    manual: clampCount(current.manual + delta.manual),
-    saved: clampCount(current.saved + delta.saved)
-  };
-
-  return replaceStatsDocument(ctx, next);
-};
-
-const statsDeltaForArticle = (
-  article: Pick<Doc<"articles">, "feedGroup" | "isSaved" | "sourceType">
-) => {
-  const delta = emptyStoredStats();
-  delta.all = 1;
-  if (article.isSaved) {
-    delta.saved = 1;
-  }
-  if (getSourceType(article as Doc<"articles">) === "manual") {
-    delta.manual = 1;
-  } else {
-    const feedGroup = getFeedGroup(article);
-    if (feedGroup) {
-      delta.feedGroups[feedGroup] = 1;
-    }
-  }
-
-  return delta;
-};
-
-const negateStatsDelta = (delta: ReturnType<typeof emptyStoredStats>) => ({
-  all: -delta.all,
-  feedGroups: Object.fromEntries(
-    Object.entries(delta.feedGroups).map(([feedGroup, count]) => [feedGroup, -count])
-  ),
-  manual: -delta.manual,
-  saved: -delta.saved
-});
-
 const buildArticleQuery = (
   ctx: any,
   args: {
     feedGroup?: string;
     scope: "all" | "manual" | "saved" | "today" | "youtube";
-    timezoneOffsetMinutes: number;
   }
 ) => {
+  const feedGroup = normalizeFeedGroupArg(args);
   let articleQuery;
 
-  if (args.feedGroup) {
+  if (args.scope === "today" && !feedGroup) {
     articleQuery = ctx.db
       .query("articles")
-      .withIndex("by_feed_group_and_published_at", (q: any) => q.eq("feedGroup", args.feedGroup))
-      .order("desc")
-      .filter((q: any) => q.eq(q.field("sourceType"), "feed"));
+      .withIndex("by_digest_date_source_deleted_published_at", (q: any) =>
+        q.eq("publishedDigestDate", getTodayDigestLocalDate())
+          .eq("sourceType", "feed")
+          .eq("deletedAt", undefined)
+      )
+      .order("desc");
+  } else if (feedGroup && args.scope === "saved") {
+    articleQuery = ctx.db
+      .query("articles")
+      .withIndex("by_saved_source_deleted_feed_group_published_at", (q: any) =>
+        q.eq("isSaved", true)
+          .eq("sourceType", "feed")
+          .eq("deletedAt", undefined)
+          .eq("feedGroup", feedGroup)
+      )
+      .order("desc");
+  } else if (feedGroup) {
+    articleQuery = ctx.db
+      .query("articles")
+      .withIndex("by_feed_group_source_deleted_published_at", (q: any) =>
+        q.eq("feedGroup", feedGroup)
+          .eq("sourceType", "feed")
+          .eq("deletedAt", undefined)
+      )
+      .order("desc");
   } else if (args.scope === "saved") {
     articleQuery = ctx.db
       .query("articles")
-      .withIndex("by_saved_and_published_at", (q: any) => q.eq("isSaved", true))
+      .withIndex("by_saved_deleted_published_at", (q: any) =>
+        q.eq("isSaved", true).eq("deletedAt", undefined)
+      )
       .order("desc");
   } else if (args.scope === "manual") {
     articleQuery = ctx.db
       .query("articles")
-      .withIndex("by_published_at")
+      .withIndex("by_source_deleted_published_at", (q: any) =>
+        q.eq("sourceType", "manual").eq("deletedAt", undefined)
+      )
       .order("desc")
-      .filter((q: any) =>
-        q.and(
-          q.eq(q.field("sourceType"), "manual"),
-          q.neq(q.field("feedTitle"), "YouTube")
-        )
-      );
+      .filter((q: any) => q.neq(q.field("feedTitle"), "YouTube"));
   } else if (args.scope === "youtube") {
     articleQuery = ctx.db
       .query("articles")
-      .withIndex("by_published_at")
-      .order("desc")
-      .filter((q: any) =>
-        q.and(
-          q.eq(q.field("sourceType"), "manual"),
-          q.eq(q.field("feedTitle"), "YouTube")
-        )
-      );
+      .withIndex("by_source_title_deleted_published_at", (q: any) =>
+        q.eq("sourceType", "manual").eq("feedTitle", "YouTube").eq("deletedAt", undefined)
+      )
+      .order("desc");
   } else {
-    articleQuery = ctx.db.query("articles").withIndex("by_published_at").order("desc");
-  }
-
-  if (args.scope === "saved" && args.feedGroup) {
-    articleQuery = articleQuery.filter((q: any) =>
-      q.and(
-        q.eq(q.field("isSaved"), true),
-        q.eq(q.field("sourceType"), "feed"),
-        q.eq(q.field("feedGroup"), args.feedGroup)
-      )
-    );
-  }
-
-  if (args.scope === "today") {
-    const range = getTodayRange(args.timezoneOffsetMinutes);
-    articleQuery = articleQuery.filter((q: any) =>
-      q.and(
-        q.gte(q.field("publishedAt"), range.start),
-        q.lt(q.field("publishedAt"), range.end)
-      )
-    );
-  }
-
-  return withoutDeleted(articleQuery);
-};
-
-const countTodayArticles = async (ctx: any, timezoneOffsetMinutes: number) => {
-  const range = getTodayRange(timezoneOffsetMinutes);
-  const articles = await withoutDeleted(
-    ctx.db
+    articleQuery = ctx.db
       .query("articles")
-      .withIndex("by_published_at")
-      .order("desc")
-      .filter((q: any) =>
-        q.and(
-          q.eq(q.field("sourceType"), "feed"),
-          q.gte(q.field("publishedAt"), range.start),
-          q.lt(q.field("publishedAt"), range.end)
-        )
-      )
-  ).collect();
+      .withIndex("by_deleted_published_at", (q: any) => q.eq("deletedAt", undefined))
+      .order("desc");
+  }
 
-  return articles.length;
+  if (args.scope === "today" && feedGroup) {
+    articleQuery = articleQuery.filter((q: any) =>
+      q.eq(q.field("publishedDigestDate"), getTodayDigestLocalDate())
+    );
+  }
+
+  return articleQuery;
 };
 
-const buildCounts = async (ctx: any, timezoneOffsetMinutes: number) => {
+const buildCounts = async (ctx: any) => {
   const stats = await ctx.db
     .query("readerStats")
-    .withIndex("by_name", (q: any) => q.eq("name", STATS_NAME))
+    .withIndex("by_name", (q: any) => q.eq("name", "global"))
     .unique();
+  const today = await getTodayFeedCount(ctx);
 
   const counts = {
     ...(stats ? {
@@ -358,7 +232,7 @@ const buildCounts = async (ctx: any, timezoneOffsetMinutes: number) => {
       manual: stats.manual,
       saved: stats.saved
     } : emptyStoredStats()),
-    today: await countTodayArticles(ctx, timezoneOffsetMinutes)
+    today: today.count
   };
 
   const feeds = await ctx.db.query("feeds").collect();
@@ -402,6 +276,7 @@ export const deleteArticleBody = internalMutation({
 
 export const replaceStats = internalMutation({
   args: {
+    dailyFeedCounts: v.optional(v.record(v.string(), v.number())),
     stats: v.object({
       all: v.number(),
       feedGroups: v.record(v.string(), v.number()),
@@ -409,7 +284,8 @@ export const replaceStats = internalMutation({
       saved: v.number()
     })
   },
-  handler: async (ctx, args) => replaceStatsDocument(ctx, args.stats)
+  handler: async (ctx, args) =>
+    replaceStatsDocument(ctx, args.stats, args.dailyFeedCounts || {})
 });
 
 export const applyStatsDelta = internalMutation({
@@ -422,17 +298,16 @@ export const applyStatsDelta = internalMutation({
 export const bootstrap = query({
   args: {
     feedGroup: v.optional(v.string()),
+    includeCounts: v.optional(v.boolean()),
     folder: v.optional(v.string()),
     limit: v.optional(v.number()),
     scope: scopeValidator,
-    selectedArticleId: v.optional(v.id("articles")),
-    timezoneOffsetMinutes: v.number()
+    selectedArticleId: v.optional(v.id("articles"))
   },
   handler: async (ctx, args) => {
     const pagination = await buildArticleQuery(ctx, {
       feedGroup: normalizeFeedGroupArg(args),
-      scope: args.scope,
-      timezoneOffsetMinutes: args.timezoneOffsetMinutes
+      scope: args.scope
     }).paginate({
       cursor: null,
       numItems: Math.min(Math.max(args.limit || 50, 1), 100)
@@ -445,7 +320,7 @@ export const bootstrap = query({
 
     return {
       articles,
-      counts: await buildCounts(ctx, args.timezoneOffsetMinutes),
+      counts: args.includeCounts === false ? undefined : await buildCounts(ctx),
       hasMore: !pagination.isDone,
       nextCursor: pagination.isDone ? null : pagination.continueCursor,
       selectedArticleId
@@ -454,11 +329,9 @@ export const bootstrap = query({
 });
 
 export const getCounts = query({
-  args: {
-    timezoneOffsetMinutes: v.number()
-  },
-  handler: async (ctx, args) => ({
-    counts: await buildCounts(ctx, args.timezoneOffsetMinutes)
+  args: {},
+  handler: async (ctx) => ({
+    counts: await buildCounts(ctx)
   })
 });
 
@@ -468,14 +341,12 @@ export const listArticles = query({
     feedGroup: v.optional(v.string()),
     folder: v.optional(v.string()),
     limit: v.optional(v.number()),
-    scope: scopeValidator,
-    timezoneOffsetMinutes: v.number()
+    scope: scopeValidator
   },
   handler: async (ctx, args) => {
     const pagination = await buildArticleQuery(ctx, {
       feedGroup: normalizeFeedGroupArg(args),
-      scope: args.scope,
-      timezoneOffsetMinutes: args.timezoneOffsetMinutes
+      scope: args.scope
     }).paginate({
       cursor: args.cursor ?? null,
       numItems: Math.min(Math.max(args.limit || 50, 1), 100)
@@ -557,12 +428,9 @@ export const updateArticle = mutation({
 
     await ctx.db.patch(args.articleId, patch);
     if (savedDelta !== 0) {
-      await applyStatsDeltaInDb(ctx, {
-        all: 0,
-        feedGroups: {},
-        manual: 0,
-        saved: savedDelta
-      });
+      const delta = emptyStatsDelta();
+      delta.saved = savedDelta;
+      await applyStatsDeltaInDb(ctx, delta);
     }
 
     const updated = await ctx.db.get(args.articleId);
@@ -570,10 +438,13 @@ export const updateArticle = mutation({
       throw new Error("Article not found after update");
     }
 
-    const body = await getArticleBodyDocument(ctx, args.articleId);
-    const highlights = await getArticleHighlightDocuments(ctx, args.articleId);
-
-    return articleDetail(updated, body, highlights);
+    return {
+      id: updated._id,
+      isRead: updated.isRead,
+      isSaved: updated.isSaved,
+      readAt: updated.readAt ? new Date(updated.readAt).toISOString() : "",
+      savedAt: updated.savedAt ? new Date(updated.savedAt).toISOString() : ""
+    };
   }
 });
 
@@ -677,12 +548,10 @@ export const deleteArticle = mutation({
     });
     await applyStatsDeltaInDb(ctx, negateStatsDelta(statsDeltaForArticle(article)));
 
-    const digestTimezone = getDigestTimezone();
-    const digestTodayRange = getTimeZoneDayRange(digestTimezone);
     const affectsTodayDigest =
       (article.sourceType || "feed") === "feed" &&
-      article.publishedAt >= digestTodayRange.start &&
-      article.publishedAt < digestTodayRange.end;
+      (article.publishedDigestDate || getDigestDateForTimestamp(article.publishedAt)) ===
+        getTodayDigestLocalDate();
 
     return {
       affectsTodayDigest,
@@ -697,14 +566,12 @@ export const matchingArticleIdPage = internalQuery({
     feedGroup: v.optional(v.string()),
     folder: v.optional(v.string()),
     limit: v.optional(v.number()),
-    scope: scopeValidator,
-    timezoneOffsetMinutes: v.number()
+    scope: scopeValidator
   },
   handler: async (ctx, args) => {
     const pagination = await buildArticleQuery(ctx, {
       feedGroup: normalizeFeedGroupArg(args),
-      scope: args.scope,
-      timezoneOffsetMinutes: args.timezoneOffsetMinutes
+      scope: args.scope
     }).paginate({
       cursor: args.cursor ?? null,
       numItems: Math.min(Math.max(args.limit || 100, 1), 200)
@@ -739,8 +606,7 @@ export const markAllRead = action({
   args: {
     feedGroup: v.optional(v.string()),
     folder: v.optional(v.string()),
-    scope: scopeValidator,
-    timezoneOffsetMinutes: v.number()
+    scope: scopeValidator
   },
   handler: async (ctx, args) => {
     let cursor: string | null = null;
@@ -751,8 +617,7 @@ export const markAllRead = action({
         cursor: cursor || undefined,
         feedGroup: normalizeFeedGroupArg(args),
         limit: 100,
-        scope: args.scope,
-        timezoneOffsetMinutes: args.timezoneOffsetMinutes
+        scope: args.scope
       });
 
       if (page.ids.length > 0) {

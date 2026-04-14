@@ -15,6 +15,12 @@ import {
   sanitizeFragment,
   stripHtml
 } from "../lib/html.mjs";
+import {
+  applyStatsDeltaInDb,
+  buildArticleQueryFields,
+  emptyStatsDelta,
+  statsDeltaForArticle
+} from "./readerStats";
 
 const DEFAULT_HEADERS = {
   "user-agent": "AgentCompany Reader/1.0 (+https://agent.company)"
@@ -152,101 +158,6 @@ const maybeFetchArticleBody = async (
   };
 };
 
-const statsDeltaForArticle = (article: {
-  feedGroup: string;
-  isSaved?: boolean;
-  sourceType: "feed" | "manual";
-}) => {
-  const delta = {
-    all: 1,
-    feedGroups: {} as Record<string, number>,
-    manual: 0,
-    saved: article.isSaved ? 1 : 0
-  };
-
-  if (article.sourceType === "manual") {
-    delta.manual = 1;
-  } else if (article.feedGroup) {
-    delta.feedGroups[article.feedGroup] = 1;
-  }
-
-  return delta;
-};
-
-const negateDelta = (delta: ReturnType<typeof statsDeltaForArticle>) => ({
-  all: -delta.all,
-  feedGroups: Object.fromEntries(
-    Object.entries(delta.feedGroups).map(([feedGroup, count]) => [feedGroup, -count])
-  ),
-  manual: -delta.manual,
-  saved: -delta.saved
-});
-
-const clampCount = (value: number) => Math.max(0, value || 0);
-
-const mergeFeedGroupCounts = (
-  current: Record<string, number>,
-  delta: Record<string, number>
-) => {
-  const next = { ...current };
-
-  for (const [feedGroup, change] of Object.entries(delta)) {
-    const candidate = clampCount((next[feedGroup] || 0) + change);
-    if (candidate === 0) {
-      delete next[feedGroup];
-      continue;
-    }
-
-    next[feedGroup] = candidate;
-  }
-
-  return next;
-};
-
-const applyStatsDeltaInDb = async (
-  ctx: { db: any },
-  delta: {
-    all: number;
-    feedGroups: Record<string, number>;
-    manual: number;
-    saved: number;
-  }
-) => {
-  const existing = await ctx.db
-    .query("readerStats")
-    .withIndex("by_name", (q: any) => q.eq("name", "global"))
-    .unique();
-
-  const current = existing ? {
-    all: existing.all,
-    feedGroups: existing.feedGroups,
-    manual: existing.manual,
-    saved: existing.saved
-  } : {
-    all: 0,
-    feedGroups: {} as Record<string, number>,
-    manual: 0,
-    saved: 0
-  };
-
-  const next = {
-    all: clampCount(current.all + delta.all),
-    feedGroups: mergeFeedGroupCounts(current.feedGroups, delta.feedGroups),
-    manual: clampCount(current.manual + delta.manual),
-    saved: clampCount(current.saved + delta.saved)
-  };
-
-  if (existing) {
-    await ctx.db.patch(existing._id, next);
-    return existing._id;
-  }
-
-  return ctx.db.insert("readerStats", {
-    ...next,
-    name: "global"
-  });
-};
-
 export const getFeed = internalQuery({
   args: {
     feedId: v.id("feeds")
@@ -364,7 +275,9 @@ export const upsertArticles = internalMutation({
         feedId: v.id("feeds"),
         feedSiteUrl: v.optional(v.string()),
         feedTitle: v.string(),
+        isYoutube: v.boolean(),
         previewText: v.string(),
+        publishedDigestDate: v.string(),
         publishedAt: v.number(),
         readTimeMinutes: v.number(),
         sourceType: v.union(v.literal("feed"), v.literal("manual")),
@@ -402,7 +315,9 @@ export const upsertArticles = internalMutation({
           (existing.feedIconUrl || "") !== (article.feedIconUrl || "") ||
           (existing.feedSiteUrl || "") !== (article.feedSiteUrl || "") ||
           existing.feedTitle !== article.feedTitle ||
+          Boolean(existing.isYoutube) !== article.isYoutube ||
           existing.previewText !== article.previewText ||
+          (existing.publishedDigestDate || "") !== article.publishedDigestDate ||
           existing.publishedAt !== article.publishedAt ||
           existing.readTimeMinutes !== article.readTimeMinutes ||
           getSourceType(existing) !== article.sourceType ||
@@ -419,10 +334,7 @@ export const upsertArticles = internalMutation({
         }
 
         const statsDelta = {
-          all: 0,
-          feedGroups: {} as Record<string, number>,
-          manual: 0,
-          saved: 0
+          ...emptyStatsDelta()
         };
         const previousFeedGroup = getFeedGroup(existing);
         if (previousFeedGroup !== article.feedGroup && getSourceType(existing) === "feed") {
@@ -433,6 +345,16 @@ export const upsertArticles = internalMutation({
             statsDelta.feedGroups[article.feedGroup] =
               (statsDelta.feedGroups[article.feedGroup] || 0) + 1;
           }
+        }
+        if (
+          getSourceType(existing) === "feed" &&
+          (existing.publishedDigestDate || "") !== article.publishedDigestDate
+        ) {
+          if (existing.publishedDigestDate) {
+            statsDelta.dailyFeedCounts[existing.publishedDigestDate] = -1;
+          }
+          statsDelta.dailyFeedCounts[article.publishedDigestDate] =
+            (statsDelta.dailyFeedCounts[article.publishedDigestDate] || 0) + 1;
         }
 
         await ctx.db.patch(existing._id, {
@@ -446,7 +368,9 @@ export const upsertArticles = internalMutation({
           feedIconUrl: article.feedIconUrl,
           feedSiteUrl: article.feedSiteUrl,
           feedTitle: article.feedTitle,
+          isYoutube: article.isYoutube,
           previewText: article.previewText,
+          publishedDigestDate: article.publishedDigestDate,
           publishedAt: article.publishedAt,
           readTimeMinutes: article.readTimeMinutes,
           sourceType: article.sourceType,
@@ -479,7 +403,10 @@ export const upsertArticles = internalMutation({
           }
         }
 
-        if (Object.keys(statsDelta.feedGroups).length > 0) {
+        if (
+          Object.keys(statsDelta.feedGroups).length > 0 ||
+          Object.keys(statsDelta.dailyFeedCounts).length > 0
+        ) {
           await applyStatsDeltaInDb(ctx, statsDelta);
         }
 
@@ -502,7 +429,9 @@ export const upsertArticles = internalMutation({
         feedTitle: article.feedTitle,
         isRead: false,
         isSaved: false,
+        isYoutube: article.isYoutube,
         previewText: article.previewText,
+        publishedDigestDate: article.publishedDigestDate,
         publishedAt: article.publishedAt,
         readTimeMinutes: article.readTimeMinutes,
         sourceType: article.sourceType,
@@ -524,6 +453,7 @@ export const upsertArticles = internalMutation({
         ctx,
         statsDeltaForArticle({
           feedGroup: article.feedGroup,
+          publishedDigestDate: article.publishedDigestDate,
           sourceType: article.sourceType
         })
       );
@@ -578,11 +508,7 @@ const shouldProcessEntry = ({
   index < RECENT_RECHECK_LIMIT ||
   publishedAt >= feedLastSyncedAt;
 
-export const runFeed = internalAction({
-  args: {
-    feedId: v.id("feeds")
-  },
-  handler: async (ctx, args) => {
+const runFeedHandler = async (ctx: any, args: { feedId: any }) => {
     const feed = await ctx.runQuery(internal.sync.getFeed, { feedId: args.feedId });
     if (!feed || !feed.isActive) {
       return { feedId: args.feedId, ok: false, error: "Feed not found" };
@@ -661,6 +587,11 @@ export const runFeed = internalAction({
         const author = fetchedBody.author || entry.author || undefined;
         const publishedValue = fetchedBody.publishedAt || entry.publishedAt;
         const publishedAtValue = normalizePublishedAt(publishedValue);
+        const queryFields = buildArticleQueryFields({
+          feedTitle: parsed.title || feed.title,
+          publishedAt: publishedAtValue,
+          sourceType: "feed"
+        });
 
         articles.push({
           author,
@@ -685,7 +616,9 @@ export const runFeed = internalAction({
           feedId: feed._id,
           feedSiteUrl: parsed.siteUrl || feed.siteUrl || undefined,
           feedTitle: parsed.title || feed.title,
+          isYoutube: queryFields.isYoutube,
           previewText,
+          publishedDigestDate: queryFields.publishedDigestDate,
           publishedAt: publishedAtValue,
           readTimeMinutes: Math.max(
             fetchedBody.readTimeMinutes || 0,
@@ -753,7 +686,13 @@ export const runFeed = internalAction({
 
       return { feedId: feed._id, error: message, ok: false };
     }
-  }
+};
+
+export const runFeed = internalAction({
+  args: {
+    feedId: v.id("feeds")
+  },
+  handler: runFeedHandler
 });
 
 export const runActiveFeeds = internalAction({
@@ -764,7 +703,7 @@ export const runActiveFeeds = internalAction({
     const publishedAtValues = [];
 
     for (const feedId of feedIds) {
-      const result = await ctx.runAction(internal.sync.runFeed, { feedId });
+      const result = await runFeedHandler(ctx, { feedId });
       results.push(result);
       if (result?.ok && Array.isArray(result.updatedPublishedAtValues)) {
         publishedAtValues.push(...result.updatedPublishedAtValues);
