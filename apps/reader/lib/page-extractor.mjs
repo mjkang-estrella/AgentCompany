@@ -143,6 +143,18 @@ const setDocumentUrl = (document, url) => {
 const firstNonEmpty = (...values) => values.find((value) => String(value || "").trim()) || "";
 const normalizeText = (value) => String(value || "").replace(/\s+/gu, " ").trim().toLowerCase();
 
+const resolveUrl = (value, baseUrl) => {
+  if (!value) {
+    return "";
+  }
+
+  try {
+    return new URL(value, baseUrl).toString();
+  } catch {
+    return "";
+  }
+};
+
 const chooseArticleTitle = ({
   defuddledTitle = "",
   metadataTitle = "",
@@ -206,6 +218,29 @@ const findFirstImageUrl = (html, baseUrl) => {
   } catch {
     return "";
   }
+};
+
+const resolveArticleAssetUrls = (html, baseUrl) => {
+  if (!html || !baseUrl) {
+    return html || "";
+  }
+
+  const document = parseHTML(`<div data-article-assets>${html}</div>`).document;
+  const root = document.querySelector("[data-article-assets]");
+  if (!root) {
+    return html;
+  }
+
+  for (const image of root.querySelectorAll("img[src]")) {
+    const src = image.getAttribute("src") || "";
+    try {
+      image.setAttribute("src", new URL(src, baseUrl).toString());
+    } catch {
+      // Keep the original value so sanitization can still decide whether to preserve it.
+    }
+  }
+
+  return root.innerHTML;
 };
 
 const scoreChromeText = (text) =>
@@ -406,7 +441,10 @@ export const extractPageWithDefuddle = async (html, url) => {
     defuddled = null;
   }
 
-  const chosenBodyHtml = chooseBodyHtml(defuddled?.content || "", fallbackHtml);
+  const chosenBodyHtml = resolveArticleAssetUrls(
+    chooseBodyHtml(defuddled?.content || "", fallbackHtml),
+    url
+  );
   const trimmed = trimChromeBlocks(chosenBodyHtml);
   const bodyHtml = trimmed.bodyHtml;
   const summaryHtml = normalizeSummaryHtml(
@@ -414,8 +452,8 @@ export const extractPageWithDefuddle = async (html, url) => {
     firstNonEmpty(defuddled?.description, metadata.description)
   );
   const thumbnailUrl = firstNonEmpty(
-    defuddled?.image,
-    metadata.thumbnailUrl,
+    resolveUrl(defuddled?.image, url),
+    resolveUrl(metadata.thumbnailUrl, url),
     findFirstImageUrl(bodyHtml || summaryHtml, url)
   );
   const canonicalUrl = canonicalizeUrl(

@@ -282,6 +282,51 @@ const isLeadPreambleBlock = (node, context, nextNode, upcomingNodes = []) =>
   isLeadBioPrefaceBlock(node, upcomingNodes) ||
   isLeadMetadataBlock(node, context, { removedLeadCount: 0, seenLeadMedia: false }, nextNode);
 
+const removeSubstackLeadChrome = (root) => {
+  const leadNodes = Array.from(root.children).slice(0, 90);
+  const hrIndex = leadNodes.findIndex((node) => node.tagName?.toLowerCase() === "hr");
+  if (hrIndex < 4) {
+    return 0;
+  }
+
+  const leadText = normalizeText(
+    leadNodes
+      .slice(0, hrIndex)
+      .map((node) => node.textContent || "")
+      .join(" ")
+  );
+  const hasSubstackLeadChrome =
+    leadText.includes("read in app") &&
+    leadText.includes("upgrade to paid") &&
+    (
+      leadText.includes("guest post") ||
+      leadText.includes("preview") ||
+      leadText.includes("substack")
+    );
+
+  if (!hasSubstackLeadChrome) {
+    return 0;
+  }
+
+  const nextContentNode = leadNodes
+    .slice(hrIndex + 1)
+    .find((node) => normalizeText(node.textContent));
+  if (!nextContentNode || !isSubstantiveBodyBlock(nextContentNode)) {
+    return 0;
+  }
+
+  let removed = 0;
+  for (let index = 0; index <= hrIndex; index += 1) {
+    const node = leadNodes[index];
+    if (node?.parentNode === root) {
+      node.remove();
+      removed += 1;
+    }
+  }
+
+  return removed;
+};
+
 const hasPrefaceMarker = (text) =>
   PREFACE_MARKERS.some((marker) => text.includes(marker));
 
@@ -547,6 +592,8 @@ const normalizeBodyHtml = (bodyHtml, context = {}) => {
   while (root.firstChild?.nodeType === 3 && !normalizeText(root.firstChild.textContent)) {
     root.firstChild.remove();
   }
+
+  removedLeadCount += removeSubstackLeadChrome(root);
 
   const promoLeadNodes = Array.from(root.children).slice(0, 120);
   const promoIndexes = promoLeadNodes

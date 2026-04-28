@@ -211,3 +211,39 @@ test("normalizeArticleContent removes community newsletter lead promo before top
   assert.match(normalized.bodyHtml, /Top threads this week/i);
   assert.match(normalized.bodyHtml, /Evaluating equity at a bootstrapped startup/i);
 });
+
+test("normalizeArticleContent removes Substack reaction chrome before article body", () => {
+  const html = `
+    <h1><a href="https://substack.com/app-link/post">Your Couch-to-5K for AI</a></h1>
+    <h3>A step-by-step guide to building an AI habit that sticks</h3>
+    <p><a href="https://substack.com/@hils">Hilary Gridley</a></p>
+    <p>Apr 28</p>
+    <p>∙</p>
+    <p>Preview</p>
+    <p>∙</p>
+    <p>Guest post</p>
+    <a href="https://substack.com/app-link/post?submitLike=true"><img src="heart.png" alt=""></a>
+    <a href="https://substack.com/app-link/post?comments=true"><img src="comments.png" alt=""></a>
+    <a href="https://open.substack.com/pub/lenny/p/your-couch-to-5k-for-ai">READ IN APP</a>
+    <p><em>👋 Hey there, I’m Lenny. Each week, I answer reader questions about building product, driving growth, and accelerating your career.</em></p>
+    <a href="https://www.lennysnewsletter.com/subscribe">Upgrade to paid</a>
+    <p><em>P.S. Get a full free year of product tools by becoming an Insider subscriber.</em></p>
+    <hr>
+    <p>I’m teaming up with AI native and my many-time collaborator Hilary Gridley on a project that will accelerate your AI learning more than anything you’ve tried. For free.</p>
+    <p>This challenge is not new and not reserved for AI. I’ve spent much of my career working on products that consistently change people’s behavior.</p>
+  `;
+
+  const normalized = normalizeArticleContent({
+    author: "Lenny's Newsletter",
+    bodyHtml: html,
+    title: "Your Couch-to-5K for AI"
+  });
+
+  assert.doesNotMatch(normalized.bodyHtml, /READ IN APP/i);
+  assert.doesNotMatch(normalized.bodyHtml, /Upgrade to paid/i);
+  assert.doesNotMatch(normalized.bodyHtml, /Guest post/i);
+  assert.doesNotMatch(normalized.bodyHtml, /Hey there, I’m Lenny/i);
+  assert.match(normalized.bodyHtml, /I’m teaming up with AI native/i);
+  assert.match(normalized.bodyHtml, /This challenge is not new/i);
+  assert.equal(normalized.previewText.startsWith("I’m teaming up with AI native"), true);
+});

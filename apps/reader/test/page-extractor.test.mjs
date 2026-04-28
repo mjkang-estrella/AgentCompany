@@ -80,6 +80,38 @@ test("extractPageWithDefuddle keeps real article media and metadata", async () =
   assert.match(extracted.bodyHtml, /Most of us at Every are using AI/);
 });
 
+test("extractPageWithDefuddle resolves relative article image URLs", async () => {
+  const html = `
+    <html>
+      <head>
+        <title>What I learned building an opinionated and minimal coding agent</title>
+        <meta property="og:image" content="/posts/2025-11-30-pi-coding-agent/media/header.png">
+      </head>
+      <body>
+        <article>
+          <p>Lessons I learned while building my own coding agent from scratch.</p>
+          <figure><img src="media/subagent.jpeg" alt="Subagent diagram"></figure>
+          <p>The second paragraph has enough real article text to keep this extraction usable.</p>
+        </article>
+      </body>
+    </html>`;
+
+  const extracted = await extractPageWithDefuddle(
+    html,
+    "https://mariozechner.at/posts/2025-11-30-pi-coding-agent/"
+  );
+
+  assert.equal(extracted.quality, "usable");
+  assert.match(
+    extracted.bodyHtml,
+    /src="https:\/\/mariozechner\.at\/posts\/2025-11-30-pi-coding-agent\/media\/subagent\.jpeg"/
+  );
+  assert.equal(
+    extracted.thumbnailUrl,
+    "https://mariozechner.at/posts/2025-11-30-pi-coding-agent/media/header.png"
+  );
+});
+
 test("extractPageWithDefuddle sanitizes dangerous markup from extracted content", async () => {
   const html = `
     <html>
