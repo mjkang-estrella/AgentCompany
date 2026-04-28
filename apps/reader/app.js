@@ -2751,7 +2751,7 @@ const submitArticle = async () => {
   }
 
   await selectArticle(result.articleId);
-  showToast(result.deduped ? "Article already existed. Opened the saved copy." : "Article added.");
+  showToast(result.restored ? "Article re-added." : (result.deduped ? "Article already existed. Opened the saved copy." : "Article added."));
 };
 
 const removeFeedGroup = async () => {

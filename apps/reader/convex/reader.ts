@@ -142,6 +142,13 @@ const deleteArticleBodyDocument = async (ctx: { db: any }, articleId: Id<"articl
   }
 };
 
+const deleteArticleHighlightDocuments = async (ctx: { db: any }, articleId: Id<"articles">) => {
+  const highlights = await getArticleHighlightDocuments(ctx, articleId);
+  for (const highlight of highlights) {
+    await ctx.db.delete(highlight._id);
+  }
+};
+
 const buildArticleQuery = (
   ctx: any,
   args: {
@@ -539,23 +546,31 @@ export const deleteArticle = mutation({
     }
 
     await deleteArticleBodyDocument(ctx, args.articleId);
-    await ctx.db.patch(args.articleId, {
-      deletedAt: Date.now(),
-      isRead: false,
-      isSaved: false,
-      readAt: undefined,
-      savedAt: undefined
-    });
+    await deleteArticleHighlightDocuments(ctx, args.articleId);
+
+    const sourceType = article.sourceType || "feed";
+    if (sourceType === "manual") {
+      await ctx.db.delete(args.articleId);
+    } else {
+      await ctx.db.patch(args.articleId, {
+        deletedAt: Date.now(),
+        isRead: false,
+        isSaved: false,
+        readAt: undefined,
+        savedAt: undefined
+      });
+    }
     await applyStatsDeltaInDb(ctx, negateStatsDelta(statsDeltaForArticle(article)));
 
     const affectsTodayDigest =
-      (article.sourceType || "feed") === "feed" &&
+      sourceType === "feed" &&
       (article.publishedDigestDate || getDigestDateForTimestamp(article.publishedAt)) ===
         getTodayDigestLocalDate();
 
     return {
       affectsTodayDigest,
-      articleId: args.articleId
+      articleId: args.articleId,
+      deleted: sourceType === "manual" ? "hard" : "soft"
     };
   }
 });

@@ -440,7 +440,8 @@ export const upsertManualArticle = internalMutation({
     return {
       articleId: existing._id,
       created: false,
-      deduped: true
+      deduped: !shouldRestore,
+      restored: shouldRestore
     };
   }
 });
