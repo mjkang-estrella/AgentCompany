@@ -143,6 +143,80 @@ export const getArticleDocument = internalQuery({
   handler: async (ctx, args) => ctx.db.get(args.articleId)
 });
 
+export const backfillQueryFieldsAndStats = action({
+  args: {},
+  handler: async (ctx) => {
+    const allFeeds = await ctx.runQuery(internal.migration.listFeeds, {});
+    const feedGroupById = new Map(allFeeds.map((feed) => [feed._id, normalizeFeedGroup(feed)]));
+    const articleIds = await ctx.runQuery(internal.migration.listArticleIds, {});
+
+    const stats = {
+      all: 0,
+      feedGroups: {} as Record<string, number>,
+      manual: 0,
+      saved: 0
+    };
+    const dailyFeedCounts = {} as Record<string, number>;
+
+    for (const articleId of articleIds) {
+      const article = await ctx.runQuery(internal.migration.getArticleDocument, { articleId });
+      if (!article) {
+        continue;
+      }
+
+      const sourceType = article.sourceType || "feed";
+      const resolvedFeedGroup = feedGroupById.get(article.feedId);
+      const feedGroup = sourceType === "manual"
+        ? ""
+        : (
+            (resolvedFeedGroup && resolvedFeedGroup !== "Uncategorized" ? resolvedFeedGroup : "") ||
+            article.feedGroup ||
+            article.feedFolder ||
+            resolvedFeedGroup ||
+            "Uncategorized"
+          );
+      const queryFields = buildArticleQueryFields({
+        feedTitle: article.feedTitle,
+        publishedAt: article.publishedAt,
+        sourceType
+      });
+
+      await ctx.runMutation(internal.migration.patchArticleQueryFields, {
+        articleId,
+        feedGroup,
+        isYoutube: queryFields.isYoutube,
+        publishedDigestDate: queryFields.publishedDigestDate,
+        sourceType
+      });
+
+      if (!article.deletedAt) {
+        stats.all += 1;
+        if (article.isSaved) {
+          stats.saved += 1;
+        }
+        if (sourceType === "manual") {
+          stats.manual += 1;
+        } else if (feedGroup) {
+          stats.feedGroups[feedGroup] = (stats.feedGroups[feedGroup] || 0) + 1;
+          dailyFeedCounts[queryFields.publishedDigestDate] =
+            (dailyFeedCounts[queryFields.publishedDigestDate] || 0) + 1;
+        }
+      }
+    }
+
+    await ctx.runMutation(internal.reader.replaceStats, {
+      dailyFeedCounts,
+      stats
+    });
+
+    return {
+      dailyDates: Object.keys(dailyFeedCounts).length,
+      migratedArticles: articleIds.length,
+      stats
+    };
+  }
+});
+
 export const patchFeedDocument = internalMutation({
   args: {
     feedGroup: v.string(),
@@ -152,6 +226,25 @@ export const patchFeedDocument = internalMutation({
     await ctx.db.patch(args.feedId, {
       feedGroup: args.feedGroup,
       folder: undefined
+    });
+  }
+});
+
+export const patchArticleQueryFields = internalMutation({
+  args: {
+    articleId: v.id("articles"),
+    feedGroup: v.string(),
+    isYoutube: v.boolean(),
+    publishedDigestDate: v.string(),
+    sourceType: v.union(v.literal("feed"), v.literal("manual"))
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.articleId, {
+      feedGroup: args.feedGroup,
+      feedFolder: undefined,
+      isYoutube: args.isYoutube,
+      publishedDigestDate: args.publishedDigestDate,
+      sourceType: args.sourceType
     });
   }
 });

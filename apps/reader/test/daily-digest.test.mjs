@@ -109,6 +109,40 @@ test("mergeDigestOutput applies returned summaries by feed key", () => {
   assert.equal(merged.sections[1].summary, "Second preview with actual substance.");
 });
 
+test("mergeDigestOutput also accepts feed titles as summary keys", () => {
+  const merged = mergeDigestOutput({
+    rawText: JSON.stringify({
+      intro: "Today covers startup writing.",
+      sections: [
+        {
+          key: "a16z speedrun",
+          summary: "Compelling founder writing earns attention by pairing useful strategic advice with concrete examples from operators and investors."
+        }
+      ]
+    }),
+    sections: [
+      {
+        articles: [
+          {
+            id: "article-1",
+            previewText: "Raw preview text should not be used when the model returned a title-keyed summary.",
+            title: "The Founder’s Guide to Blogging"
+          }
+        ],
+        feedGroup: "a16z speedrun",
+        feedIconUrl: "",
+        feedKey: "j978rhpvzw4z0nh1r7p0g9w7vx84hnma",
+        feedTitle: "a16z speedrun"
+      }
+    ]
+  });
+
+  assert.equal(
+    merged.sections[0].summary,
+    "Compelling founder writing earns attention by pairing useful strategic advice with concrete examples from operators and investors."
+  );
+});
+
 test("mergeDigestOutput strips author-led discuss/provides framing", () => {
   const merged = mergeDigestOutput({
     rawText: JSON.stringify({

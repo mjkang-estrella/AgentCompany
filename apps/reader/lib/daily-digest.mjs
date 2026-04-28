@@ -242,6 +242,14 @@ const fallbackIntro = (sections) => {
 
 const escapeRegExp = (value) => String(value || "").replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 
+const normalizeSummaryKey = (value) =>
+  String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, " ")
+    .trim();
+
 const stripLeadingAttribution = (summary, section) => {
   const text = String(summary || "").trim();
   if (!text) {
@@ -272,20 +280,37 @@ const stripLeadingAttribution = (summary, section) => {
 
 export const mergeDigestOutput = ({ rawText, sections }) => {
   const parsed = JSON.parse(stripCodeFence(rawText));
-  const summaries = new Map(
-    Array.isArray(parsed.sections)
-      ? parsed.sections
-        .filter((section) => section && typeof section.key === "string")
-        .map((section) => [section.key, String(section.summary || "").trim()])
-      : []
-  );
+  const summaries = new Map();
+
+  if (Array.isArray(parsed.sections)) {
+    for (const section of parsed.sections) {
+      const summary = String(section?.summary || "").trim();
+      if (!summary) {
+        continue;
+      }
+
+      for (const candidate of [section.key, section.feedTitle, section.feedGroup]) {
+        const normalized = normalizeSummaryKey(candidate);
+        if (normalized) {
+          summaries.set(normalized, summary);
+        }
+      }
+    }
+  }
 
   return {
     intro: String(parsed.intro || "").trim() || fallbackIntro(sections),
     sections: sections.map((section) => ({
       ...section,
       summary: stripLeadingAttribution(
-        summaries.get(section.feedKey) || fallbackSectionSummary(section),
+        [
+          section.feedKey,
+          section.feedTitle,
+          section.feedGroup
+        ]
+          .map(normalizeSummaryKey)
+          .map((key) => summaries.get(key))
+          .find(Boolean) || fallbackSectionSummary(section),
         section
       )
     }))

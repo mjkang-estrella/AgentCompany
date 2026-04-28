@@ -71,12 +71,54 @@ const normalizePublishedAt = (value: string) => {
   return Number.isNaN(parsed.valueOf()) ? Date.now() : parsed.valueOf();
 };
 
+const shouldFetchFullArticle = (url: string, existingHtml: string) => {
+  if (!url) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === "substack.com" && parsed.pathname.startsWith("/redirect/")) {
+      return true;
+    }
+  } catch {
+    // Fall through to content-based heuristics.
+  }
+
+  const text = stripHtml(existingHtml).toLowerCase();
+  return (
+    text.includes("read in app") &&
+    text.includes("subscribe") &&
+    text.includes("forwarded this email")
+  );
+};
+
 const maybeFetchArticleBody = async (
   url: string,
   existingHtml: string,
   markdownUrl = ""
 ) => {
-  if (stripHtml(existingHtml).length >= 400 || (!url && !markdownUrl)) {
+  if (
+    stripHtml(existingHtml).length >= 400 &&
+    !markdownUrl &&
+    !shouldFetchFullArticle(url, existingHtml)
+  ) {
+    return {
+      author: "",
+      bodyHtml: sanitizeFragment(existingHtml),
+      bodySource: "feed" as const,
+      canonicalUrl: canonicalizeUrl(url),
+      publishedAt: "",
+      quality: "usable" as const,
+      readTimeMinutes: estimateReadTime(existingHtml),
+      rejectionReason: "",
+      siteName: "",
+      thumbnailUrl: "",
+      title: ""
+    };
+  }
+
+  if (!url && !markdownUrl) {
     return {
       author: "",
       bodyHtml: sanitizeFragment(existingHtml),
