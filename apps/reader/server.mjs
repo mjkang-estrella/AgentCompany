@@ -3,8 +3,9 @@ import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { getConvexUrl, loadEnvFiles } from "./lib/env.mjs";
+import { loadEnvFiles } from "./lib/env.mjs";
 import { json, text } from "./lib/http.mjs";
+import { buildPublicConfig } from "./lib/public-config.mjs";
 
 const appDir = fileURLToPath(new URL(".", import.meta.url));
 
@@ -59,9 +60,6 @@ const sendError = (response, statusCode, error) => {
   });
 };
 
-const getNewsletterInboxEmail = () =>
-  process.env.READER_NEWSLETTER_INBOX_EMAIL || "news@mj-kang.com";
-
 createServer(async (request, response) => {
   const url = new URL(request.url, `http://${request.headers.host || `127.0.0.1:${port}`}`);
 
@@ -74,10 +72,7 @@ createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && url.pathname === "/api/config") {
-      json(response, 200, {
-        convexUrl: getConvexUrl(),
-        newsletterInboxEmail: getNewsletterInboxEmail()
-      });
+      json(response, 200, buildPublicConfig());
       return;
     }
 

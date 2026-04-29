@@ -1,8 +1,8 @@
 # Reader
 
-Reader is a standalone private RSS reader app with a lightweight HTML client, static hosting, and a Convex backend for persistence, pagination, and scheduled syncing.
+Reader is a standalone private RSS reader app with a lightweight HTML/CSS/JS client, static hosting, and a Convex backend for persistence, pagination, and scheduled syncing.
 
-The reader is page-based by default: it loads exact sidebar counts plus the newest 50 summaries first, fetches the selected article body separately, and appends older summaries with infinite scroll. Article summaries and article bodies are stored separately in Convex so list queries do not read full HTML blobs.
+The reader is page-based by default: it loads exact sidebar counts plus the newest 50 summaries first, fetches the selected article body separately, and appends older summaries with infinite scroll. Article summaries and article bodies are stored in the `articleBodies` Convex table so list queries do not read full HTML blobs. The legacy optional body fields on `articles` are retained only for migration/backfill compatibility.
 
 The `Today` view is a cached Daily Digest. Each morning, Convex generates one AI-written digest grouped by feed for the current digest timezone. Opening `Today` loads that digest directly instead of auto-opening the first article body, and the digest header can navigate across previously generated digest dates.
 
@@ -23,11 +23,10 @@ Reader can also ingest email newsletters through AgentMail. Newsletters sent to 
 ## Owns
 
 - Reader-inspired article list and reading surface
-- Local static runtime and public config endpoint for the reader UI
+- Local static runtime, stylesheet, and public config endpoint for the reader UI
 - Convex schema, functions, cron sync, and import tooling
 - Feed discovery, article state, and manual sync triggers
 - AgentMail-backed newsletter polling and ingestion into Reader articles
-- Legacy Supabase migration assets kept only for rollback and feed import
 
 ## Does not own
 
@@ -68,11 +67,6 @@ If you want email newsletters inside Reader:
 
 Reader polls unread messages from that AgentMail inbox once an hour. The first sync will try to create the inbox automatically if it does not already exist, which means the domain behind `READER_NEWSLETTER_INBOX_EMAIL` must already be verified in AgentMail.
 
-If you want to import existing feed definitions from Supabase one time, also set:
-
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY` or `SUPABASE_SECRET_KEY`
-
 ## Vercel deployment
 
 This app can be deployed from the `apps/reader` directory on Vercel.
@@ -97,13 +91,3 @@ Do not set `PORT` on Vercel. The deployed app uses static files plus the public 
 - Deploy the backend with `npm run convex:deploy`.
 - Cron syncing and Daily Digest scheduling are defined in [apps/reader/convex/crons.ts](/Users/mjkang/Develop/AgentCompany/apps/reader/convex/crons.ts).
 - Newsletter polling is also scheduled in [apps/reader/convex/crons.ts](/Users/mjkang/Develop/AgentCompany/apps/reader/convex/crons.ts).
-
-## One-off Supabase feed import
-
-If you want to carry over existing feed definitions before cutover:
-
-```bash
-npm run import:feeds
-```
-
-That script reads `feeds` from Supabase and imports only feed definitions into Convex. It does not copy article history, `is_read`, or `is_saved`.

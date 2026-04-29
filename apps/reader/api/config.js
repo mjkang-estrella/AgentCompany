@@ -1,20 +1,5 @@
 import { jsonResponse, methodNotAllowed, withErrorHandling } from "../lib/vercel-api.mjs";
-
-const getConvexUrl = () => {
-  const value =
-    process.env.CONVEX_URL ||
-    process.env.NEXT_PUBLIC_CONVEX_URL ||
-    "";
-
-  if (!value) {
-    throw new Error("Missing required environment variable: CONVEX_URL");
-  }
-
-  return value;
-};
-
-const getNewsletterInboxEmail = () =>
-  process.env.READER_NEWSLETTER_INBOX_EMAIL || "news@mj-kang.com";
+import { buildPublicConfig } from "../lib/public-config.mjs";
 
 export default {
   async fetch(request) {
@@ -23,10 +8,7 @@ export default {
     }
 
     return withErrorHandling(() =>
-      jsonResponse({
-        convexUrl: getConvexUrl(),
-        newsletterInboxEmail: getNewsletterInboxEmail()
-      })
+      jsonResponse(buildPublicConfig())
     );
   }
 };

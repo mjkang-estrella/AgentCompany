@@ -27,7 +27,7 @@ This repository is organized as a multi-product repo.
 ### `apps/reader`
 
 - Owns the Reader-inspired UI surface for that app.
-- Owns its Convex schema, sync pipeline, Daily Digest generation, newsletter ingestion, cron jobs, import tooling, and static deployment config.
+- Owns its static HTML/CSS/JS runtime, Convex schema, sync pipeline, Daily Digest generation, newsletter ingestion, cron jobs, and Vercel deployment config.
 - Must remain isolated from `apps/prism` and `apps/inbox`.
 
 ### `apps/inbox`

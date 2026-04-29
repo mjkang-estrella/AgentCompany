@@ -15,24 +15,6 @@ export const methodNotAllowed = (allowedMethods) =>
     { Allow: allowedMethods.join(", ") }
   );
 
-export const readJsonBody = async (request) => {
-  const body = await request.text();
-  if (!body) {
-    return {};
-  }
-
-  try {
-    return JSON.parse(body);
-  } catch {
-    throw new Error("Request body must be valid JSON");
-  }
-};
-
-export const toInt = (value, fallback = 0) => {
-  const number = Number.parseInt(value, 10);
-  return Number.isFinite(number) ? number : fallback;
-};
-
 const errorStatus = (message) =>
   message.includes("required") ||
   message.includes("valid JSON") ||

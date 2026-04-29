@@ -10,6 +10,13 @@ import { canonicalizeUrl, stripHtml } from "../lib/html.mjs";
 import { extractXPostFromUrl, isXStatusUrl } from "../lib/x-extractor.mjs";
 import { extractYouTubeArticleFromHtml, isYouTubeUrl } from "../lib/youtube-extractor.mjs";
 import { applyStatsDeltaInDb, buildArticleQueryFields, statsDeltaForArticle } from "./readerStats";
+import {
+  articleBodyHtml,
+  articleSummaryHtml,
+  clearLegacyArticleBodyFields,
+  getArticleBodyDocument,
+  upsertArticleBodyDocument
+} from "./articleContent";
 
 const DEFAULT_HEADERS = {
   "user-agent": "AgentCompany Reader/1.0 (+https://agent.company)"
@@ -62,15 +69,9 @@ const normalizePublishedAt = (value: string) => {
   return Number.isNaN(parsed.valueOf()) ? Date.now() : parsed.valueOf();
 };
 
-const getBodyDoc = async (ctx: { db: any }, articleId: any) =>
-  ctx.db
-    .query("articleBodies")
-    .withIndex("by_article_id", (q: any) => q.eq("articleId", articleId))
-    .unique();
-
 const isRicherArticle = (existing: any, existingBody: any, incoming: any) => {
   const existingLength = stripHtml(
-    existingBody?.bodyHtml || existingBody?.summaryHtml || existing.bodyHtml || existing.summaryHtml
+    articleBodyHtml(existing, existingBody) || articleSummaryHtml(existing, existingBody)
   ).length;
   const incomingLength = stripHtml(incoming.bodyHtml || incoming.summaryHtml).length;
 
@@ -82,8 +83,8 @@ const isRicherArticle = (existing: any, existingBody: any, incoming: any) => {
 };
 
 const shouldUpdateExistingExtraction = (existing: any, existingBody: any, incoming: any) => {
-  const existingBodyHtml = existingBody?.bodyHtml || existing.bodyHtml || "";
-  const existingSummaryHtml = existingBody?.summaryHtml || existing.summaryHtml || "";
+  const existingBodyHtml = articleBodyHtml(existing, existingBody);
+  const existingSummaryHtml = articleSummaryHtml(existing, existingBody);
   const existingLength = stripHtml(existingBodyHtml || existingSummaryHtml).length;
   const incomingLength = stripHtml(incoming.bodyHtml || incoming.summaryHtml).length;
 
@@ -159,7 +160,7 @@ export const getArticleForReextract = internalQuery({
       return null;
     }
 
-    const body = await getBodyDoc(ctx, args.articleId);
+    const body = await getArticleBodyDocument(ctx, args.articleId);
     return {
       article,
       body
@@ -190,7 +191,7 @@ export const applyReextractedArticle = internalMutation({
       return { updated: false, reason: "missing" as const };
     }
 
-    const currentBody = await getBodyDoc(ctx, args.articleId);
+    const currentBody = await getArticleBodyDocument(ctx, args.articleId);
     const next = {
       author: args.extraction.author || current.author,
       bodyHtml: args.extraction.bodyHtml,
@@ -209,32 +210,22 @@ export const applyReextractedArticle = internalMutation({
 
     await ctx.db.patch(args.articleId, {
       author: next.author,
-      bodyHtml: undefined,
-      bodySource: undefined,
+      ...clearLegacyArticleBodyFields,
       canonicalUrl: next.canonicalUrl,
       contentHash: args.extraction.contentHash,
       previewText: next.previewText,
       readTimeMinutes: next.readTimeMinutes,
-      summaryHtml: undefined,
       subtitle: next.subtitle,
       thumbnailUrl: next.thumbnailUrl,
       title: next.title
     });
 
-    if (currentBody) {
-      await ctx.db.patch(currentBody._id, {
-        bodyHtml: args.extraction.bodyHtml,
-        bodySource: args.extraction.bodySource,
-        summaryHtml: args.extraction.summaryHtml
-      });
-    } else {
-      await ctx.db.insert("articleBodies", {
-        articleId: args.articleId,
-        bodyHtml: args.extraction.bodyHtml,
-        bodySource: args.extraction.bodySource,
-        summaryHtml: args.extraction.summaryHtml
-      });
-    }
+    await upsertArticleBodyDocument(ctx, {
+      articleId: args.articleId,
+      bodyHtml: args.extraction.bodyHtml,
+      bodySource: args.extraction.bodySource,
+      summaryHtml: args.extraction.summaryHtml
+    });
 
     return { updated: true };
   }
@@ -256,9 +247,9 @@ export const applyNormalizedStoredBody = internalMutation({
       return { updated: false, reason: "missing" as const };
     }
 
-    const body = await getBodyDoc(ctx, args.articleId);
-    const currentBodyHtml = body?.bodyHtml || current.bodyHtml || "";
-    const currentSummaryHtml = body?.summaryHtml || current.summaryHtml || "";
+    const body = await getArticleBodyDocument(ctx, args.articleId);
+    const currentBodyHtml = articleBodyHtml(current, body);
+    const currentSummaryHtml = articleSummaryHtml(current, body);
 
     if (
       currentBodyHtml === args.bodyHtml &&
@@ -277,19 +268,12 @@ export const applyNormalizedStoredBody = internalMutation({
       subtitle: args.subtitle
     });
 
-    if (body) {
-      await ctx.db.patch(body._id, {
-        bodyHtml: args.bodyHtml,
-        summaryHtml: args.summaryHtml
-      });
-    } else {
-      await ctx.db.insert("articleBodies", {
-        articleId: args.articleId,
-        bodyHtml: args.bodyHtml,
-        bodySource: "feed",
-        summaryHtml: args.summaryHtml
-      });
-    }
+    await upsertArticleBodyDocument(ctx, {
+      articleId: args.articleId,
+      bodyHtml: args.bodyHtml,
+      bodySource: body?.bodySource || "feed",
+      summaryHtml: args.summaryHtml
+    });
 
     return { updated: true };
   }
@@ -331,8 +315,7 @@ export const upsertManualArticle = internalMutation({
     if (!existing) {
       const articleId = await ctx.db.insert("articles", {
         author: args.article.author,
-        bodyHtml: undefined,
-        bodySource: undefined,
+        ...clearLegacyArticleBodyFields,
         canonicalUrl: args.article.canonicalUrl,
         contentHash: args.article.contentHash,
         deletedAt: undefined,
@@ -351,14 +334,13 @@ export const upsertManualArticle = internalMutation({
         publishedAt: args.article.publishedAt,
         readTimeMinutes: args.article.readTimeMinutes,
         sourceType: "manual",
-        summaryHtml: undefined,
         subtitle: args.article.subtitle,
         thumbnailUrl: args.article.thumbnailUrl,
         title: args.article.title,
         url: args.article.url
       });
 
-      await ctx.db.insert("articleBodies", {
+      await upsertArticleBodyDocument(ctx, {
         articleId,
         bodyHtml: args.article.bodyHtml,
         bodySource: args.article.bodySource,
@@ -379,15 +361,14 @@ export const upsertManualArticle = internalMutation({
       };
     }
 
-    const existingBody = await getBodyDoc(ctx, existing._id);
+    const existingBody = await getArticleBodyDocument(ctx, existing._id);
     const shouldRestore = Boolean(existing.deletedAt);
     const shouldUpdateBody = shouldRestore || isRicherArticle(existing, existingBody, args.article);
 
     if (shouldRestore || shouldUpdateBody) {
       await ctx.db.patch(existing._id, {
         author: args.article.author || existing.author,
-        bodyHtml: undefined,
-        bodySource: undefined,
+        ...clearLegacyArticleBodyFields,
         canonicalUrl: args.article.canonicalUrl,
         contentHash: args.article.contentHash,
         deletedAt: undefined,
@@ -401,27 +382,18 @@ export const upsertManualArticle = internalMutation({
         readAt: shouldRestore ? undefined : existing.readAt,
         readTimeMinutes: args.article.readTimeMinutes,
         savedAt: shouldRestore ? undefined : existing.savedAt,
-        summaryHtml: undefined,
         subtitle: args.article.subtitle !== undefined ? args.article.subtitle : existing.subtitle,
         thumbnailUrl: args.article.thumbnailUrl || existing.thumbnailUrl,
         title: args.article.title || existing.title,
         url: args.article.url
       });
 
-      if (existingBody) {
-        await ctx.db.patch(existingBody._id, {
-          bodyHtml: args.article.bodyHtml,
-          bodySource: args.article.bodySource,
-          summaryHtml: args.article.summaryHtml
-        });
-      } else {
-        await ctx.db.insert("articleBodies", {
-          articleId: existing._id,
-          bodyHtml: args.article.bodyHtml,
-          bodySource: args.article.bodySource,
-          summaryHtml: args.article.summaryHtml
-        });
-      }
+      await upsertArticleBodyDocument(ctx, {
+        articleId: existing._id,
+        bodyHtml: args.article.bodyHtml,
+        bodySource: args.article.bodySource,
+        summaryHtml: args.article.summaryHtml
+      });
     }
 
     if (shouldRestore) {
@@ -822,6 +794,45 @@ export const reextractExistingArticles = action({
   }
 });
 
+const normalizeStoredCurrentArticle = async (ctx: any, current: any) => {
+  const currentBodyHtml = articleBodyHtml(current.article, current.body);
+  const currentSummaryHtml = articleSummaryHtml(current.article, current.body);
+  if (!currentBodyHtml && !currentSummaryHtml) {
+    return { updated: false, reason: "empty" as const };
+  }
+
+  const normalizedArticle = normalizeArticleContent({
+    author: current.article.author || "",
+    bodyHtml: currentBodyHtml,
+    feedTitle: current.article.feedTitle || "",
+    publishedAt: new Date(current.article.publishedAt).toISOString(),
+    summaryHtml: currentSummaryHtml,
+    thumbnailUrl: current.article.thumbnailUrl || "",
+    title: current.article.title
+  });
+
+  return ctx.runMutation(internal.articles.applyNormalizedStoredBody, {
+    articleId: current.article._id,
+    bodyHtml: normalizedArticle.bodyHtml,
+    contentHash: hashArticleContent({
+      author: current.article.author || "",
+      bodyHtml: normalizedArticle.bodyHtml,
+      canonicalUrl: current.article.canonicalUrl || canonicalizeUrl(current.article.url),
+      previewText: normalizedArticle.previewText,
+      publishedAt: current.article.publishedAt,
+      summaryHtml: normalizedArticle.summaryHtml,
+      subtitle: normalizedArticle.subtitle || current.article.subtitle || "",
+      thumbnailUrl: current.article.thumbnailUrl || "",
+      title: current.article.title,
+      url: current.article.url
+    }),
+    previewText: normalizedArticle.previewText,
+    readTimeMinutes: normalizedArticle.readTimeMinutes || current.article.readTimeMinutes || 1,
+    summaryHtml: normalizedArticle.summaryHtml,
+    subtitle: normalizedArticle.subtitle || undefined
+  });
+};
+
 export const normalizeStoredBodies = action({
   args: {
     articleIds: v.optional(v.array(v.id("articles"))),
@@ -844,43 +855,7 @@ export const normalizeStoredBodies = action({
           continue;
         }
 
-        const currentBodyHtml = current.body?.bodyHtml || current.article.bodyHtml || "";
-        const currentSummaryHtml = current.body?.summaryHtml || current.article.summaryHtml || "";
-        if (!currentBodyHtml && !currentSummaryHtml) {
-          skipped += 1;
-          continue;
-        }
-
-        const normalizedArticle = normalizeArticleContent({
-          author: current.article.author || "",
-          bodyHtml: currentBodyHtml,
-          feedTitle: current.article.feedTitle || "",
-          publishedAt: new Date(current.article.publishedAt).toISOString(),
-          summaryHtml: currentSummaryHtml,
-          thumbnailUrl: current.article.thumbnailUrl || "",
-          title: current.article.title
-        });
-
-        const result = await ctx.runMutation(internal.articles.applyNormalizedStoredBody, {
-          articleId: current.article._id,
-          bodyHtml: normalizedArticle.bodyHtml,
-          contentHash: hashArticleContent({
-            author: current.article.author || "",
-            bodyHtml: normalizedArticle.bodyHtml,
-            canonicalUrl: current.article.canonicalUrl || canonicalizeUrl(current.article.url),
-            previewText: normalizedArticle.previewText,
-            publishedAt: current.article.publishedAt,
-            summaryHtml: normalizedArticle.summaryHtml,
-            subtitle: normalizedArticle.subtitle || current.article.subtitle || "",
-            thumbnailUrl: current.article.thumbnailUrl || "",
-            title: current.article.title,
-            url: current.article.url
-          }),
-          previewText: normalizedArticle.previewText,
-          readTimeMinutes: normalizedArticle.readTimeMinutes || current.article.readTimeMinutes || 1,
-          summaryHtml: normalizedArticle.summaryHtml,
-          subtitle: normalizedArticle.subtitle || undefined
-        });
+        const result = await normalizeStoredCurrentArticle(ctx, current);
 
         if (result.updated) {
           updated += 1;
@@ -919,43 +894,7 @@ export const normalizeStoredBodies = action({
           continue;
         }
 
-        const currentBodyHtml = current.body?.bodyHtml || current.article.bodyHtml || "";
-        const currentSummaryHtml = current.body?.summaryHtml || current.article.summaryHtml || "";
-        if (!currentBodyHtml && !currentSummaryHtml) {
-          skipped += 1;
-          continue;
-        }
-
-        const normalizedArticle = normalizeArticleContent({
-          author: current.article.author || "",
-          bodyHtml: currentBodyHtml,
-          feedTitle: current.article.feedTitle || "",
-          publishedAt: new Date(current.article.publishedAt).toISOString(),
-          summaryHtml: currentSummaryHtml,
-          thumbnailUrl: current.article.thumbnailUrl || "",
-          title: current.article.title
-        });
-
-        const result = await ctx.runMutation(internal.articles.applyNormalizedStoredBody, {
-          articleId: current.article._id,
-          bodyHtml: normalizedArticle.bodyHtml,
-          contentHash: hashArticleContent({
-            author: current.article.author || "",
-            bodyHtml: normalizedArticle.bodyHtml,
-            canonicalUrl: current.article.canonicalUrl || canonicalizeUrl(current.article.url),
-            previewText: normalizedArticle.previewText,
-            publishedAt: current.article.publishedAt,
-            summaryHtml: normalizedArticle.summaryHtml,
-            subtitle: normalizedArticle.subtitle || current.article.subtitle || "",
-            thumbnailUrl: current.article.thumbnailUrl || "",
-            title: current.article.title,
-            url: current.article.url
-          }),
-          previewText: normalizedArticle.previewText,
-          readTimeMinutes: normalizedArticle.readTimeMinutes || current.article.readTimeMinutes || 1,
-          summaryHtml: normalizedArticle.summaryHtml,
-          subtitle: normalizedArticle.subtitle || undefined
-        });
+        const result = await normalizeStoredCurrentArticle(ctx, current);
 
         if (result.updated) {
           updated += 1;

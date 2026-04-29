@@ -15,6 +15,7 @@
 .claude/
 .omc/
 .omx/
+.vercel/
 *.swp
 *.swo
 *~

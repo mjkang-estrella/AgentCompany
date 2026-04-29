@@ -21,6 +21,10 @@ import {
   emptyStatsDelta,
   statsDeltaForArticle
 } from "./readerStats";
+import {
+  clearLegacyArticleBodyFields,
+  upsertArticleBodyDocument
+} from "./articleContent";
 
 const DEFAULT_HEADERS = {
   "user-agent": "AgentCompany Reader/1.0 (+https://agent.company)"
@@ -401,8 +405,7 @@ export const upsertArticles = internalMutation({
 
         await ctx.db.patch(existing._id, {
           author: article.author,
-          bodyHtml: undefined,
-          bodySource: undefined,
+          ...clearLegacyArticleBodyFields,
           canonicalUrl: article.canonicalUrl,
           contentHash: article.contentHash,
           feedGroup: article.feedGroup,
@@ -416,7 +419,6 @@ export const upsertArticles = internalMutation({
           publishedAt: article.publishedAt,
           readTimeMinutes: article.readTimeMinutes,
           sourceType: article.sourceType,
-          summaryHtml: undefined,
           subtitle: article.subtitle,
           thumbnailUrl: article.thumbnailUrl,
           title: article.title,
@@ -424,25 +426,12 @@ export const upsertArticles = internalMutation({
         });
 
         if (contentChanged) {
-          const body = await ctx.db
-            .query("articleBodies")
-            .withIndex("by_article_id", (q) => q.eq("articleId", existing._id))
-            .unique();
-
-          if (body) {
-            await ctx.db.patch(body._id, {
-              bodyHtml: article.bodyHtml,
-              bodySource: article.bodySource,
-              summaryHtml: article.summaryHtml
-            });
-          } else {
-            await ctx.db.insert("articleBodies", {
-              articleId: existing._id,
-              bodyHtml: article.bodyHtml,
-              bodySource: article.bodySource,
-              summaryHtml: article.summaryHtml
-            });
-          }
+          await upsertArticleBodyDocument(ctx, {
+            articleId: existing._id,
+            bodyHtml: article.bodyHtml,
+            bodySource: article.bodySource,
+            summaryHtml: article.summaryHtml
+          });
         }
 
         if (
@@ -458,8 +447,7 @@ export const upsertArticles = internalMutation({
 
       const articleId = await ctx.db.insert("articles", {
         author: article.author,
-        bodyHtml: undefined,
-        bodySource: undefined,
+        ...clearLegacyArticleBodyFields,
         canonicalUrl: article.canonicalUrl,
         contentHash: article.contentHash,
         deletedAt: undefined,
@@ -477,14 +465,13 @@ export const upsertArticles = internalMutation({
         publishedAt: article.publishedAt,
         readTimeMinutes: article.readTimeMinutes,
         sourceType: article.sourceType,
-        summaryHtml: undefined,
         subtitle: article.subtitle,
         thumbnailUrl: article.thumbnailUrl,
         title: article.title,
         url: article.url
       });
 
-      await ctx.db.insert("articleBodies", {
+      await upsertArticleBodyDocument(ctx, {
         articleId,
         bodyHtml: article.bodyHtml,
         bodySource: article.bodySource,

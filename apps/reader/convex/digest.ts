@@ -12,6 +12,11 @@ import {
 } from "../lib/daily-digest.mjs";
 import { stripHtml } from "../lib/html.mjs";
 import { emptyStoredStats, getTodayFeedCount } from "./readerStats";
+import {
+  articleBodyHtml,
+  articleSummaryHtml,
+  getArticleBodyDocument
+} from "./articleContent";
 
 const DIGEST_TIMEZONE = getDigestTimezone();
 
@@ -159,17 +164,8 @@ export const collectDigestInputs = internalQuery({
     const grouped = groupDigestInputs(
       await Promise.all(
         articles.map(async (article: any) => {
-          const body = await ctx.db
-            .query("articleBodies")
-            .withIndex("by_article_id", (q: any) => q.eq("articleId", article._id))
-            .unique();
-
-          const sourceHtml =
-            body?.summaryHtml ||
-            body?.bodyHtml ||
-            article.summaryHtml ||
-            article.bodyHtml ||
-            "";
+          const body = await getArticleBodyDocument(ctx, article._id);
+          const sourceHtml = articleSummaryHtml(article, body) || articleBodyHtml(article, body);
           const bodyExcerpt = stripHtml(sourceHtml).slice(0, 1400);
 
           return {

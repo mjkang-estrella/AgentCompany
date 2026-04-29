@@ -7,6 +7,7 @@ import type { Doc } from "./_generated/dataModel";
 import { normalizeFeedGroupName } from "../lib/feed-group-name.mjs";
 import { resolveFeedInput } from "../lib/feed-discovery.mjs";
 import { applyStatsDeltaInDb, emptyStatsDelta, getDigestDateForTimestamp } from "./readerStats";
+import { deleteArticleBodyDocument } from "./articleContent";
 
 const getFeedGroup = (value) =>
   normalizeFeedGroupName(value.feedGroup || value.folder || "Uncategorized");
@@ -197,14 +198,7 @@ export const deleteArticleIds = internalMutation({
 
     for (const articleId of args.articleIds) {
       const article = await ctx.db.get(articleId);
-      const body = await ctx.db
-        .query("articleBodies")
-        .withIndex("by_article_id", (q) => q.eq("articleId", articleId))
-        .unique();
-
-      if (body) {
-        await ctx.db.delete(body._id);
-      }
+      await deleteArticleBodyDocument(ctx, articleId);
 
       if (article && !article.deletedAt) {
         delta.all -= 1;

@@ -57,15 +57,6 @@ export const loadEnvFiles = async (appDir) => {
   }
 };
 
-export const requireEnv = (...keys) => {
-  const missing = keys.filter((key) => !process.env[key]);
-  if (missing.length > 0) {
-    throw new Error(`Missing required environment variables: ${missing.join(", ")}`);
-  }
-
-  return Object.fromEntries(keys.map((key) => [key, process.env[key]]));
-};
-
 export const getConvexUrl = () => {
   const value = process.env.CONVEX_URL || process.env.NEXT_PUBLIC_CONVEX_URL || "";
   if (!value) {
@@ -73,26 +64,4 @@ export const getConvexUrl = () => {
   }
 
   return value;
-};
-
-export const getSupabaseAdminKey = () => {
-  const candidates = [
-    process.env.SUPABASE_SERVICE_ROLE_KEY || "",
-    process.env.SUPABASE_SECRET_KEY || ""
-  ].filter(Boolean);
-
-  if (candidates.length === 0) {
-    throw new Error(
-      "Missing required environment variable: SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SECRET_KEY"
-    );
-  }
-
-  const usableKey = candidates.find((key) => !key.startsWith("sb_publishable_"));
-  if (!usableKey) {
-    throw new Error(
-      "SUPABASE_SERVICE_ROLE_KEY is set to a publishable key. Use a service role or secret key for the Reader server."
-    );
-  }
-
-  return usableKey;
 };

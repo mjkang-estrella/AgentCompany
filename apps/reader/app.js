@@ -24,15 +24,17 @@ import {
   parseReaderPath,
   slugifySegment
 } from "./lib/reader-routes.mjs";
+import {
+  createConvexRequester,
+  fetchPublicConfig
+} from "./lib/client-api.js";
 import { normalizeFeedGroupName } from "./lib/feed-group-name.mjs";
-
-const sanitizeHtml = (dirty) =>
-  typeof DOMPurify !== "undefined"
-    ? DOMPurify.sanitize(dirty, {
-      ADD_ATTR: ["allow", "allowfullscreen", "frameborder", "loading", "referrerpolicy", "src", "title"],
-      ADD_TAGS: ["iframe"]
-    })
-    : dirty;
+import {
+  clearHtml,
+  escapeHtml,
+  sanitizeHtml,
+  setTrustedHtml
+} from "./lib/dom-render.js";
 
 const PAGE_LIMIT = 50;
 const LOAD_MORE_THRESHOLD = 240;
@@ -179,35 +181,26 @@ let isApplyingRoute = false;
 const pendingBookSyncTimers = new Map();
 
 const applyStaticIcons = () => {
-  elements.navToday.innerHTML = todayIconHtml;
-  elements.navAll.innerHTML = allArticlesIconHtml;
-  elements.navSaved.innerHTML = savedIconHtml;
-  elements.navFeeds.innerHTML = feedsIconHtml;
-  elements.navManualArticles.innerHTML = libraryIconHtml;
-  elements.navYoutube.innerHTML = youtubeIconHtml;
-  elements.navBooks.innerHTML = booksIconHtml;
-  elements.bookEditButton.innerHTML = editIconHtml;
-  elements.addManualArticleButton.innerHTML = addIconHtml;
-  elements.listBackButton.innerHTML = previousIconHtml.replace('width="20"', 'width="18"').replace('height="20"', 'height="18"');
-  elements.listMenuButton.innerHTML = menuIconHtml;
-  elements.previousArticleButton.innerHTML = previousIconHtml;
-  elements.nextArticleButton.innerHTML = nextIconHtml;
-  elements.saveArticleButton.innerHTML = savedIconHtml.replace('width="18"', 'width="20"').replace('height="18"', 'height="20"');
-  elements.shareArticleButton.innerHTML = shareIconHtml;
-  elements.toggleHighlightsButton.innerHTML = highlightsIconHtml;
-  elements.deleteArticleButton.innerHTML = deleteIconHtml;
-  elements.openArticleButton.innerHTML = `Original ${externalLinkIconHtml}`;
-  elements.settingsButton.innerHTML = settingsIconHtml;
+  setTrustedHtml(elements.navToday, todayIconHtml);
+  setTrustedHtml(elements.navAll, allArticlesIconHtml);
+  setTrustedHtml(elements.navSaved, savedIconHtml);
+  setTrustedHtml(elements.navFeeds, feedsIconHtml);
+  setTrustedHtml(elements.navManualArticles, libraryIconHtml);
+  setTrustedHtml(elements.navYoutube, youtubeIconHtml);
+  setTrustedHtml(elements.navBooks, booksIconHtml);
+  setTrustedHtml(elements.bookEditButton, editIconHtml);
+  setTrustedHtml(elements.addManualArticleButton, addIconHtml);
+  setTrustedHtml(elements.listBackButton, previousIconHtml.replace('width="20"', 'width="18"').replace('height="20"', 'height="18"'));
+  setTrustedHtml(elements.listMenuButton, menuIconHtml);
+  setTrustedHtml(elements.previousArticleButton, previousIconHtml);
+  setTrustedHtml(elements.nextArticleButton, nextIconHtml);
+  setTrustedHtml(elements.saveArticleButton, savedIconHtml.replace('width="18"', 'width="20"').replace('height="18"', 'height="20"'));
+  setTrustedHtml(elements.shareArticleButton, shareIconHtml);
+  setTrustedHtml(elements.toggleHighlightsButton, highlightsIconHtml);
+  setTrustedHtml(elements.deleteArticleButton, deleteIconHtml);
+  setTrustedHtml(elements.openArticleButton, `Original ${externalLinkIconHtml}`);
+  setTrustedHtml(elements.settingsButton, settingsIconHtml);
 };
-
-const escapeHtml = (value) =>
-  String(value ?? "").replace(/[&<>"']/gu, (character) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    "\"": "&quot;",
-    "'": "&#39;"
-  })[character]);
 
 const canOpenExternalArticle = (article) =>
   Boolean(article?.url && /^https?:\/\//iu.test(article.url));
@@ -870,7 +863,7 @@ const renderHighlightsRail = () => {
 
   elements.inspectorPanel.hidden = !state.isHighlightsPanelOpen;
   if (!state.isHighlightsPanelOpen) {
-    elements.inspectorPanelBody.innerHTML = "";
+    clearHtml(elements.inspectorPanelBody);
     return;
   }
 
@@ -881,7 +874,7 @@ const renderHighlightsRail = () => {
     titleElement.textContent = inspectorTitle;
   }
 
-  elements.inspectorPanelBody.innerHTML = `
+  setTrustedHtml(elements.inspectorPanelBody, `
     <div class="inspector-section">
       ${highlights.length === 0
         ? '<div class="inspector-empty">Select text in the article to highlight it.</div>'
@@ -900,7 +893,7 @@ const renderHighlightsRail = () => {
          }).join("")}
        </div>`}
     </div>
-  `;
+  `);
 };
 
 const unwrapHighlightMarks = (root, highlightId) => {
@@ -1094,43 +1087,12 @@ const deriveFeedGroupFromUrl = (value) => {
   }
 };
 
-const requestJson = async (url, options = {}) => {
-  const response = await fetch(url, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {})
-    },
-    ...options
-  });
-
-  if (!response.ok) {
-    let message = `${response.status} ${response.statusText}`;
-
-    try {
-      const payload = await response.json();
-      if (payload.error) {
-        message = payload.error;
-      }
-    } catch {
-      // Ignore malformed error bodies.
-    }
-
-    throw new Error(message);
-  }
-
-  if (response.status === 204) {
-    return null;
-  }
-
-  return response.json();
-};
-
 const loadConfig = async () => {
   if (state.convexUrl) {
     return state.convexUrl;
   }
 
-  const payload = await requestJson("/api/config");
+  const payload = await fetchPublicConfig();
   if (!payload.convexUrl) {
     throw new Error("Reader is missing CONVEX_URL");
   }
@@ -1182,6 +1144,8 @@ const loadNewsletterStatus = async () => {
   return status;
 };
 
+const convexRequest = createConvexRequester(loadConfig);
+
 const syncNewsletters = async () => {
   state.isSyncingNewsletters = true;
   renderNewsletterStatus();
@@ -1197,28 +1161,6 @@ const syncNewsletters = async () => {
     state.isSyncingNewsletters = false;
     renderNewsletterStatus();
   }
-};
-
-const convexRequest = async (kind, path, args = {}) => {
-  const convexUrl = await loadConfig();
-  const response = await fetch(`${convexUrl}/api/${kind}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      args,
-      format: "json",
-      path
-    })
-  });
-
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || payload.status === "error") {
-    throw new Error(payload.errorMessage || `${response.status} ${response.statusText}`);
-  }
-
-  return payload.value;
 };
 
 const normalizeComparableUrl = (value) => {
@@ -1668,11 +1610,11 @@ const renderRail = () => {
   );
 
   if (feedGroups.length === 0) {
-    elements.feedGroupList.innerHTML = `<div class="empty-state" style="padding:12px 16px">No feeds yet. Add one with the + button below.</div>`;
+    setTrustedHtml(elements.feedGroupList, `<div class="empty-state" style="padding:12px 16px">No feeds yet. Add one with the + button below.</div>`);
     return;
   }
 
-  elements.feedGroupList.innerHTML = feedGroups
+  setTrustedHtml(elements.feedGroupList, feedGroups
     .map(([feedGroup, count]) => `
       <button class="nav-item ${state.feedGroup === feedGroup ? "active" : ""}" data-feed-group="${escapeHtml(feedGroup)}">
         ${feedGroupIconHtml}
@@ -1680,7 +1622,7 @@ const renderRail = () => {
         <span class="nav-item-count">${count}</span>
       </button>
     `)
-    .join("");
+    .join(""));
 };
 
 const renderTodaySidebar = () => {
@@ -1761,7 +1703,7 @@ const renderBooksList = () => {
   elements.renameFeedGroupButton.hidden = true;
   elements.removeFeedGroupButton.hidden = true;
 
-  elements.articleList.innerHTML = `
+  setTrustedHtml(elements.articleList, `
     <div class="books-sidebar">
       ${state.books.length === 0 ? `
         <div class="empty-state">
@@ -1769,7 +1711,7 @@ const renderBooksList = () => {
         </div>
       ` : renderBookCovers(state.books)}
     </div>
-  `;
+  `);
 };
 
 const renderBookView = () => {
@@ -1777,7 +1719,7 @@ const renderBookView = () => {
     elements.bookEditButton.hidden = true;
     elements.bookEditButton.disabled = true;
     elements.bookEditSeparator.hidden = true;
-    elements.articleView.innerHTML = `
+    setTrustedHtml(elements.articleView, `
       <div class="books-empty-state">
         <div class="books-empty-copy">
           <div class="books-empty-kicker">Books</div>
@@ -1785,7 +1727,7 @@ const renderBookView = () => {
           <p class="books-empty-text">Fetching synced books, notes, and highlights.</p>
         </div>
       </div>
-    `;
+    `);
     return;
   }
 
@@ -1806,7 +1748,7 @@ const renderBookView = () => {
   elements.toggleHighlightsButton.classList.remove("is-active");
 
   if (!book) {
-    elements.articleView.innerHTML = `
+    setTrustedHtml(elements.articleView, `
       <div class="books-empty-state">
         <div class="books-empty-copy">
           <div class="books-empty-kicker">Shelf notes</div>
@@ -1814,14 +1756,14 @@ const renderBookView = () => {
           <p class="books-empty-text">Use this synced reading workspace to sketch ideas, save quotes, or keep a running reaction log while you read.</p>
         </div>
       </div>
-    `;
+    `);
     return;
   }
 
   const sections = Array.isArray(book.sections) ? book.sections : [];
   const selectedSection = getSelectedBookSection(book);
   const completedCount = sections.filter((section) => section.status === "done").length;
-  elements.articleView.innerHTML = `
+  setTrustedHtml(elements.articleView, `
     <div class="book-page">
       <div class="book-page-hero">
         ${renderBookCoverMarkup(book, "book-page-cover")}
@@ -1882,7 +1824,7 @@ const renderBookView = () => {
         </div>
       </div>
     </div>
-  `;
+  `);
 
   const titleEditInput = elements.articleView.querySelector("[data-book-section-title-edit-input]");
   if (titleEditInput) {
@@ -1938,14 +1880,14 @@ const renderArticleList = () => {
     : "Remove feed";
 
   if (state.articles.length === 0) {
-    elements.articleList.innerHTML = `
+    setTrustedHtml(elements.articleList, `
       ${isTodaySidebarMode() ? renderTodaySidebar() : ""}
       <div class="empty-state">
         ${state.scope === "youtube"
           ? "No YouTube videos saved yet. Paste a YouTube URL to add one here."
           : `No articles match this view yet. Add a feed, paste an article URL, send newsletters to ${escapeHtml(state.newsletterInboxEmail || "news@mj-kang.com")}, or wait for the next scheduled sync.`}
       </div>
-    `;
+    `);
     return;
   }
 
@@ -1953,7 +1895,7 @@ const renderArticleList = () => {
     ? '<div class="list-status">Loading more articles…</div>'
     : (state.hasMore ? '<div class="list-status">Scroll for more</div>' : "");
 
-  elements.articleList.innerHTML = `
+  setTrustedHtml(elements.articleList, `
     ${isTodaySidebarMode() ? renderTodaySidebar() : ""}
     ${state.articles
       .map((article) => `
@@ -1971,49 +1913,49 @@ const renderArticleList = () => {
       `)
       .join("")}
     ${statusMarkup}
-  `;
+  `);
 };
 
 const renderDigestView = () => {
   if (state.isLoadingDigest) {
-    elements.articleView.innerHTML = `
+    setTrustedHtml(elements.articleView, `
       <div class="digest-state">
         Loading today’s digest…
       </div>
-    `;
+    `);
     return;
   }
 
   if (!state.digest) {
-    elements.articleView.innerHTML = `
+    setTrustedHtml(elements.articleView, `
       <div class="digest-state">
         Today’s digest is not ready yet.
       </div>
-    `;
+    `);
     return;
   }
 
   if (state.digest.status === "failed") {
-    elements.articleView.innerHTML = `
+    setTrustedHtml(elements.articleView, `
       <div class="digest-state">
         Today’s digest is unavailable right now.
         ${state.digest.error ? `<div style="margin-top:8px;">${escapeHtml(state.digest.error)}</div>` : ""}
       </div>
-    `;
+    `);
     return;
   }
 
   if (state.digest.status !== "ready") {
-    elements.articleView.innerHTML = `
+    setTrustedHtml(elements.articleView, `
       <div class="digest-state">
         Today’s digest is being prepared.
       </div>
-    `;
+    `);
     return;
   }
 
   const sections = state.digest.sections || [];
-  elements.articleView.innerHTML = `
+  setTrustedHtml(elements.articleView, `
     <div class="digest-view">
       <header class="digest-header">
         <button class="digest-eyebrow digest-eyebrow-button" data-digest-reset-today="true" type="button">
@@ -2049,7 +1991,7 @@ const renderDigestView = () => {
         </section>
       `).join("")}
     </div>
-  `;
+  `);
 };
 
 const renderArticle = () => {
@@ -2089,20 +2031,20 @@ const renderArticle = () => {
   }
 
   if (state.isLoadingArticle && state.selectedArticleId) {
-    elements.articleView.innerHTML = `
+    setTrustedHtml(elements.articleView, `
       <div class="article-loading-state">
         Loading article…
       </div>
-    `;
+    `);
     return;
   }
 
   if (!article) {
-    elements.articleView.innerHTML = `
+    setTrustedHtml(elements.articleView, `
       <div class="empty-state">
         Select an article to start reading. New feeds sync through Convex once an hour, and library saves show up here right away.
       </div>
-    `;
+    `);
     return;
   }
 
@@ -2113,7 +2055,7 @@ const renderArticle = () => {
     article.url || article.canonicalUrl || ""
   );
 
-  elements.articleView.innerHTML = `
+  setTrustedHtml(elements.articleView, `
     <div class="article-layout">
       <div class="article-main">
         ${articleHero.heroHtml ? `<div class="article-hero">${sanitizeHtml(articleHero.heroHtml)}</div>` : ""}
@@ -2135,7 +2077,7 @@ const renderArticle = () => {
         <div class="article-body">${sanitizeHtml(articleHero.bodyHtml) || "<p>No article body available yet.</p>"}</div>
       </div>
     </div>
-  `;
+  `);
 
   const articleBody = elements.articleView.querySelector(".article-body");
   if (articleBody) {
@@ -2465,14 +2407,14 @@ const renderBookCoverPreview = () => {
 
   if (coverImage) {
     elements.bookCoverPreview.hidden = false;
-    elements.bookCoverPreviewFrame.innerHTML = `
+    setTrustedHtml(elements.bookCoverPreviewFrame, `
       <img class="book-cover-image" src="${escapeHtml(coverImage)}" alt="Book cover preview">
-    `;
+    `);
     return;
   }
 
   elements.bookCoverPreview.hidden = true;
-  elements.bookCoverPreviewFrame.innerHTML = "";
+  clearHtml(elements.bookCoverPreviewFrame);
 };
 
 const estimateDataUrlBytes = (value) => {

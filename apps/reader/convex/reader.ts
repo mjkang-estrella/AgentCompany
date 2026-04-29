@@ -21,6 +21,14 @@ import {
   replaceStatsDocument,
   statsDeltaForArticle
 } from "./readerStats";
+import {
+  articleBodyHtml,
+  articleBodySource,
+  articleSummaryHtml,
+  deleteArticleBodyDocument,
+  getArticleBodyDocument,
+  upsertArticleBodyDocument
+} from "./articleContent";
 
 const scopeValidator = v.union(
   v.literal("all"),
@@ -67,7 +75,7 @@ const articleDetail = (
   body: Doc<"articleBodies"> | null,
   highlights: Doc<"articleHighlights">[]
 ) => {
-  const bodyHtml = body?.bodyHtml || article.bodyHtml || "";
+  const bodyHtml = articleBodyHtml(article, body);
   const subtitle =
     article.feedTitle === "YouTube" &&
     article.subtitle === "Transcript unavailable. Showing the video description instead." &&
@@ -78,7 +86,7 @@ const articleDetail = (
   return {
     ...articleSummary(article),
     bodyHtml,
-    bodySource: body?.bodySource || article.bodySource || "feed",
+    bodySource: articleBodySource(article, body),
     canonicalUrl: article.canonicalUrl || "",
     feedSiteUrl: article.feedSiteUrl || "",
     highlights: highlights.map((highlight) => ({
@@ -92,18 +100,12 @@ const articleDetail = (
       suffixText: highlight.suffixText
     })),
     subtitle,
-    summaryHtml: body?.summaryHtml || article.summaryHtml || ""
+    summaryHtml: articleSummaryHtml(article, body)
   };
 };
 
 const normalizeFeedGroupArg = (args: { feedGroup?: string; folder?: string }) =>
   args.feedGroup || args.folder || "";
-
-const getArticleBodyDocument = async (ctx: { db: any }, articleId: Id<"articles">) =>
-  ctx.db
-    .query("articleBodies")
-    .withIndex("by_article_id", (q: any) => q.eq("articleId", articleId))
-    .unique();
 
 const getArticleHighlightDocuments = async (ctx: { db: any }, articleId: Id<"articles">) =>
   ctx.db
@@ -111,36 +113,6 @@ const getArticleHighlightDocuments = async (ctx: { db: any }, articleId: Id<"art
     .withIndex("by_article_id_and_start_offset", (q: any) => q.eq("articleId", articleId))
     .order("asc")
     .collect();
-
-const upsertArticleBodyDocument = async (
-  ctx: { db: any },
-  args: {
-    articleId: Id<"articles">;
-    bodyHtml: string;
-    bodySource: "feed" | "fetched";
-    summaryHtml: string;
-  }
-) => {
-  const existing = await getArticleBodyDocument(ctx, args.articleId);
-
-  if (existing) {
-    await ctx.db.patch(existing._id, {
-      bodyHtml: args.bodyHtml,
-      bodySource: args.bodySource,
-      summaryHtml: args.summaryHtml
-    });
-    return existing._id;
-  }
-
-  return ctx.db.insert("articleBodies", args);
-};
-
-const deleteArticleBodyDocument = async (ctx: { db: any }, articleId: Id<"articles">) => {
-  const existing = await getArticleBodyDocument(ctx, articleId);
-  if (existing) {
-    await ctx.db.delete(existing._id);
-  }
-};
 
 const deleteArticleHighlightDocuments = async (ctx: { db: any }, articleId: Id<"articles">) => {
   const highlights = await getArticleHighlightDocuments(ctx, articleId);
@@ -257,11 +229,7 @@ export const getArticleBody = internalQuery({
   args: {
     articleId: v.id("articles")
   },
-  handler: async (ctx, args) =>
-    ctx.db
-      .query("articleBodies")
-      .withIndex("by_article_id", (q) => q.eq("articleId", args.articleId))
-      .unique()
+  handler: async (ctx, args) => getArticleBodyDocument(ctx, args.articleId)
 });
 
 export const upsertArticleBody = internalMutation({
@@ -471,7 +439,7 @@ export const addHighlight = mutation({
     }
 
     const body = await getArticleBodyDocument(ctx, args.articleId);
-    const fullText = stripHtml(body?.bodyHtml || article.bodyHtml || "");
+    const fullText = stripHtml(articleBodyHtml(article, body));
     const context = buildHighlightContext(fullText, args.startOffset, args.endOffset);
     if (!context.selectedText) {
       throw new Error("Highlight text is empty");

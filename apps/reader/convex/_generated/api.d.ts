@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as articleContent from "../articleContent.js";
 import type * as articles from "../articles.js";
 import type * as books from "../books.js";
 import type * as crons from "../crons.js";
@@ -28,6 +29,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  articleContent: typeof articleContent;
   articles: typeof articles;
   books: typeof books;
   crons: typeof crons;
