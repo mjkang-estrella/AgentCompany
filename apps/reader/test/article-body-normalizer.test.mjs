@@ -247,3 +247,38 @@ test("normalizeArticleContent removes Substack reaction chrome before article bo
   assert.match(normalized.bodyHtml, /This challenge is not new/i);
   assert.equal(normalized.previewText.startsWith("I’m teaming up with AI native"), true);
 });
+
+test("normalizeArticleContent removes Substack action-link chrome before feed body", () => {
+  const html = `
+    <h1><a href="https://substack.com/app-link/post?publication_id=12959&amp;post_id=195543934">We're so early</a></h1>
+    <h3>Random thoughts and reflections building with AI for the last 4 months</h3>
+    <p><a href="https://substack.com/@alifromfirst100">Ali Abouelatta</a></p>
+    <p>May 4</p>
+    <a href="https://substack.com/app-link/post?submitLike=true">
+      <img src="https://substackcdn.com/image/fetch/https%3A%2F%2Fsubstack.com%2Ficon%2FLucideHeart" alt="">
+    </a>
+    <a href="https://substack.com/app-link/post?action=share&amp;triggerShare=true&amp;utm_campaign=email-share">
+      <img src="https://substackcdn.com/image/fetch/https%3A%2F%2Fsubstack.com%2Ficon%2FLucideShare2" alt="">
+    </a>
+    <a href="https://substack.com/redirect/comment-link">
+      <img src="https://substackcdn.com/image/fetch/https%3A%2F%2Fsubstack.com%2Ficon%2Fnotes__NoteRestackIcon" alt="">
+    </a>
+    <a href="https://open.substack.com/pub/first1000/p/were-so-early?redirect=app-store">READ IN APP
+      <img src="https://substackcdn.com/image/fetch/https%3A%2F%2Fsubstack.com%2Ficon%2FLucideArrowUpRight" alt="">
+    </a>
+    <p>The last four months have felt like 40 years and on Friday last week things started to take off for Lazyweb</p>
+    <p>I’ve been trying to keep my head above water with all the new products, announcements, and features shipping.</p>
+  `;
+
+  const normalized = normalizeArticleContent({
+    author: "Ali Abouelatta (First1000)",
+    bodyHtml: html,
+    title: "We're so early"
+  });
+
+  assert.doesNotMatch(normalized.bodyHtml, /READ IN APP/i);
+  assert.doesNotMatch(normalized.bodyHtml, /LucideShare2/i);
+  assert.doesNotMatch(normalized.bodyHtml, /Ali Abouelatta/i);
+  assert.match(normalized.bodyHtml, /The last four months have felt/i);
+  assert.equal(normalized.previewText.startsWith("The last four months have felt"), true);
+});

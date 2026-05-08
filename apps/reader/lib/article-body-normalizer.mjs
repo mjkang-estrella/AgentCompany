@@ -170,6 +170,25 @@ const isSubstantiveBodyBlock = (node) => {
 const isLeadPromoMarkerText = (text) =>
   LEAD_PROMO_MARKERS.some((marker) => text.includes(marker));
 
+const isReadableOpeningBlock = (node) => {
+  if (!node || isMediaBlock(node)) {
+    return false;
+  }
+
+  const tagName = node.tagName?.toLowerCase() || "";
+  const text = normalizeText(node.textContent);
+  const textLength = text.length;
+  const links = node.querySelectorAll?.("a").length || 0;
+
+  return (
+    ["p", "blockquote"].includes(tagName) &&
+    textLength >= 80 &&
+    links <= 2 &&
+    !isLeadPromoMarkerText(text) &&
+    !isUtilityText(text)
+  );
+};
+
 const isLeadPromoBlock = (node) => {
   if (!node) {
     return false;
@@ -201,6 +220,89 @@ const isLeadPromoBlock = (node) => {
   }
 
   return /^read in app$/iu.test(text) || /^paid$/iu.test(text);
+};
+
+const isSubstackActionLink = (node) => {
+  if (!node || node.tagName?.toLowerCase() !== "a") {
+    return false;
+  }
+
+  const href = String(node.getAttribute("href") || "");
+  const imageSrc = String(node.querySelector?.("img")?.getAttribute("src") || "");
+  const textLength = normalizeText(node.textContent).length;
+
+  return (
+    textLength < 80 &&
+    (
+      /substack\.com\/app-link\/post\?/iu.test(href) ||
+      /open\.substack\.com\/pub\/[^/]+\/p\//iu.test(href) ||
+      /substack\.com\/redirect\//iu.test(href)
+    ) &&
+    (
+      /submitLike|submit_like|email-share|triggerShare|comments|restack|reaction|action=share/iu.test(href) ||
+      /substack\.com\/icon\/|notes__NoteRestackIcon|Lucide(Heart|Share|Message|ArrowUpRight)/iu.test(imageSrc)
+    )
+  );
+};
+
+const removeSubstackActionLeadChrome = (root, context) => {
+  const leadNodes = Array.from(root.children).slice(0, 90);
+  const readInAppIndex = leadNodes.findIndex((node) => normalizeText(node.textContent).includes("read in app"));
+  if (readInAppIndex < 0) {
+    return 0;
+  }
+
+  const nodesBeforeReadInApp = leadNodes.slice(0, readInAppIndex);
+  const hasSubstackActionChrome = nodesBeforeReadInApp.some((node) => isSubstackActionLink(node));
+  if (!hasSubstackActionChrome) {
+    return 0;
+  }
+
+  const hasLeadMetadata = nodesBeforeReadInApp.some((node, index) =>
+    isDuplicateTitleBlock(node, context.title) ||
+    isLeadMetadataBlock(
+      node,
+      context,
+      { removedLeadCount: index, seenLeadMedia: false },
+      nodesBeforeReadInApp[index + 1] || null
+    )
+  );
+  if (!hasLeadMetadata) {
+    return 0;
+  }
+
+  let anchorIndex = -1;
+  for (let index = readInAppIndex + 1; index < leadNodes.length; index += 1) {
+    const node = leadNodes[index];
+    if (isSubstackActionLink(node) || isLeadPromoBlock(node) || isLeadMetadataBlock(
+      node,
+      context,
+      { removedLeadCount: index, seenLeadMedia: false },
+      leadNodes[index + 1] || null
+    )) {
+      continue;
+    }
+
+    if (isReadableOpeningBlock(node) || isSubstantiveBodyBlock(node)) {
+      anchorIndex = index;
+    }
+    break;
+  }
+
+  if (anchorIndex <= readInAppIndex) {
+    return 0;
+  }
+
+  let removed = 0;
+  for (let index = 0; index < anchorIndex; index += 1) {
+    const node = leadNodes[index];
+    if (node?.parentNode === root) {
+      node.remove();
+      removed += 1;
+    }
+  }
+
+  return removed;
 };
 
 const isLeadBioPrefaceBlock = (node, upcomingNodes = []) => {
@@ -594,6 +696,7 @@ const normalizeBodyHtml = (bodyHtml, context = {}) => {
   }
 
   removedLeadCount += removeSubstackLeadChrome(root);
+  removedLeadCount += removeSubstackActionLeadChrome(root, context);
 
   const promoLeadNodes = Array.from(root.children).slice(0, 120);
   const promoIndexes = promoLeadNodes
