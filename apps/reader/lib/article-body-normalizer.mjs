@@ -57,17 +57,14 @@ const PREFACE_MARKERS = [
 const LEAD_PROMO_MARKERS = [
   "read in app",
   "listen on",
+  "watch on",
   "brought to you by",
   "where to find",
   "referenced",
   "upcoming meetups",
   "new podcast episodes",
   "community sponsor",
-  "thanks to",
-  "podcast",
-  "youtube",
-  "spotify",
-  "apple podcasts"
+  "thanks to"
 ];
 const EXPLICIT_BODY_ANCHORS = [
   "top threads",
@@ -211,7 +208,11 @@ const isLeadPromoBlock = (node) => {
     return true;
   }
 
-  if ((tagName === "figure" || tagName === "a") && links <= 1 && textLength < 160) {
+  if (tagName === "figure" && links <= 1 && textLength < 160) {
+    return isLeadPromoMarkerText(text);
+  }
+
+  if (tagName === "a" && links <= 1 && textLength < 160) {
     return true;
   }
 
@@ -383,6 +384,29 @@ const isLeadPreambleBlock = (node, context, nextNode, upcomingNodes = []) =>
   isLeadPromoBlock(node) ||
   isLeadBioPrefaceBlock(node, upcomingNodes) ||
   isLeadMetadataBlock(node, context, { removedLeadCount: 0, seenLeadMedia: false }, nextNode);
+
+const hasReadableBodyBeforeIndex = (nodes, targetIndex, context) =>
+  targetIndex > 0 &&
+  nodes.slice(0, targetIndex).some((node, index) =>
+    isReadableOpeningBlock(node) &&
+    !isLeadPreambleBlock(
+      node,
+      context,
+      nodes[index + 1] || nodes[targetIndex] || null,
+      nodes.slice(index + 1, index + 5)
+    )
+  );
+
+const removeLeadingUtilityTextNodes = (root) => {
+  while (root.firstChild?.nodeType === 3) {
+    const text = normalizeText(root.firstChild.textContent);
+    if (!text || isUtilityText(text)) {
+      root.firstChild.remove();
+      continue;
+    }
+    break;
+  }
+};
 
 const removeSubstackLeadChrome = (root) => {
   const leadNodes = Array.from(root.children).slice(0, 90);
@@ -691,25 +715,32 @@ const normalizeBodyHtml = (bodyHtml, context = {}) => {
   let seenLeadMedia = false;
   let subtitle = "";
 
-  while (root.firstChild?.nodeType === 3 && !normalizeText(root.firstChild.textContent)) {
-    root.firstChild.remove();
-  }
+  removeLeadingUtilityTextNodes(root);
 
   removedLeadCount += removeSubstackLeadChrome(root);
   removedLeadCount += removeSubstackActionLeadChrome(root, context);
 
   const promoLeadNodes = Array.from(root.children).slice(0, 120);
-  const promoIndexes = promoLeadNodes
+  const promoCandidates = promoLeadNodes
     .map((node, index) => {
       const upcomingNodes = promoLeadNodes.slice(index + 1, index + 5);
-      return (
-        isLeadPromoBlock(node) ||
-        isLeadBioPrefaceBlock(node, upcomingNodes)
-      ) ? index : -1;
+      const isBioPreface = isLeadBioPrefaceBlock(node, upcomingNodes);
+      const isPromo = isLeadPromoBlock(node) || isBioPreface;
+      return isPromo
+        ? {
+            index,
+            strong: isLeadPromoMarkerText(normalizeText(node.textContent)) || isBioPreface
+          }
+        : null;
     })
-    .filter((index) => index >= 0);
+    .filter(Boolean);
+  const promoIndexes = promoCandidates.map((candidate) => candidate.index);
 
-  if (promoIndexes.length >= 2) {
+  if (
+    promoIndexes.length >= 2 &&
+    promoCandidates.some((candidate) => candidate.strong) &&
+    !hasReadableBodyBeforeIndex(promoLeadNodes, promoIndexes[0], context)
+  ) {
     let explicitAnchorIndex = -1;
     for (let index = 0; index < promoLeadNodes.length; index += 1) {
       if (isExplicitLeadBodyAnchor(promoLeadNodes[index])) {
@@ -873,9 +904,7 @@ const normalizeBodyHtml = (bodyHtml, context = {}) => {
     break;
   }
 
-  while (root.firstChild?.nodeType === 3 && !normalizeText(root.firstChild.textContent)) {
-    root.firstChild.remove();
-  }
+  removeLeadingUtilityTextNodes(root);
 
   const contentNodes = Array.from(root.children);
   let firstContentNode = contentNodes.find((node) => !isMediaBlock(node)) || null;

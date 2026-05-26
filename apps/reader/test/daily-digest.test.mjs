@@ -143,6 +143,74 @@ test("mergeDigestOutput also accepts feed titles as summary keys", () => {
   );
 });
 
+test("mergeDigestOutput accepts article titles as section keys", () => {
+  const merged = mergeDigestOutput({
+    rawText: JSON.stringify({
+      intro: "Today covers AI workflows.",
+      sections: [
+        {
+          key: "Claude Code for PMs: The Beginner's Guide",
+          summary: "Claude Code is becoming table stakes for product managers because interviews increasingly test hands-on AI agent workflows and prototype execution."
+        }
+      ]
+    }),
+    sections: [
+      {
+        articles: [
+          {
+            id: "article-1",
+            previewText: "Raw preview text should not survive when the model keyed the section by article title.",
+            title: "Claude Code for PMs: The Beginner's Guide"
+          }
+        ],
+        feedGroup: "Pawe from The Product Compass",
+        feedIconUrl: "",
+        feedKey: "j97bkwpd2b6bqm9379hd5g9rh584ev6z",
+        feedTitle: "Paweł from The Product Compass"
+      }
+    ]
+  });
+
+  assert.equal(
+    merged.sections[0].summary,
+    "Claude Code is becoming table stakes for product managers because interviews increasingly test hands-on AI agent workflows and prototype execution."
+  );
+});
+
+test("mergeDigestOutput falls back to section order before preview text", () => {
+  const merged = mergeDigestOutput({
+    rawText: JSON.stringify({
+      intro: "Today covers AI workflows.",
+      sections: [
+        {
+          title: "Unexpected model key",
+          summary: "The model returned a usable paragraph under an unexpected key, so order should preserve it."
+        }
+      ]
+    }),
+    sections: [
+      {
+        articles: [
+          {
+            id: "article-1",
+            previewText: "Raw preview text should only be used after key and order matching fail.",
+            title: "Claude Code for PMs: The Beginner's Guide"
+          }
+        ],
+        feedGroup: "Pawe from The Product Compass",
+        feedIconUrl: "",
+        feedKey: "j97bkwpd2b6bqm9379hd5g9rh584ev6z",
+        feedTitle: "Paweł from The Product Compass"
+      }
+    ]
+  });
+
+  assert.equal(
+    merged.sections[0].summary,
+    "The model returned a usable paragraph under an unexpected key, so order should preserve it."
+  );
+});
+
 test("mergeDigestOutput strips author-led discuss/provides framing", () => {
   const merged = mergeDigestOutput({
     rawText: JSON.stringify({

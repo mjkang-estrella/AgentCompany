@@ -607,8 +607,23 @@ const formatMonthLabel = (localDate) => {
 
   return new Intl.DateTimeFormat(undefined, {
     month: "long",
-    year: "numeric"
+    year: "numeric",
+    timeZone: "UTC"
   }).format(new Date(Date.UTC(year, month - 1, 1)));
+};
+
+const formatLocalDateLabel = (localDate) => {
+  const [year, month, day] = String(localDate || "").split("-").map(Number);
+  if (!year || !month || !day) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC"
+  }).format(new Date(Date.UTC(year, month - 1, day)));
 };
 
 const formatListTime = (isoString) => {
@@ -979,7 +994,7 @@ const listTitle = () => {
 
   if (state.scope === "today") {
     if (state.digestDate && state.digest?.todayLocalDate && state.digestDate !== state.digest.todayLocalDate) {
-      return formatArticleDate(`${state.digestDate}T00:00:00.000Z`);
+      return formatLocalDateLabel(state.digestDate);
     }
 
     return "Daily Digest";

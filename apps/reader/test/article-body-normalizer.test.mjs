@@ -65,6 +65,40 @@ test("normalizeArticleContent removes Every newsletter chrome at the top and bot
   assert.match(normalized.bodyHtml, /The actual essay begins here/i);
 });
 
+test("normalizeArticleContent preserves Every essays that mention media tools before later body sections", () => {
+  const html = `
+    Published May 21, 2026
+    <p>There is a paradox at the heart of AI.</p>
+    <p>At Every, we have automated everything we can across coding, writing, design, customer service, and more.</p>
+    <p>Then, as a company, we became Claude Code-pilled, and on Lenny's Podcast I called Claude Code the most underrated tool for knowledge work.</p>
+    <figure>
+      <img src="https://cdn.every.to/human-sandwich.jpg" alt="Human sandwich diagram">
+      <figcaption>The human sandwich. Source: Every.</figcaption>
+    </figure>
+    <p>The net effect is that skills that used to be rare, like coding a pull request or making a YouTube thumbnail, are now broadly available.</p>
+    <figure>
+      <img src="https://cdn.every.to/cora.jpg" alt="Cora inbox screenshot">
+      <figcaption>A Cora inbox sweep. Source: Every.</figcaption>
+    </figure>
+    <p>When operations people submit pull requests with AI, you need engineers to review them. When marketers make YouTube thumbnails, you need designers to sharpen them.</p>
+    <p>In response, human experts move in two directions at once. Some use AI to build systems that absorb and leverage the flood of new work.</p>
+  `;
+
+  const normalized = normalizeArticleContent({
+    author: "Dan Shipper",
+    bodyHtml: html,
+    feedTitle: "Every",
+    title: "After Automation"
+  });
+
+  assert.match(normalized.bodyHtml, /There is a paradox at the heart of AI/i);
+  assert.match(normalized.bodyHtml, /Lenny's Podcast/i);
+  assert.match(normalized.bodyHtml, /making a YouTube thumbnail/i);
+  assert.match(normalized.bodyHtml, /When operations people submit pull requests/i);
+  assert.match(normalized.bodyHtml, /In response, human experts move/i);
+  assert.equal(normalized.previewText.startsWith("There is a paradox"), true);
+});
+
 test("normalizeArticleContent preserves normal article hero and body", () => {
   const html = `
     <figure>

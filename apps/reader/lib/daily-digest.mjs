@@ -281,15 +281,19 @@ const stripLeadingAttribution = (summary, section) => {
 export const mergeDigestOutput = ({ rawText, sections }) => {
   const parsed = JSON.parse(stripCodeFence(rawText));
   const summaries = new Map();
+  const summariesByIndex = [];
 
   if (Array.isArray(parsed.sections)) {
-    for (const section of parsed.sections) {
+    for (let index = 0; index < parsed.sections.length; index += 1) {
+      const section = parsed.sections[index];
       const summary = String(section?.summary || "").trim();
       if (!summary) {
         continue;
       }
 
-      for (const candidate of [section.key, section.feedTitle, section.feedGroup]) {
+      summariesByIndex[index] = summary;
+
+      for (const candidate of [section.key, section.feedTitle, section.feedGroup, section.title, section.name]) {
         const normalized = normalizeSummaryKey(candidate);
         if (normalized) {
           summaries.set(normalized, summary);
@@ -300,17 +304,18 @@ export const mergeDigestOutput = ({ rawText, sections }) => {
 
   return {
     intro: String(parsed.intro || "").trim() || fallbackIntro(sections),
-    sections: sections.map((section) => ({
+    sections: sections.map((section, index) => ({
       ...section,
       summary: stripLeadingAttribution(
         [
           section.feedKey,
           section.feedTitle,
-          section.feedGroup
+          section.feedGroup,
+          ...section.articles.map((article) => article.title)
         ]
           .map(normalizeSummaryKey)
           .map((key) => summaries.get(key))
-          .find(Boolean) || fallbackSectionSummary(section),
+          .find(Boolean) || summariesByIndex[index] || fallbackSectionSummary(section),
         section
       )
     }))
