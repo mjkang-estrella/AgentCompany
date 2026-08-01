@@ -16,6 +16,8 @@ Individual articles can be deleted from the top-right actions in the reading pan
 
 During sync and manual article import, the reader uses Defuddle with a Node DOM shim to extract readable article bodies from fetched pages. A server-side body normalizer removes duplicated lead metadata, utility links, and promo/footer chrome before the article is stored. If an RSS item exposes a richer custom markdown source URL, the sync job still prefers that over page extraction. Scheduled sync runs once an hour and only rewrites feed items when their content hash changes.
 
+Manual article import can optionally fall back to a rendered Browser Use session when a site blocks direct fetching, returns a transient server error, or serves an unusable server-rendered shell. The fallback starts from the site's relevant listing page so client-side-only article routes can render, returns structured Markdown, and passes the result through Reader's normal sanitization and normalization pipeline. Browser Use is never used for successful direct extractions.
+
 When a feed exposes article imagery, the sync job stores `thumbnail_url` on the article and the reader uses it as a hero image at the top of the opened document when appropriate.
 
 Reader can also ingest email newsletters through AgentMail. Newsletters sent to the configured inbox are polled into the app once an hour, grouped under sender-based feed groups, and stored as normal Reader articles so they show up in `Today`, `All Articles`, and the digest pipeline.
@@ -51,6 +53,19 @@ Copy [apps/reader/.env.example](/Users/mjkang/Develop/AgentCompany/apps/reader/.
 
 - `CONVEX_URL`
 - `PORT` (optional, defaults to `4173`)
+
+If you want rendered-browser fallback for manual article imports:
+
+- `BROWSER_USE_API_KEY`
+- `READER_BROWSER_USE_MODEL` (optional, defaults to `bu-mini`)
+- `READER_BROWSER_USE_MAX_COST_USD` (optional, defaults to `0.25` per fallback)
+- `READER_BROWSER_USE_TIMEOUT_MS` (optional, defaults to `180000`)
+
+Because extraction runs inside Convex, configure the key on the active Convex deployment as well as in local development:
+
+```bash
+npx convex env set BROWSER_USE_API_KEY
+```
 
 The Reader host only serves static assets and exposes `CONVEX_URL` to the browser through `/api/config`.
 

@@ -4,6 +4,10 @@ import { internal } from "./_generated/api";
 import { action, internalMutation, internalQuery } from "./_generated/server";
 
 import { hashArticleContent } from "../lib/content-hash.mjs";
+import {
+  extractArticleWithBrowserUse,
+  shouldUseBrowserFallbackForStatus
+} from "../lib/browser-use-extractor.mjs";
 import { extractPageWithDefuddle } from "../lib/page-extractor.mjs";
 import { normalizeArticleContent } from "../lib/article-body-normalizer.mjs";
 import { canonicalizeUrl, stripHtml } from "../lib/html.mjs";
@@ -26,6 +30,16 @@ const YOUTUBE_HEADERS = {
   "user-agent": "Mozilla/5.0"
 };
 
+class PageFetchError extends Error {
+  status: number;
+
+  constructor(url: string, status: number) {
+    super(`Request failed for ${url} (${status})`);
+    this.name = "PageFetchError";
+    this.status = status;
+  }
+}
+
 const fetchText = async (url: string, options: { headers?: Record<string, string> } = {}) => {
   const response = await fetch(url, {
     headers: {
@@ -37,7 +51,7 @@ const fetchText = async (url: string, options: { headers?: Record<string, string
   });
 
   if (!response.ok) {
-    throw new Error(`Request failed for ${url} (${response.status})`);
+    throw new PageFetchError(url, response.status);
   }
 
   return {
@@ -45,6 +59,13 @@ const fetchText = async (url: string, options: { headers?: Record<string, string
     url: response.url
   };
 };
+
+const canUseBrowserFallback = (error?: unknown) =>
+  Boolean(process.env.BROWSER_USE_API_KEY?.trim()) &&
+  (
+    error === undefined ||
+    (error instanceof PageFetchError && shouldUseBrowserFallbackForStatus(error.status))
+  );
 
 const deriveSiteTitle = (finalUrl: string, siteName: string) => {
   if (siteName) {
@@ -67,6 +88,41 @@ const deriveSiteTitle = (finalUrl: string, siteName: string) => {
 const normalizePublishedAt = (value: string) => {
   const parsed = new Date(value || "");
   return Number.isNaN(parsed.valueOf()) ? Date.now() : parsed.valueOf();
+};
+
+const prepareExtractedPageArticle = (pageUrl: string, extracted: any) => {
+  const canonicalUrl = extracted.canonicalUrl || canonicalizeUrl(pageUrl);
+  const title = extracted.title || deriveSiteTitle(pageUrl, extracted.siteName);
+  const feedTitle = deriveSiteTitle(pageUrl, extracted.siteName);
+  const normalizedArticle = normalizeArticleContent({
+    author: extracted.author || "",
+    bodyHtml: extracted.bodyHtml,
+    feedTitle,
+    publishedAt: extracted.publishedAt,
+    summaryHtml: extracted.summaryHtml || extracted.bodyHtml,
+    thumbnailUrl: extracted.thumbnailUrl || "",
+    title
+  });
+  const bodyHtml = normalizedArticle.bodyHtml;
+  const summaryHtml = normalizedArticle.summaryHtml;
+  const subtitle = normalizedArticle.subtitle || undefined;
+  const previewText = normalizedArticle.previewText || stripHtml(summaryHtml || bodyHtml).slice(0, 220);
+
+  return {
+    bodyHtml,
+    canonicalUrl,
+    feedTitle,
+    isUsable: (
+      extracted.quality === "usable" &&
+      Boolean(title) &&
+      stripHtml(bodyHtml || summaryHtml).length >= 40
+    ),
+    previewText,
+    readTimeMinutes: Math.max(extracted.readTimeMinutes || 0, normalizedArticle.readTimeMinutes),
+    subtitle,
+    summaryHtml,
+    title
+  };
 };
 
 const isRicherArticle = (existing: any, existingBody: any, incoming: any) => {
@@ -474,10 +530,27 @@ export const addFromUrl = action({
       });
     }
 
-    const page = await fetchText(
-      requestedUrl,
-      isYouTubeUrl(requestedUrl) ? { headers: YOUTUBE_HEADERS } : {}
-    );
+    const requestedYouTubeUrl = isYouTubeUrl(requestedUrl);
+    let page: { text: string; url: string };
+    let directFetchError: unknown;
+
+    try {
+      page = await fetchText(
+        requestedUrl,
+        requestedYouTubeUrl ? { headers: YOUTUBE_HEADERS } : {}
+      );
+    } catch (error) {
+      directFetchError = error;
+      if (requestedYouTubeUrl || !canUseBrowserFallback(error)) {
+        throw error;
+      }
+
+      page = {
+        text: "",
+        url: requestedUrl
+      };
+    }
+
     if (isYouTubeUrl(page.url)) {
       const extracted = await extractYouTubeArticleFromHtml(page.text, page.url, {
         fetchText: async (url: string) => {
@@ -530,60 +603,49 @@ export const addFromUrl = action({
       });
     }
 
-    const extracted = await extractPageWithDefuddle(page.text, page.url);
-    const canonicalUrl = extracted.canonicalUrl || canonicalizeUrl(page.url);
-    const title = extracted.title || deriveSiteTitle(page.url, extracted.siteName);
-    const normalizedArticle = normalizeArticleContent({
-      author: extracted.author || "",
-      bodyHtml: extracted.bodyHtml,
-      feedTitle: deriveSiteTitle(page.url, extracted.siteName),
-      publishedAt: extracted.publishedAt,
-      summaryHtml: extracted.summaryHtml || extracted.bodyHtml,
-      thumbnailUrl: extracted.thumbnailUrl || "",
-      title
-    });
-    const bodyHtml = normalizedArticle.bodyHtml;
-    const summaryHtml = normalizedArticle.summaryHtml;
-    const subtitle = normalizedArticle.subtitle || undefined;
-    const previewText = normalizedArticle.previewText || stripHtml(summaryHtml || bodyHtml).slice(0, 220);
+    let extracted = directFetchError
+      ? await extractArticleWithBrowserUse(requestedUrl)
+      : await extractPageWithDefuddle(page.text, page.url);
+    let prepared = prepareExtractedPageArticle(page.url, extracted);
 
-    if (
-      extracted.quality !== "usable" ||
-      !title ||
-      stripHtml(bodyHtml || summaryHtml).length < 40
-    ) {
+    if (!prepared.isUsable && !directFetchError && canUseBrowserFallback()) {
+      extracted = await extractArticleWithBrowserUse(page.url);
+      prepared = prepareExtractedPageArticle(page.url, extracted);
+    }
+
+    if (!prepared.isUsable) {
       throw new Error("Could not extract a readable article body from that URL");
     }
 
     return ctx.runMutation(internal.articles.upsertManualArticle, {
       article: {
         author: extracted.author || undefined,
-        bodyHtml,
+        bodyHtml: prepared.bodyHtml,
         bodySource: "fetched",
-        canonicalUrl,
+        canonicalUrl: prepared.canonicalUrl,
         contentHash: hashArticleContent({
           author: extracted.author || "",
-          bodyHtml,
-          canonicalUrl,
-          previewText,
+          bodyHtml: prepared.bodyHtml,
+          canonicalUrl: prepared.canonicalUrl,
+          previewText: prepared.previewText,
           publishedAt: normalizePublishedAt(extracted.publishedAt),
-          summaryHtml,
-          subtitle,
+          summaryHtml: prepared.summaryHtml,
+          subtitle: prepared.subtitle,
           thumbnailUrl: extracted.thumbnailUrl || "",
-          title,
+          title: prepared.title,
           url: page.url
         }),
-        externalId: canonicalUrl,
+        externalId: prepared.canonicalUrl,
         feedIconUrl: undefined,
         feedSiteUrl: new URL(page.url).origin,
-        feedTitle: deriveSiteTitle(page.url, extracted.siteName),
-        previewText,
+        feedTitle: prepared.feedTitle,
+        previewText: prepared.previewText,
         publishedAt: normalizePublishedAt(extracted.publishedAt),
-        readTimeMinutes: Math.max(extracted.readTimeMinutes || 0, normalizedArticle.readTimeMinutes),
-        summaryHtml,
-        subtitle,
+        readTimeMinutes: prepared.readTimeMinutes,
+        summaryHtml: prepared.summaryHtml,
+        subtitle: prepared.subtitle,
         thumbnailUrl: extracted.thumbnailUrl || undefined,
-        title,
+        title: prepared.title,
         url: page.url
       }
     });
