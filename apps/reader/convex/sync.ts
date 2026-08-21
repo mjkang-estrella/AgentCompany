@@ -9,6 +9,10 @@ import { normalizeFeedGroupName } from "../lib/feed-group-name.mjs";
 import { extractPageWithDefuddle } from "../lib/page-extractor.mjs";
 import { normalizeArticleContent } from "../lib/article-body-normalizer.mjs";
 import {
+  RECENT_FEED_RECHECK_LIMIT,
+  shouldProcessFeedEntry
+} from "../lib/sync-repair.mjs";
+import {
   canonicalizeUrl,
   estimateReadTime,
   renderMarkdownFragment,
@@ -22,7 +26,10 @@ import {
   statsDeltaForArticle
 } from "./readerStats";
 import {
+  articleBodyHtml,
+  articleSummaryHtml,
   clearLegacyArticleBodyFields,
+  getArticleBodyDocument,
   upsertArticleBodyDocument
 } from "./articleContent";
 
@@ -30,7 +37,6 @@ const DEFAULT_HEADERS = {
   "user-agent": "AgentCompany Reader/1.0 (+https://agent.company)"
 };
 const MAX_SYNC_ENTRIES = 50;
-const RECENT_RECHECK_LIMIT = 5;
 
 const resolveUrl = (value: string, baseUrl: string) => {
   if (!value) {
@@ -216,13 +222,35 @@ export const getSyncArticleMeta = internalQuery({
     externalId: v.string(),
     feedId: v.id("feeds")
   },
-  handler: async (ctx, args) =>
-    ctx.db
+  returns: v.union(
+    v.null(),
+    v.object({
+      articleId: v.id("articles"),
+      bodyTextLength: v.number(),
+      deletedAt: v.optional(v.number())
+    })
+  ),
+  handler: async (ctx, args) => {
+    const article = await ctx.db
       .query("articles")
       .withIndex("by_feed_and_external_id", (q) =>
         q.eq("feedId", args.feedId).eq("externalId", args.externalId)
       )
-      .unique()
+      .unique();
+
+    if (!article) {
+      return null;
+    }
+
+    const body = await getArticleBodyDocument(ctx, article._id);
+    const storedHtml = articleBodyHtml(article, body) || articleSummaryHtml(article, body);
+
+    return {
+      articleId: article._id,
+      bodyTextLength: stripHtml(storedHtml).length,
+      ...(article.deletedAt === undefined ? {} : { deletedAt: article.deletedAt })
+    };
+  }
 });
 
 export const ensureFeedActive = internalQuery({
@@ -517,25 +545,9 @@ const shouldStopSync = ({
   Boolean(
     existing &&
     feedLastSyncedAt &&
-    index >= RECENT_RECHECK_LIMIT &&
+    index >= RECENT_FEED_RECHECK_LIMIT &&
     publishedAt < feedLastSyncedAt
   );
-
-const shouldProcessEntry = ({
-  existing,
-  feedLastSyncedAt,
-  index,
-  publishedAt
-}: {
-  existing: any;
-  feedLastSyncedAt?: number;
-  index: number;
-  publishedAt: number;
-}) =>
-  !existing ||
-  !feedLastSyncedAt ||
-  index < RECENT_RECHECK_LIMIT ||
-  publishedAt >= feedLastSyncedAt;
 
 const runFeedHandler = async (ctx: any, args: { feedId: any }) => {
     const feed = await ctx.runQuery(internal.sync.getFeed, { feedId: args.feedId });
@@ -571,7 +583,7 @@ const runFeedHandler = async (ctx: any, args: { feedId: any }) => {
           continue;
         }
 
-        if (!shouldProcessEntry({
+        if (!shouldProcessFeedEntry({
           existing,
           feedLastSyncedAt: feed.lastSyncedAt,
           index,

@@ -233,3 +233,37 @@ test("extractPageWithDefuddle prefers metadata title when document title contain
   assert.equal(extracted.quality, "usable");
   assert.match(extracted.bodyHtml, /After six years of relentless development/i);
 });
+
+test("extractPageWithDefuddle restores anchored headings and deduplicates lead media", async () => {
+  const html = `
+    <html>
+      <head>
+        <title>Rebuilding a read path</title>
+        <meta name="description" content="A detailed engineering article.">
+      </head>
+      <body>
+        <main>
+          <article>
+            <a href="#skip-nav">Skip to content →</a>
+            <img src="https://cdn.example.com/hero-wide.png" alt="Read path diagram">
+            <img src="https://cdn.example.com/hero-narrow.png" alt="Read path diagram">
+            ·
+            <p>${"The opening explains the local-first synchronization problem. ".repeat(8)}</p>
+            <h3>
+              <span id="query-shape">
+                What a delta sync query actually does
+                <a href="#query-shape" aria-label="Link to this section"><span>⁠<svg></svg></span></a>
+              </span>
+            </h3>
+            <p>${"The implementation intersects ordered action sets before enrichment. ".repeat(8)}</p>
+          </article>
+        </main>
+      </body>
+    </html>`;
+
+  const extracted = await extractPageWithDefuddle(html, "https://linear.app/now/read-path");
+
+  assert.match(extracted.bodyHtml, /<h3>What a delta sync query actually does<\/h3>/i);
+  assert.doesNotMatch(extracted.bodyHtml, /Skip to content/i);
+  assert.equal((extracted.bodyHtml.match(/Read path diagram/giu) || []).length, 1);
+});

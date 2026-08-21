@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <title>Reader | MJ Kang</title>
     <link rel="stylesheet" href="/styles.css">
@@ -40,6 +40,7 @@
                     <button class="list-menu-item" hidden id="rename-feed-group-button" role="menuitem" type="button">Edit feed title</button>
                     <button class="list-menu-item is-danger" hidden id="remove-feed-group-button" role="menuitem" type="button">Remove feed</button>
                 </div>
+                <button class="icon-btn list-close-btn" id="list-close-button" title="Close article list" aria-label="Close article list" type="button"></button>
             </div>
         </div>
         <div class="list-content" id="feed-groups-list" hidden></div>
@@ -47,6 +48,7 @@
             <div class="empty-state" id="article-list-initial">Loading articles…</div>
         </div>
     </section>
+    <button class="panel-scrim" id="panel-scrim" aria-label="Close article list" type="button" tabindex="-1"></button>
 
     <main class="reading-pane">
         <div class="pane-header">
@@ -64,6 +66,14 @@
                 <button class="icon-btn is-danger" id="delete-article-button" title="Delete article" aria-label="Delete article" type="button"></button>
                 <span class="pane-separator"></span>
                 <button class="btn-outline" id="open-article-button">Original</button>
+                <div class="reader-actions-menu-wrap">
+                    <button class="icon-btn" id="reader-actions-menu-button" title="More article actions" aria-label="More article actions" aria-expanded="false" aria-haspopup="menu" type="button"></button>
+                    <div class="reader-actions-menu" id="reader-actions-menu" role="menu" aria-label="Article actions" hidden>
+                        <button class="list-menu-item" data-reader-action="highlights" role="menuitem" type="button">Highlights</button>
+                        <button class="list-menu-item" data-reader-action="original" role="menuitem" type="button">Open original</button>
+                        <button class="list-menu-item is-danger" data-reader-action="delete" role="menuitem" type="button">Delete article</button>
+                    </div>
+                </div>
             </div>
         </div>
         <div class="pane-shell">

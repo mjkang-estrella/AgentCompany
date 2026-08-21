@@ -287,6 +287,102 @@ const isLikelyFooterBlock = (node) => {
   );
 };
 
+const visibleHeadingText = (node) => {
+  if (!node) {
+    return "";
+  }
+
+  const clone = node.cloneNode(true);
+  for (const utility of clone.querySelectorAll("a[aria-label*='Link to this section'], svg")) {
+    utility.remove();
+  }
+
+  return String(clone.textContent || "")
+    .replace(/\p{Cf}/gu, "")
+    .replace(/\s+/gu, " ")
+    .trim();
+};
+
+const restoreSourceHeadingText = (html, sourceDocument) => {
+  if (!html || !sourceDocument) {
+    return html || "";
+  }
+
+  const sourceHeadings = new Map();
+  for (const tagName of ["H2", "H3", "H4"]) {
+    sourceHeadings.set(
+      tagName,
+      Array.from(sourceDocument.querySelectorAll(tagName.toLowerCase()))
+        .map((heading) => visibleHeadingText(heading))
+        .filter(Boolean)
+    );
+  }
+
+  const document = parseHTML(`<div data-restored-headings>${html}</div>`).document;
+  const root = document.querySelector("[data-restored-headings]");
+  if (!root) {
+    return html;
+  }
+
+  const positions = new Map();
+  for (const heading of root.querySelectorAll("h2, h3, h4")) {
+    const tagName = heading.tagName;
+    const candidates = sourceHeadings.get(tagName) || [];
+    let position = positions.get(tagName) || 0;
+    const currentText = visibleHeadingText(heading);
+
+    if (currentText) {
+      const matchingIndex = candidates.findIndex((candidate, index) =>
+        index >= position && normalizeText(candidate) === normalizeText(currentText)
+      );
+      positions.set(tagName, matchingIndex >= 0 ? matchingIndex + 1 : position);
+      continue;
+    }
+
+    if (candidates[position]) {
+      heading.textContent = candidates[position];
+      position += 1;
+      positions.set(tagName, position);
+    }
+  }
+
+  return root.innerHTML;
+};
+
+const trimLeadUtilityNodes = (root) => {
+  while (
+    root?.firstElementChild?.tagName === "A" &&
+    /skip to (?:content|article)/iu.test(root.firstElementChild.textContent || "")
+  ) {
+    root.firstElementChild.remove();
+  }
+
+  const firstImage = root?.firstElementChild?.tagName === "IMG"
+    ? root.firstElementChild
+    : null;
+  const secondImage = firstImage?.nextElementSibling;
+  if (
+    firstImage &&
+    secondImage?.tagName === "IMG" &&
+    normalizeText(firstImage.getAttribute("alt")) &&
+    normalizeText(firstImage.getAttribute("alt")) === normalizeText(secondImage.getAttribute("alt"))
+  ) {
+    secondImage.remove();
+  }
+
+  for (const child of Array.from(root?.childNodes || [])) {
+    if (
+      child.nodeType === 1 &&
+      !["FIGURE", "IMG", "PICTURE"].includes(child.tagName)
+    ) {
+      break;
+    }
+    if (child.nodeType === 3 && /^[\s·•|]*$/u.test(child.textContent || "")) {
+      child.remove();
+    }
+  }
+};
+
 const trimChromeBlocks = (html) => {
   if (!html) {
     return {
@@ -296,7 +392,7 @@ const trimChromeBlocks = (html) => {
     };
   }
 
-  const document = parseHTML(`<div>${html}</div>`).document;
+  const document = parseHTML(`<!doctype html><html><body><div>${html}</div></body></html>`).document;
   const root = document.body.firstElementChild;
   if (!root) {
     return {
@@ -305,6 +401,8 @@ const trimChromeBlocks = (html) => {
       removedTop: 0
     };
   }
+
+  trimLeadUtilityNodes(root);
 
   let removedTop = 0;
   let removedBottom = 0;
@@ -445,7 +543,8 @@ export const extractPageWithDefuddle = async (html, url) => {
     chooseBodyHtml(defuddled?.content || "", fallbackHtml),
     url
   );
-  const trimmed = trimChromeBlocks(chosenBodyHtml);
+  const restoredBodyHtml = restoreSourceHeadingText(chosenBodyHtml, document);
+  const trimmed = trimChromeBlocks(restoredBodyHtml);
   const bodyHtml = trimmed.bodyHtml;
   const summaryHtml = normalizeSummaryHtml(
     bodyHtml,

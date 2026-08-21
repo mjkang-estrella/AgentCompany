@@ -38,6 +38,7 @@ import {
 
 const PAGE_LIMIT = 50;
 const LOAD_MORE_THRESHOLD = 240;
+const MIN_USABLE_ARTICLE_BODY_CHARS = 40;
 const THEME_STORAGE_KEY = "reader.theme";
 const LEGACY_BOOKS_STORAGE_KEY = "reader.books.items";
 const LEGACY_BOOK_NOTES_STORAGE_KEY = "reader.books.notes";
@@ -53,6 +54,7 @@ const emptyCounts = {
 };
 const state = {
   articles: [],
+  articleRepairError: "",
   counts: { ...emptyCounts },
   convexUrl: "",
   canReturnToFeedGroups: false,
@@ -72,6 +74,7 @@ const state = {
   isHighlightsPanelOpen: true,
   isSyncingNewsletters: false,
   isLoadingArticle: false,
+  isRepairingArticle: false,
   isLoadingDigest: false,
   isLoadingMore: false,
   nextCursor: null,
@@ -131,6 +134,7 @@ const elements = {
   feedUrlInput: document.querySelector("#feed-url-input"),
   listActions: document.querySelector(".list-actions"),
   listBackButton: document.querySelector("#list-back-button"),
+  listCloseButton: document.querySelector("#list-close-button"),
   listMenu: document.querySelector("#list-menu"),
   listMenuButton: document.querySelector("#list-menu-button"),
   listTitle: document.querySelector("#list-title"),
@@ -141,6 +145,7 @@ const elements = {
   navSaved: document.querySelector("#nav-saved"),
   navToday: document.querySelector("#nav-today"),
   navYoutube: document.querySelector("#nav-youtube"),
+  panelScrim: document.querySelector("#panel-scrim"),
   newsletterCopyButton: document.querySelector("#newsletter-copy-button"),
   newsletterStatusCopy: document.querySelector("#newsletter-status-copy"),
   newsletterSyncButton: document.querySelector("#newsletter-sync-button"),
@@ -150,6 +155,8 @@ const elements = {
 
   paneContentScroll: document.querySelector(".pane-content-scroll"),
   previousArticleButton: document.querySelector("#previous-article-button"),
+  readerActionsMenu: document.querySelector("#reader-actions-menu"),
+  readerActionsMenuButton: document.querySelector("#reader-actions-menu-button"),
   renameFeedGroupButton: document.querySelector("#rename-feed-group-button"),
   renameFeedGroupCancelButton: document.querySelector("#rename-feed-group-cancel-button"),
   renameFeedGroupDialog: document.querySelector("#rename-feed-group-dialog"),
@@ -177,8 +184,11 @@ let toastTimer = null;
 let feedGroupEditedManually = false;
 let articleRequestToken = 0;
 let isListMenuOpen = false;
+let isReaderActionsMenuOpen = false;
 let isApplyingRoute = false;
+let panelReturnFocusElement = null;
 const pendingBookSyncTimers = new Map();
+const attemptedArticleRepairs = new Set();
 
 const applyStaticIcons = () => {
   setTrustedHtml(elements.navToday, todayIconHtml);
@@ -191,7 +201,9 @@ const applyStaticIcons = () => {
   setTrustedHtml(elements.bookEditButton, editIconHtml);
   setTrustedHtml(elements.addManualArticleButton, addIconHtml);
   setTrustedHtml(elements.listBackButton, previousIconHtml.replace('width="20"', 'width="18"').replace('height="20"', 'height="18"'));
+  setTrustedHtml(elements.listCloseButton, previousIconHtml.replace('width="20"', 'width="18"').replace('height="20"', 'height="18"'));
   setTrustedHtml(elements.listMenuButton, menuIconHtml);
+  setTrustedHtml(elements.readerActionsMenuButton, menuIconHtml);
   setTrustedHtml(elements.previousArticleButton, previousIconHtml);
   setTrustedHtml(elements.nextArticleButton, nextIconHtml);
   setTrustedHtml(elements.saveArticleButton, savedIconHtml.replace('width="18"', 'width="20"').replace('height="18"', 'height="20"'));
@@ -214,6 +226,30 @@ const isYouTubeArticle = (article) =>
 const isLibraryLikeScope = () => state.scope === "manual" || state.scope === "youtube";
 const isBooksMode = () => state.scope === "books";
 const isNarrowViewport = () => window.matchMedia("(max-width: 640px)").matches;
+const prefersReducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const motionScrollBehavior = () => prefersReducedMotion() ? "auto" : "smooth";
+
+const runViewTransition = (update) => {
+  if (prefersReducedMotion() || typeof document.startViewTransition !== "function") {
+    update();
+    return null;
+  }
+
+  return document.startViewTransition(update);
+};
+
+const readableHtmlLength = (html) => {
+  if (!html) {
+    return 0;
+  }
+
+  const template = document.createElement("template");
+  template.innerHTML = sanitizeHtml(html);
+  return (template.content.textContent || "").replace(/\s+/gu, " ").trim().length;
+};
+
+const hasUsableArticleBody = (article) =>
+  readableHtmlLength(article?.bodyHtml || "") >= MIN_USABLE_ARTICLE_BODY_CHARS;
 
 const BOOK_COVER_THEMES = [
   { accent: "linear-gradient(160deg, #C96B3B 0%, #7B341E 100%)", coverTone: "Warm Copper" },
@@ -1047,10 +1083,12 @@ const openListMenu = () => {
   }
 };
 
-const closeListMenu = () => {
+const closeListMenu = ({ restoreFocus = true } = {}) => {
   isListMenuOpen = false;
   syncListMenuState();
-  elements.listMenuButton.focus();
+  if (restoreFocus) {
+    elements.listMenuButton.focus();
+  }
 };
 
 const toggleListMenu = () => {
@@ -1058,15 +1096,51 @@ const toggleListMenu = () => {
   syncListMenuState();
 };
 
-const openPanel = () => {
-  state.overlayOpen = true;
-  elements.articleListPanel.classList.add("is-open");
+const syncReaderActionsMenuState = () => {
+  elements.readerActionsMenu.hidden = !isReaderActionsMenuOpen;
+  elements.readerActionsMenuButton.setAttribute(
+    "aria-expanded",
+    isReaderActionsMenuOpen ? "true" : "false"
+  );
 };
 
-const closePanel = () => {
+const openReaderActionsMenu = () => {
+  isReaderActionsMenuOpen = true;
+  syncReaderActionsMenuState();
+  elements.readerActionsMenu.querySelector("[role='menuitem']:not(:disabled)")?.focus();
+};
+
+const closeReaderActionsMenu = ({ restoreFocus = true } = {}) => {
+  isReaderActionsMenuOpen = false;
+  syncReaderActionsMenuState();
+  if (restoreFocus) {
+    elements.readerActionsMenuButton.focus();
+  }
+};
+
+const syncPanelState = () => {
+  elements.articleListPanel.classList.toggle("is-open", state.overlayOpen);
+  elements.articleListPanel.inert = !state.overlayOpen;
+  elements.articleListPanel.setAttribute("aria-hidden", state.overlayOpen ? "false" : "true");
+  elements.appLayout.classList.toggle("is-list-open", state.overlayOpen);
+  elements.panelScrim.tabIndex = state.overlayOpen && isNarrowViewport() ? 0 : -1;
+};
+
+const openPanel = () => {
+  if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body) {
+    panelReturnFocusElement = document.activeElement;
+  }
+  state.overlayOpen = true;
+  syncPanelState();
+};
+
+const closePanel = ({ restoreFocus = true } = {}) => {
   state.overlayOpen = false;
-  elements.articleListPanel.classList.remove("is-open");
-  closeListMenu();
+  closeListMenu({ restoreFocus: false });
+  syncPanelState();
+  if (restoreFocus && panelReturnFocusElement?.isConnected) {
+    panelReturnFocusElement.focus();
+  }
 };
 
 const articleIndex = () =>
@@ -1485,7 +1559,7 @@ const seekYouTubeHeroPlayer = (seconds) => {
 
   const startSeconds = Math.max(0, Math.floor(seconds));
   iframe.src = `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=1&rel=0&start=${startSeconds}`;
-  iframe.scrollIntoView({ behavior: "smooth", block: "center" });
+  iframe.scrollIntoView({ behavior: motionScrollBehavior(), block: "center" });
 };
 
 const buildRequestArgs = ({
@@ -2036,6 +2110,16 @@ const renderArticle = () => {
   elements.shareArticleButton.disabled = !article || !hasExternalUrl;
   elements.toggleHighlightsButton.disabled = !article;
   elements.openArticleButton.disabled = !article || !hasExternalUrl;
+  elements.readerActionsMenuButton.disabled = !article;
+  elements.readerActionsMenu
+    .querySelector("[data-reader-action='highlights']")
+    ?.toggleAttribute("disabled", !article);
+  elements.readerActionsMenu
+    .querySelector("[data-reader-action='delete']")
+    ?.toggleAttribute("disabled", !article);
+  elements.readerActionsMenu
+    .querySelector("[data-reader-action='original']")
+    ?.toggleAttribute("disabled", !article || !hasExternalUrl);
 
   elements.saveArticleButton.classList.toggle("is-active", Boolean(article?.isSaved));
   elements.toggleHighlightsButton.classList.toggle("is-active", Boolean(state.isHighlightsPanelOpen));
@@ -2046,13 +2130,21 @@ const renderArticle = () => {
   }
 
   if (state.isLoadingArticle && state.selectedArticleId) {
-    setTrustedHtml(elements.articleView, `
-      <div class="article-loading-state">
-        Loading article…
-      </div>
-    `);
+    elements.articleView.classList.add("is-loading-article");
+    elements.articleView.setAttribute("aria-busy", "true");
+    if (!elements.articleView.querySelector(".article-layout")) {
+      setTrustedHtml(elements.articleView, `
+        <div class="article-loading-state">
+          <span class="loading-pulse" aria-hidden="true"></span>
+          Loading article…
+        </div>
+      `);
+    }
     return;
   }
+
+  elements.articleView.classList.remove("is-loading-article");
+  elements.articleView.setAttribute("aria-busy", "false");
 
   if (!article) {
     setTrustedHtml(elements.articleView, `
@@ -2069,6 +2161,30 @@ const renderArticle = () => {
     article.title,
     article.url || article.canonicalUrl || ""
   );
+  const articleBodyMarkup = hasUsableArticleBody(article)
+    ? sanitizeHtml(articleHero.bodyHtml)
+    : `
+      <div class="article-recovery" role="status">
+        <div class="article-recovery-title">
+          ${state.isRepairingArticle ? "Recovering the full article…" : "The full article did not arrive with this feed item."}
+        </div>
+        <p>
+          ${state.articleRepairError
+            ? `Reader couldn’t recover it yet: ${escapeHtml(state.articleRepairError)}`
+            : "Reader can fetch the source again and replace this summary-only copy."}
+        </p>
+        <button class="btn-secondary article-retry-button" data-retry-article-body="true" type="button" ${state.isRepairingArticle ? "disabled" : ""}>
+          ${state.isRepairingArticle ? "Recovering…" : "Retry extraction"}
+        </button>
+      </div>
+    `;
+  const metaParts = [
+    article.author
+      ? `<span>By <span class="article-author">${escapeHtml(article.author)}</span></span>`
+      : "",
+    `<span>${escapeHtml(formatArticleDate(article.publishedAt))}</span>`,
+    `<span>${escapeHtml(`${article.readTimeMinutes} min read`)}</span>`
+  ].filter(Boolean);
 
   setTrustedHtml(elements.articleView, `
     <div class="article-layout">
@@ -2082,14 +2198,10 @@ const renderArticle = () => {
           <h1 class="article-h1">${escapeHtml(article.title)}</h1>
           ${article.subtitle ? `<div class="article-subtitle">${escapeHtml(article.subtitle)}</div>` : ""}
           <div class="article-meta-row">
-            <span>By <span class="article-author">${escapeHtml(article.author || "Unknown author")}</span></span>
-            <span>•</span>
-            <span>${escapeHtml(formatArticleDate(article.publishedAt))}</span>
-            <span>•</span>
-            <span>${escapeHtml(`${article.readTimeMinutes} min read`)}</span>
+            ${metaParts.join('<span class="article-meta-separator" aria-hidden="true">•</span>')}
           </div>
         </header>
-        <div class="article-body">${sanitizeHtml(articleHero.bodyHtml) || "<p>No article body available yet.</p>"}</div>
+        <div class="article-body">${articleBodyMarkup}</div>
       </div>
     </div>
   `);
@@ -2120,12 +2232,57 @@ const render = () => {
   renderArticleList();
   renderArticle();
   syncListMenuState();
+  syncReaderActionsMenuState();
+};
+
+const renderArticleTransition = () => {
+  const transition = runViewTransition(() => render());
+  transition?.finished?.catch(() => {});
+};
+
+const repairArticleBody = async (articleId) => {
+  state.articleRepairError = "";
+  state.isRepairingArticle = true;
+  render();
+
+  try {
+    await convexRequest("action", "articles:reextractExistingArticles", {
+      articleIds: [articleId]
+    });
+    const repaired = await convexRequest("query", "reader:getArticle", { articleId });
+
+    if (state.selectedArticleId !== articleId) {
+      return null;
+    }
+
+    state.selectedArticle = repaired;
+    if (!hasUsableArticleBody(repaired)) {
+      throw new Error("the source still returned only a summary");
+    }
+
+    return repaired;
+  } catch (error) {
+    if (state.selectedArticleId === articleId) {
+      state.articleRepairError = error instanceof Error ? error.message : String(error);
+    }
+    return null;
+  } finally {
+    if (state.selectedArticleId === articleId) {
+      state.isRepairingArticle = false;
+      renderArticleTransition();
+    }
+  }
 };
 
 const loadArticle = async (articleId, options = {}) => {
-  const { preserveScrollTop = null } = options;
+  const {
+    focusArticle = false,
+    preserveScrollTop = null
+  } = options;
   const requestToken = ++articleRequestToken;
   state.isLoadingArticle = true;
+  state.articleRepairError = "";
+  state.isRepairingArticle = false;
   state.selectedArticle = null;
   render();
 
@@ -2136,14 +2293,34 @@ const loadArticle = async (articleId, options = {}) => {
     }
 
     state.selectedArticle = article;
+    state.isLoadingArticle = false;
+    renderArticleTransition();
+
+    if (!hasUsableArticleBody(article) && !attemptedArticleRepairs.has(articleId)) {
+      attemptedArticleRepairs.add(articleId);
+      await repairArticleBody(articleId);
+    }
   } finally {
     if (requestToken === articleRequestToken && state.selectedArticleId === articleId) {
+      const needsFinalRender = state.isLoadingArticle;
       state.isLoadingArticle = false;
-      render();
+      if (needsFinalRender) {
+        renderArticleTransition();
+      }
 
       if (preserveScrollTop != null) {
         window.requestAnimationFrame(() => {
           elements.paneContentScroll.scrollTop = preserveScrollTop;
+        });
+      } else {
+        elements.paneContentScroll.scrollTop = 0;
+      }
+
+      if (focusArticle) {
+        window.requestAnimationFrame(() => {
+          const heading = elements.articleView.querySelector(".article-h1");
+          heading?.setAttribute("tabindex", "-1");
+          heading?.focus({ preventScroll: true });
         });
       }
     }
@@ -2296,6 +2473,7 @@ const loadMoreArticles = async () => {
 const selectArticle = async (articleId, options = {}) => {
   const {
     explicit = true,
+    focusArticle = false,
     updateRoute = true
   } = options;
 
@@ -2321,7 +2499,12 @@ const selectArticle = async (articleId, options = {}) => {
     syncRoute({ replace: false });
   }
 
-  await loadArticle(articleId);
+  if (isNarrowViewport()) {
+    closePanel({ restoreFocus: false });
+    state.isHighlightsPanelOpen = false;
+  }
+
+  await loadArticle(articleId, { focusArticle });
 };
 
 const toggleSave = async () => {
@@ -2974,7 +3157,11 @@ elements.articleList.addEventListener("click", async (event) => {
 
   const item = event.target.closest("[data-article-id]");
   if (item) {
-    await selectArticle(item.dataset.articleId, { explicit: true, updateRoute: true });
+    await selectArticle(item.dataset.articleId, {
+      explicit: true,
+      focusArticle: true,
+      updateRoute: true
+    });
     return;
   }
 
@@ -2995,6 +3182,14 @@ elements.articleList.addEventListener("click", async (event) => {
 });
 
 elements.articleView.addEventListener("click", async (event) => {
+  const retryArticleBody = event.target.closest("[data-retry-article-body='true']");
+  if (retryArticleBody && state.selectedArticleId && !state.isRepairingArticle) {
+    event.preventDefault();
+    attemptedArticleRepairs.add(state.selectedArticleId);
+    await repairArticleBody(state.selectedArticleId);
+    return;
+  }
+
   const titleEditInput = event.target.closest("[data-book-section-title-edit-input]");
   if (titleEditInput) {
     event.stopPropagation();
@@ -3045,7 +3240,7 @@ elements.articleView.addEventListener("click", async (event) => {
     }
     const jump = elements.inspectorPanelBody?.querySelector?.(`[data-highlight-jump-id="${CSS.escape(highlightMark.dataset.highlightId)}"]`);
     if (jump) {
-      jump.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      jump.scrollIntoView({ behavior: motionScrollBehavior(), block: "nearest" });
       jump.focus({ preventScroll: true });
     }
     return;
@@ -3062,7 +3257,7 @@ elements.articleView.addEventListener("click", async (event) => {
     const highlightId = highlightJump.dataset.highlightJumpId;
     const mark = elements.articleView.querySelector(`[data-highlight-id="${CSS.escape(highlightId)}"]`);
     if (mark) {
-      mark.scrollIntoView({ behavior: "smooth", block: "center" });
+      mark.scrollIntoView({ behavior: motionScrollBehavior(), block: "center" });
       mark.focus({ preventScroll: true });
     }
     return;
@@ -3087,7 +3282,7 @@ elements.articleView.addEventListener("click", async (event) => {
 
   const item = event.target.closest("[data-digest-article-id]");
   if (item) {
-    await selectArticle(item.dataset.digestArticleId);
+    await selectArticle(item.dataset.digestArticleId, { focusArticle: true });
     return;
   }
 
@@ -3208,7 +3403,7 @@ elements.inspectorPanelBody.addEventListener("click", async (event) => {
     const highlightId = highlightJump.dataset.highlightJumpId;
     const mark = elements.articleView.querySelector(`[data-highlight-id="${CSS.escape(highlightId)}"]`);
     if (mark) {
-      mark.scrollIntoView({ behavior: "smooth", block: "center" });
+      mark.scrollIntoView({ behavior: motionScrollBehavior(), block: "center" });
       mark.focus({ preventScroll: true });
     }
     return;
@@ -3240,6 +3435,39 @@ elements.listMenuButton.addEventListener("click", (event) => {
   toggleListMenu();
 });
 
+elements.listCloseButton.addEventListener("click", () => {
+  closePanel();
+});
+
+elements.panelScrim.addEventListener("click", () => {
+  closePanel();
+});
+
+elements.readerActionsMenuButton.addEventListener("click", (event) => {
+  event.stopPropagation();
+  if (isReaderActionsMenuOpen) {
+    closeReaderActionsMenu();
+  } else {
+    openReaderActionsMenu();
+  }
+});
+
+elements.readerActionsMenu.addEventListener("click", (event) => {
+  const action = event.target.closest("[data-reader-action]")?.dataset.readerAction;
+  if (!action) {
+    return;
+  }
+
+  closeReaderActionsMenu({ restoreFocus: false });
+  if (action === "highlights") {
+    elements.toggleHighlightsButton.click();
+  } else if (action === "original") {
+    elements.openArticleButton.click();
+  } else if (action === "delete") {
+    elements.deleteArticleButton.click();
+  }
+});
+
 elements.listMenu.addEventListener("keydown", (event) => {
   const items = Array.from(elements.listMenu.querySelectorAll(".list-menu-item:not([hidden]):not(:disabled)"));
   const currentIndex = items.indexOf(document.activeElement);
@@ -3255,6 +3483,22 @@ elements.listMenu.addEventListener("keydown", (event) => {
   } else if (event.key === "Escape") {
     event.preventDefault();
     closeListMenu();
+  }
+});
+
+elements.readerActionsMenu.addEventListener("keydown", (event) => {
+  const items = Array.from(elements.readerActionsMenu.querySelectorAll("[role='menuitem']:not(:disabled)"));
+  const currentIndex = items.indexOf(document.activeElement);
+
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    items[(currentIndex + 1) % items.length]?.focus();
+  } else if (event.key === "ArrowUp") {
+    event.preventDefault();
+    items[(currentIndex - 1 + items.length) % items.length]?.focus();
+  } else if (event.key === "Escape") {
+    event.preventDefault();
+    closeReaderActionsMenu();
   }
 });
 
@@ -3435,18 +3679,28 @@ elements.removeFeedGroupForm.addEventListener("submit", async (event) => {
 });
 
 document.addEventListener("click", (event) => {
-  if (!isListMenuOpen) {
-    return;
+  if (
+    isReaderActionsMenuOpen &&
+    !elements.readerActionsMenu.contains(event.target) &&
+    !elements.readerActionsMenuButton.contains(event.target)
+  ) {
+    closeReaderActionsMenu({ restoreFocus: false });
   }
 
-  if (elements.listActions && elements.listActions.contains(event.target)) {
-    return;
+  if (
+    isListMenuOpen &&
+    (!elements.listActions || !elements.listActions.contains(event.target))
+  ) {
+    closeListMenu({ restoreFocus: false });
   }
-
-  closeListMenu();
 });
 
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && isReaderActionsMenuOpen) {
+    closeReaderActionsMenu();
+    return;
+  }
+
   if (event.key === "Escape" && isListMenuOpen) {
     closeListMenu();
     return;

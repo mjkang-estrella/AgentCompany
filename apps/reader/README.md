@@ -14,11 +14,13 @@ Reader also has a separate `Library` section in the sidebar. It accepts a single
 
 Individual articles can be deleted from the top-right actions in the reading pane. Deletions are soft for feed-backed items so they stay gone on later syncs.
 
-During sync and manual article import, the reader uses Defuddle with a Node DOM shim to extract readable article bodies from fetched pages. A server-side body normalizer removes duplicated lead metadata, utility links, and promo/footer chrome before the article is stored. If an RSS item exposes a richer custom markdown source URL, the sync job still prefers that over page extraction. Scheduled sync runs once an hour and only rewrites feed items when their content hash changes.
+During sync and manual article import, the reader uses Defuddle with a Node DOM shim to extract readable article bodies from fetched pages. A server-side body normalizer removes duplicated lead metadata, utility links, and promo/footer chrome before the article is stored. If an RSS item exposes a richer custom markdown source URL, the sync job still prefers that over page extraction. Scheduled sync runs once an hour and only rewrites feed items when their content hash changes. Weak recent bodies are treated as repair candidates, and opening any summary-only article performs one bounded re-extraction attempt while retaining a manual retry action.
 
 Manual article import can optionally fall back to a rendered Browser Use session when a site blocks direct fetching, returns a transient server error, or serves an unusable server-rendered shell. The fallback starts from the site's relevant listing page so client-side-only article routes can render, returns structured Markdown, and passes the result through Reader's normal sanitization and normalization pipeline. Browser Use is never used for successful direct extractions.
 
 When a feed exposes article imagery, the sync job stores `thumbnail_url` on the article and the reader uses it as a hero image at the top of the opened document when appropriate.
+
+On narrow screens, article lists use a dismissible drawer, article actions collapse into a compact overflow menu, and selecting or deep-linking to an article moves directly into the reading surface. Motion uses compositor-friendly drawer and article transitions and respects `prefers-reduced-motion`.
 
 Reader can also ingest email newsletters through AgentMail. Newsletters sent to the configured inbox are polled into the app once an hour, grouped under sender-based feed groups, and stored as normal Reader articles so they show up in `Today`, `All Articles`, and the digest pipeline.
 
