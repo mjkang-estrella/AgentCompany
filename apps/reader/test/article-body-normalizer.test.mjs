@@ -119,6 +119,55 @@ test("normalizeArticleContent preserves normal article hero and body", () => {
   assert.match(normalized.bodyHtml, /second paragraph/i);
 });
 
+test("normalizeArticleContent formats X long-form articles for reading", () => {
+  const html = `
+    <a href="/writer"><img src="https://pbs.twimg.com/profile_images/123/avatar_normal.jpg" alt="@writer"></a>
+    <p>This introduction explains why the article matters before the numbered sections begin.</p>
+    <p>I. Learn by Doing</p>
+    <p>Action exposes the next useful problem.</p>
+    <p>II. Shorten the Feedback Loop</p>
+    <p>Fast feedback corrects mistakes before they become habits.</p>
+    <p>III. Struggle Before You Search</p>
+    <p>Trying first gives you a hypothesis to compare with the answer.</p>
+    <a href="/writer/status/123">2:49 PM · Aug 30, 2026</a>
+    <a href="/writer/status/123">1.5M Views</a>
+    <a href="/i/status/123">99</a>
+  `;
+
+  const normalized = normalizeArticleContent({
+    author: "X (formerly Twitter)",
+    bodyHtml: html,
+    feedTitle: "X",
+    summaryHtml: "<p>The Principles of Learning Faster.</p>",
+    title: "https://t.co/example"
+  });
+
+  assert.doesNotMatch(normalized.bodyHtml, /profile_images/i);
+  assert.match(normalized.bodyHtml, /<h2>I\. Learn by Doing<\/h2>/i);
+  assert.match(normalized.bodyHtml, /<h2>II\. Shorten the Feedback Loop<\/h2>/i);
+  assert.match(normalized.bodyHtml, /<h2>III\. Struggle Before You Search<\/h2>/i);
+  assert.doesNotMatch(normalized.bodyHtml, /1\.5M Views/i);
+  assert.doesNotMatch(normalized.bodyHtml, />99<\/a>/i);
+  assert.match(normalized.bodyHtml, /Action exposes the next useful problem/i);
+});
+
+test("normalizeArticleContent leaves roman-numbered prose alone outside X", () => {
+  const html = `
+    <p>I. First note</p>
+    <p>II. Second note</p>
+    <p>III. Third note</p>
+  `;
+
+  const normalized = normalizeArticleContent({
+    bodyHtml: html,
+    feedTitle: "Example",
+    title: "Notes"
+  });
+
+  assert.doesNotMatch(normalized.bodyHtml, /<h2>/i);
+  assert.match(normalized.bodyHtml, /<p>I\. First note<\/p>/i);
+});
+
 test("normalizeArticleContent extracts a lead h3 as subtitle and removes it from body", () => {
   const html = `
     <h3>A practical guide to what changed and why it matters.</h3>

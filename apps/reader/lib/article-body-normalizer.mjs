@@ -687,6 +687,89 @@ const isFooterChromeBlock = (node, context) => {
   return false;
 };
 
+const ROMAN_SECTION_HEADING_PATTERN = /^(I|II|III|IV|V|VI|VII|VIII|IX|X)\.\s+(.+)$/u;
+
+const isXArticleContext = (context) => {
+  const feedTitle = normalizeText(context.feedTitle);
+  const author = normalizeText(context.author);
+  return feedTitle === "x" || author === "x" || author.includes("formerly twitter");
+};
+
+const isXProfileAvatar = (node) => {
+  if (node?.tagName?.toLowerCase() !== "a" || normalizeText(node.textContent)) {
+    return false;
+  }
+
+  const images = node.querySelectorAll?.("img") || [];
+  if (images.length !== 1) {
+    return false;
+  }
+
+  const image = images[0];
+  const src = String(image.getAttribute("src") || "");
+  const alt = String(image.getAttribute("alt") || "").trim();
+  return /pbs\.twimg\.com\/profile_images\//iu.test(src) || /^@\w+/u.test(alt);
+};
+
+const isXEngagementLink = (node) => {
+  if (node?.tagName?.toLowerCase() !== "a") {
+    return false;
+  }
+
+  const href = String(node.getAttribute("href") || "");
+  const text = String(node.textContent || "").replace(/\s+/gu, " ").trim();
+  const pointsToStatus = /\/(?:i\/)?status\/\d+/iu.test(href);
+  const looksLikeEngagement = (
+    /\bviews?\b/iu.test(text) ||
+    /\b(?:am|pm)\s*[·•]\s*[a-z]{3}\s+\d{1,2}/iu.test(text) ||
+    /^\d+(?:\.\d+)?[kmb]?$/iu.test(text)
+  );
+  return pointsToStatus && looksLikeEngagement;
+};
+
+const normalizeXArticleStructure = (root, context) => {
+  if (!isXArticleContext(context)) {
+    return {
+      promotedHeadingCount: 0,
+      removedBottomCount: 0,
+      removedLeadCount: 0
+    };
+  }
+
+  let removedLeadCount = 0;
+  let removedBottomCount = 0;
+  const firstContentNode = Array.from(root.children).find((node) => normalizeText(node.textContent) || isMediaBlock(node));
+  if (isXProfileAvatar(firstContentNode)) {
+    firstContentNode.remove();
+    removedLeadCount += 1;
+  }
+
+  const sectionParagraphs = Array.from(root.children).filter((node) => (
+    node.tagName?.toLowerCase() === "p" &&
+    ROMAN_SECTION_HEADING_PATTERN.test(String(node.textContent || "").replace(/\s+/gu, " ").trim())
+  ));
+  let promotedHeadingCount = 0;
+  if (sectionParagraphs.length >= 3) {
+    for (const paragraph of sectionParagraphs) {
+      const heading = paragraph.ownerDocument.createElement("h2");
+      heading.textContent = String(paragraph.textContent || "").replace(/\s+/gu, " ").trim();
+      paragraph.replaceWith(heading);
+      promotedHeadingCount += 1;
+    }
+  }
+
+  while (root.lastElementChild && isXEngagementLink(root.lastElementChild)) {
+    root.lastElementChild.remove();
+    removedBottomCount += 1;
+  }
+
+  return {
+    promotedHeadingCount,
+    removedBottomCount,
+    removedLeadCount
+  };
+};
+
 const normalizeBodyHtml = (bodyHtml, context = {}) => {
   const sanitizedBody = sanitizeFragment(bodyHtml || "");
   if (!sanitizedBody) {
@@ -714,6 +797,10 @@ const normalizeBodyHtml = (bodyHtml, context = {}) => {
   let preservedLeadSummaryHtml = "";
   let seenLeadMedia = false;
   let subtitle = "";
+
+  const normalizedXArticle = normalizeXArticleStructure(root, context);
+  removedLeadCount += normalizedXArticle.removedLeadCount;
+  removedBottomCount += normalizedXArticle.removedBottomCount;
 
   removeLeadingUtilityTextNodes(root);
 

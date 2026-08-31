@@ -12,6 +12,8 @@ Feeds can be removed from the article-list overflow menu while a feed is selecte
 
 Reader also has a separate `Library` section in the sidebar. It accepts a single pasted article or YouTube URL, dedupes by canonical URL, and adds the result into `All Articles`, `Today`, and `Saved` without creating an RSS subscription. Standard pages use the readable-body extractor directly. YouTube URLs are converted into transcript-backed articles when captions are available, and otherwise fall back to the video description.
 
+For long-form X posts, Reader replaces redirect-shaped display titles with the saved article summary. It also promotes numbered sections to headings and removes profile and engagement chrome from the stored reading copy.
+
 Individual articles can be deleted from the top-right actions in the reading pane. Deletions are soft for feed-backed items so they stay gone on later syncs.
 
 During sync and manual article import, the reader uses Defuddle with a Node DOM shim to extract readable article bodies from fetched pages. A server-side body normalizer removes duplicated lead metadata, utility links, and promo/footer chrome before the article is stored. If an RSS item exposes a richer custom markdown source URL, the sync job still prefers that over page extraction. Scheduled sync runs once an hour and only rewrites feed items when their content hash changes. Weak recent bodies are treated as repair candidates, and opening any summary-only article performs one bounded re-extraction attempt while retaining a manual retry action.

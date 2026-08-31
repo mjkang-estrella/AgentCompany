@@ -1151,6 +1151,34 @@ const feedIconMarkup = (iconUrl) =>
     ? `<img class="feed-icon-small" src="${escapeHtml(iconUrl)}" alt="" referrerpolicy="no-referrer">`
     : fallbackFeedIconHtml;
 
+const isUrlShapedArticleTitle = (value) => {
+  const title = String(value || "").trim();
+  if (!title) {
+    return false;
+  }
+
+  try {
+    const url = new URL(title);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return /^www\./iu.test(title);
+  }
+};
+
+const articleDisplayTitle = (article) => {
+  const storedTitle = String(article?.title || "").trim();
+  if (!isUrlShapedArticleTitle(storedTitle)) {
+    return storedTitle || "Untitled article";
+  }
+
+  const previewTitle = String(article?.previewText || "").replace(/\s+/gu, " ").trim();
+  if (previewTitle.length < 8 || previewTitle.length > 100 || isUrlShapedArticleTitle(previewTitle)) {
+    return storedTitle;
+  }
+
+  return previewTitle.replace(/[.!?]+$/u, "");
+};
+
 const titleCaseWord = (word) =>
   word ? word.charAt(0).toUpperCase() + word.slice(1) : "";
 
@@ -1988,7 +2016,7 @@ const renderArticleList = () => {
     ${isTodaySidebarMode() ? renderTodaySidebar() : ""}
     ${state.articles
       .map((article) => `
-        <button class="article-item ${article.id === state.selectedArticleId ? "active" : ""} ${article.isRead ? "" : "is-unread"}" data-article-id="${article.id}" type="button" aria-label="${escapeHtml(article.title)}">
+        <button class="article-item ${article.id === state.selectedArticleId ? "active" : ""} ${article.isRead ? "" : "is-unread"}" data-article-id="${article.id}" type="button" aria-label="${escapeHtml(articleDisplayTitle(article))}">
           <div class="item-meta">
             <div class="item-source">
               ${article.isRead ? "" : '<span class="unread-dot"></span>'}
@@ -1996,7 +2024,7 @@ const renderArticleList = () => {
             </div>
             <span class="item-time">${escapeHtml(formatListTime(article.publishedAt))}</span>
           </div>
-          <div class="item-title">${escapeHtml(article.title)}</div>
+          <div class="item-title">${escapeHtml(articleDisplayTitle(article))}</div>
           <div class="item-preview">${escapeHtml(article.previewText || "No preview available.")}</div>
         </button>
       `)
@@ -2071,7 +2099,7 @@ const renderDigestView = () => {
             ${section.articles.map((article) => `
               <button class="digest-article-button" data-digest-article-id="${article.id}" type="button">
                 <div class="digest-article-meta">${escapeHtml(formatListTime(article.publishedAt))}${article.author ? ` • ${escapeHtml(article.author)}` : ""}</div>
-                <div class="digest-article-title">${escapeHtml(article.title)}</div>
+                <div class="digest-article-title">${escapeHtml(articleDisplayTitle(article))}</div>
                 ${article.subtitle ? `<div class="digest-article-subtitle">${escapeHtml(article.subtitle)}</div>` : ""}
                 ${article.previewText ? `<div class="digest-article-preview">${escapeHtml(article.previewText)}</div>` : ""}
               </button>
@@ -2158,7 +2186,7 @@ const renderArticle = () => {
   const articleHero = buildArticleHero(
     article.bodyHtml,
     article.thumbnailUrl,
-    article.title,
+    articleDisplayTitle(article),
     article.url || article.canonicalUrl || ""
   );
   const articleBodyMarkup = hasUsableArticleBody(article)
@@ -2195,7 +2223,7 @@ const renderArticle = () => {
             ${feedIconMarkup(article.feedIconUrl)}
             ${escapeHtml(article.feedTitle)}
           </div>
-          <h1 class="article-h1">${escapeHtml(article.title)}</h1>
+          <h1 class="article-h1">${escapeHtml(articleDisplayTitle(article))}</h1>
           ${article.subtitle ? `<div class="article-subtitle">${escapeHtml(article.subtitle)}</div>` : ""}
           <div class="article-meta-row">
             ${metaParts.join('<span class="article-meta-separator" aria-hidden="true">•</span>')}
@@ -2537,7 +2565,7 @@ const deleteSelectedArticle = async () => {
     return;
   }
 
-  const articleTitle = state.selectedArticle.title;
+  const articleTitle = articleDisplayTitle(state.selectedArticle);
   const confirmed = window.confirm(`Delete "${articleTitle}" from Reader?`);
   if (!confirmed) {
     return;
@@ -2957,7 +2985,7 @@ const shareArticle = async () => {
 
   if (navigator.share) {
     await navigator.share({
-      title: state.selectedArticle.title,
+      title: articleDisplayTitle(state.selectedArticle),
       url: state.selectedArticle.url
     });
     return;
