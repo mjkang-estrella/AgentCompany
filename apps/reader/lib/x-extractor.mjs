@@ -15,6 +15,8 @@ const X_HOSTNAMES = new Set([
   "mobile.twitter.com",
   "m.twitter.com"
 ]);
+const TCO_HOSTNAMES = new Set(["t.co", "www.t.co"]);
+const LONG_FORM_MIN_READABLE_CHARS = 600;
 
 const OEMBED_URL = "https://publish.twitter.com/oembed";
 
@@ -34,6 +36,88 @@ export const isXStatusUrl = (value) => {
   } catch {
     return false;
   }
+};
+
+export const isPotentialXContentUrl = (value) => {
+  if (isXStatusUrl(value)) {
+    return true;
+  }
+
+  try {
+    return TCO_HOSTNAMES.has(new URL(String(value)).hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+};
+
+const isUrlShapedTitle = (value) => {
+  const title = String(value || "").trim();
+  if (!title) {
+    return false;
+  }
+
+  try {
+    const url = new URL(title);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return /^www\./iu.test(title);
+  }
+};
+
+const titleCandidateFromSummary = (summaryHtml, bodyHtml) => {
+  const summary = stripHtml(summaryHtml).replace(/\s+/gu, " ").trim();
+  const body = stripHtml(bodyHtml).replace(/\s+/gu, " ").trim();
+  const wordCount = summary.split(/\s+/u).filter(Boolean).length;
+
+  if (
+    summary.length < 8 ||
+    summary.length > 120 ||
+    wordCount > 18 ||
+    isUrlShapedTitle(summary) ||
+    body.toLowerCase().startsWith(summary.toLowerCase())
+  ) {
+    return "";
+  }
+
+  return summary.replace(/[.!?]+$/u, "");
+};
+
+export const recoverXArticleTitle = ({
+  bodyHtml = "",
+  summaryHtml = "",
+  title = ""
+} = {}) => {
+  const currentTitle = String(title || "").replace(/\s+/gu, " ").trim();
+  if (currentTitle && !isUrlShapedTitle(currentTitle) && !/^x(?:\.com)?$/iu.test(currentTitle)) {
+    return currentTitle;
+  }
+
+  return titleCandidateFromSummary(summaryHtml, bodyHtml) || currentTitle || "X post";
+};
+
+export const recoverXArticleAuthor = ({ author = "", canonicalUrl = "" } = {}) => {
+  const currentAuthor = String(author || "").replace(/\s+/gu, " ").trim();
+  if (currentAuthor && !/^x(?: \(formerly twitter\))?$/iu.test(currentAuthor)) {
+    return currentAuthor;
+  }
+
+  try {
+    const url = new URL(String(canonicalUrl || ""));
+    const [handle] = url.pathname.split("/").filter(Boolean);
+    if (handle && !["i", "web", "status"].includes(handle.toLowerCase())) {
+      return `@${handle}`;
+    }
+  } catch {
+    // Keep the source attribution when the canonical URL is unavailable.
+  }
+
+  return currentAuthor || "X";
+};
+
+export const isLikelyLongFormXArticle = ({ bodyHtml = "", readTimeMinutes = 0 } = {}) => {
+  const readableLength = stripHtml(bodyHtml).length;
+  const headingCount = (String(bodyHtml).match(/<h[1-4]\b/giu) || []).length;
+  return readableLength >= LONG_FORM_MIN_READABLE_CHARS && (headingCount > 0 || readTimeMinutes >= 3);
 };
 
 const parsePublishedAt = (value) => {

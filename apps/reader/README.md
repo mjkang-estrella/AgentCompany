@@ -12,7 +12,7 @@ Feeds can be removed from the article-list overflow menu while a feed is selecte
 
 Reader also has a separate `Library` section in the sidebar. It accepts a single pasted article or YouTube URL, dedupes by canonical URL, and adds the result into `All Articles`, `Today`, and `Saved` without creating an RSS subscription. Standard pages use the readable-body extractor directly. YouTube URLs are converted into transcript-backed articles when captions are available, and otherwise fall back to the video description.
 
-For long-form X posts, Reader replaces redirect-shaped display titles with the saved article summary. It also promotes numbered sections to headings and removes profile and engagement chrome from the stored reading copy.
+For X URLs, Reader resolves direct status links and `t.co` redirects through the same import path. It prefers a complete long-form page extraction, recovers redirect-shaped titles and generic X attribution, and applies the X article normalizer before storage. Ordinary short posts fall back to X oEmbed. The normalizer promotes numbered sections to headings and removes profile and engagement chrome from the reading copy.
 
 Individual articles can be deleted from the top-right actions in the reading pane. Deletions are soft for feed-backed items so they stay gone on later syncs.
 

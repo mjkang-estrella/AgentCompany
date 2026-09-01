@@ -11,7 +11,14 @@ import {
 import { extractPageWithDefuddle } from "../lib/page-extractor.mjs";
 import { normalizeArticleContent } from "../lib/article-body-normalizer.mjs";
 import { canonicalizeUrl, stripHtml } from "../lib/html.mjs";
-import { extractXPostFromUrl, isXStatusUrl } from "../lib/x-extractor.mjs";
+import {
+  extractXPostFromUrl,
+  isLikelyLongFormXArticle,
+  isPotentialXContentUrl,
+  isXStatusUrl,
+  recoverXArticleAuthor,
+  recoverXArticleTitle
+} from "../lib/x-extractor.mjs";
 import { extractYouTubeArticleFromHtml, isYouTubeUrl } from "../lib/youtube-extractor.mjs";
 import { applyStatsDeltaInDb, buildArticleQueryFields, statsDeltaForArticle } from "./readerStats";
 import {
@@ -29,6 +36,12 @@ const YOUTUBE_HEADERS = {
   "accept-language": "en-US,en;q=0.9",
   "user-agent": "Mozilla/5.0"
 };
+const manualArticleUpsertResultValidator = v.object({
+  articleId: v.id("articles"),
+  created: v.boolean(),
+  deduped: v.boolean(),
+  restored: v.optional(v.boolean())
+});
 
 class PageFetchError extends Error {
   status: number;
@@ -92,10 +105,24 @@ const normalizePublishedAt = (value: string) => {
 
 const prepareExtractedPageArticle = (pageUrl: string, extracted: any) => {
   const canonicalUrl = extracted.canonicalUrl || canonicalizeUrl(pageUrl);
-  const title = extracted.title || deriveSiteTitle(pageUrl, extracted.siteName);
   const feedTitle = deriveSiteTitle(pageUrl, extracted.siteName);
+  const isXContent = isXStatusUrl(canonicalUrl) || feedTitle.toLowerCase() === "x";
+  const rawTitle = extracted.title || deriveSiteTitle(pageUrl, extracted.siteName);
+  const title = isXContent
+    ? recoverXArticleTitle({
+        bodyHtml: extracted.bodyHtml,
+        summaryHtml: extracted.summaryHtml || extracted.bodyHtml,
+        title: rawTitle
+      })
+    : rawTitle;
+  const author = isXContent
+    ? recoverXArticleAuthor({
+        author: extracted.author || "",
+        canonicalUrl
+      })
+    : (extracted.author || "");
   const normalizedArticle = normalizeArticleContent({
-    author: extracted.author || "",
+    author,
     bodyHtml: extracted.bodyHtml,
     feedTitle,
     publishedAt: extracted.publishedAt,
@@ -109,6 +136,7 @@ const prepareExtractedPageArticle = (pageUrl: string, extracted: any) => {
   const previewText = normalizedArticle.previewText || stripHtml(summaryHtml || bodyHtml).slice(0, 220);
 
   return {
+    author,
     bodyHtml,
     canonicalUrl,
     feedTitle,
@@ -123,6 +151,166 @@ const prepareExtractedPageArticle = (pageUrl: string, extracted: any) => {
     summaryHtml,
     title
   };
+};
+
+const isPreparedLongFormXArticle = (prepared: any) => (
+  prepared.isUsable &&
+  !canonicalizeUrl(prepared.title) &&
+  isLikelyLongFormXArticle({
+    bodyHtml: prepared.bodyHtml,
+    readTimeMinutes: prepared.readTimeMinutes
+  })
+);
+
+const prepareXImportCandidate = (pageUrl: string, extracted: any) => ({
+  extracted,
+  pageUrl,
+  prepared: prepareExtractedPageArticle(pageUrl, extracted)
+});
+
+const extractPotentialXImport = async (requestedUrl: string) => {
+  let page: { text: string; url: string } | null = null;
+  let directFetchError: unknown;
+
+  try {
+    page = await fetchText(requestedUrl);
+  } catch (error) {
+    directFetchError = error;
+  }
+
+  if (page && !isXStatusUrl(requestedUrl) && !isXStatusUrl(page.url)) {
+    return {
+      kind: "page" as const,
+      page
+    };
+  }
+
+  const resolvedUrl = page?.url || requestedUrl;
+  let pageCandidate: any = null;
+  let pageExtractionError: unknown;
+
+  if (page?.text) {
+    try {
+      pageCandidate = prepareXImportCandidate(
+        page.url,
+        await extractPageWithDefuddle(page.text, page.url)
+      );
+      if (isPreparedLongFormXArticle(pageCandidate.prepared)) {
+        return {
+          candidate: pageCandidate,
+          kind: "x" as const
+        };
+      }
+    } catch (error) {
+      pageExtractionError = error;
+    }
+  }
+
+  if ((!pageCandidate || !pageCandidate.prepared.isUsable) && canUseBrowserFallback(directFetchError)) {
+    try {
+      const browserCandidate = prepareXImportCandidate(
+        resolvedUrl,
+        await extractArticleWithBrowserUse(resolvedUrl)
+      );
+      if (browserCandidate.prepared.isUsable) {
+        pageCandidate = browserCandidate;
+        if (isPreparedLongFormXArticle(browserCandidate.prepared)) {
+          return {
+            candidate: browserCandidate,
+            kind: "x" as const
+          };
+        }
+      }
+    } catch (error) {
+      pageExtractionError = pageExtractionError || error;
+    }
+  }
+
+  try {
+    const oEmbedCandidate = prepareXImportCandidate(
+      resolvedUrl,
+      await extractXPostFromUrl(resolvedUrl)
+    );
+    if (oEmbedCandidate.prepared.isUsable) {
+      return {
+        candidate: oEmbedCandidate,
+        kind: "x" as const
+      };
+    }
+  } catch (error) {
+    if (pageCandidate?.prepared.isUsable) {
+      return {
+        candidate: pageCandidate,
+        kind: "x" as const
+      };
+    }
+
+    const reason = [directFetchError, pageExtractionError, error]
+      .find((candidate) => candidate instanceof Error) as Error | undefined;
+    throw new Error(reason?.message || "Could not extract readable content from that X URL");
+  }
+
+  if (pageCandidate?.prepared.isUsable) {
+    return {
+      candidate: pageCandidate,
+      kind: "x" as const
+    };
+  }
+
+  throw new Error("Could not extract readable content from that X URL");
+};
+
+const upsertPreparedManualArticle = async (
+  ctx: any,
+  {
+    extracted,
+    pageUrl,
+    prepared
+  }: {
+    extracted: any;
+    pageUrl: string;
+    prepared: any;
+  }
+) => {
+  const author = prepared.author || extracted.author || "";
+  const publishedAt = normalizePublishedAt(extracted.publishedAt);
+  const thumbnailUrl = extracted.thumbnailUrl || "";
+  const storedUrl = isXStatusUrl(prepared.canonicalUrl)
+    ? prepared.canonicalUrl
+    : pageUrl;
+
+  return ctx.runMutation(internal.articles.upsertManualArticle, {
+    article: {
+      author: author || undefined,
+      bodyHtml: prepared.bodyHtml,
+      bodySource: "fetched",
+      canonicalUrl: prepared.canonicalUrl,
+      contentHash: hashArticleContent({
+        author,
+        bodyHtml: prepared.bodyHtml,
+        canonicalUrl: prepared.canonicalUrl,
+        previewText: prepared.previewText,
+        publishedAt,
+        summaryHtml: prepared.summaryHtml,
+        subtitle: prepared.subtitle,
+        thumbnailUrl,
+        title: prepared.title,
+        url: storedUrl
+      }),
+      externalId: prepared.canonicalUrl,
+      feedIconUrl: undefined,
+      feedSiteUrl: new URL(prepared.canonicalUrl || pageUrl).origin,
+      feedTitle: prepared.feedTitle,
+      previewText: prepared.previewText,
+      publishedAt,
+      readTimeMinutes: prepared.readTimeMinutes,
+      summaryHtml: prepared.summaryHtml,
+      subtitle: prepared.subtitle,
+      thumbnailUrl: thumbnailUrl || undefined,
+      title: prepared.title,
+      url: storedUrl
+    }
+  });
 };
 
 const isRicherArticle = (existing: any, existingBody: any, incoming: any) => {
@@ -357,6 +545,7 @@ export const upsertManualArticle = internalMutation({
       url: v.string()
     })
   },
+  returns: manualArticleUpsertResultValidator,
   handler: async (ctx, args) => {
     const queryFields = buildArticleQueryFields({
       feedTitle: args.article.feedTitle,
@@ -478,6 +667,7 @@ export const addFromUrl = action({
   args: {
     url: v.string()
   },
+  returns: manualArticleUpsertResultValidator,
   handler: async (ctx, args) => {
     const requestedUrl = args.url.trim();
     if (!requestedUrl) {
@@ -488,67 +678,33 @@ export const addFromUrl = action({
       throw new Error("Please enter a valid article URL");
     }
 
-    if (isXStatusUrl(requestedUrl)) {
-      const extracted = await extractXPostFromUrl(requestedUrl);
-      const canonicalUrl = extracted.canonicalUrl || canonicalizeUrl(requestedUrl);
-      const title = extracted.title || `${extracted.author || "X"} on X`;
-      const bodyHtml = extracted.bodyHtml;
-      const summaryHtml = extracted.summaryHtml || bodyHtml;
-      const previewText = extracted.previewText || stripHtml(summaryHtml || bodyHtml).slice(0, 220);
-
-      return ctx.runMutation(internal.articles.upsertManualArticle, {
-        article: {
-          author: extracted.author || undefined,
-          bodyHtml,
-          bodySource: "fetched",
-          canonicalUrl,
-          contentHash: hashArticleContent({
-            author: extracted.author || "",
-            bodyHtml,
-            canonicalUrl,
-            previewText,
-            publishedAt: extracted.publishedAt,
-            summaryHtml,
-            subtitle: "",
-            thumbnailUrl: "",
-            title,
-            url: canonicalUrl
-          }),
-          externalId: canonicalUrl,
-          feedIconUrl: undefined,
-          feedSiteUrl: "https://x.com",
-          feedTitle: extracted.siteName || "X",
-          previewText,
-          publishedAt: extracted.publishedAt,
-          readTimeMinutes: Math.max(extracted.readTimeMinutes || 0, 1),
-          summaryHtml,
-          subtitle: undefined,
-          thumbnailUrl: undefined,
-          title,
-          url: canonicalUrl
-        }
-      });
-    }
-
     const requestedYouTubeUrl = isYouTubeUrl(requestedUrl);
     let page: { text: string; url: string };
     let directFetchError: unknown;
 
-    try {
-      page = await fetchText(
-        requestedUrl,
-        requestedYouTubeUrl ? { headers: YOUTUBE_HEADERS } : {}
-      );
-    } catch (error) {
-      directFetchError = error;
-      if (requestedYouTubeUrl || !canUseBrowserFallback(error)) {
-        throw error;
+    if (isPotentialXContentUrl(requestedUrl)) {
+      const resolved = await extractPotentialXImport(requestedUrl);
+      if (resolved.kind === "x") {
+        return upsertPreparedManualArticle(ctx, resolved.candidate);
       }
+      page = resolved.page;
+    } else {
+      try {
+        page = await fetchText(
+          requestedUrl,
+          requestedYouTubeUrl ? { headers: YOUTUBE_HEADERS } : {}
+        );
+      } catch (error) {
+        directFetchError = error;
+        if (requestedYouTubeUrl || !canUseBrowserFallback(error)) {
+          throw error;
+        }
 
-      page = {
-        text: "",
-        url: requestedUrl
-      };
+        page = {
+          text: "",
+          url: requestedUrl
+        };
+      }
     }
 
     if (isYouTubeUrl(page.url)) {
@@ -617,37 +773,10 @@ export const addFromUrl = action({
       throw new Error("Could not extract a readable article body from that URL");
     }
 
-    return ctx.runMutation(internal.articles.upsertManualArticle, {
-      article: {
-        author: extracted.author || undefined,
-        bodyHtml: prepared.bodyHtml,
-        bodySource: "fetched",
-        canonicalUrl: prepared.canonicalUrl,
-        contentHash: hashArticleContent({
-          author: extracted.author || "",
-          bodyHtml: prepared.bodyHtml,
-          canonicalUrl: prepared.canonicalUrl,
-          previewText: prepared.previewText,
-          publishedAt: normalizePublishedAt(extracted.publishedAt),
-          summaryHtml: prepared.summaryHtml,
-          subtitle: prepared.subtitle,
-          thumbnailUrl: extracted.thumbnailUrl || "",
-          title: prepared.title,
-          url: page.url
-        }),
-        externalId: prepared.canonicalUrl,
-        feedIconUrl: undefined,
-        feedSiteUrl: new URL(page.url).origin,
-        feedTitle: prepared.feedTitle,
-        previewText: prepared.previewText,
-        publishedAt: normalizePublishedAt(extracted.publishedAt),
-        readTimeMinutes: prepared.readTimeMinutes,
-        summaryHtml: prepared.summaryHtml,
-        subtitle: prepared.subtitle,
-        thumbnailUrl: extracted.thumbnailUrl || undefined,
-        title: prepared.title,
-        url: page.url
-      }
+    return upsertPreparedManualArticle(ctx, {
+      extracted,
+      pageUrl: page.url,
+      prepared
     });
   }
 });
