@@ -87,6 +87,14 @@ body {
     font-size: var(--font-size-base);
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: none;
+    /* Keep the interface clear of the notch, status bar, and home indicator when
+       Reader runs as a home-screen app with viewport-fit=cover. */
+    padding-top: env(safe-area-inset-top);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
 }
 
 .app-layout {
@@ -121,7 +129,7 @@ body {
     flex-direction: column;
     align-items: center;
     flex-shrink: 0;
-    padding: 12px 0;
+    padding: 12px 0 calc(12px + env(safe-area-inset-bottom));
 }
 
 .icon-rail-top {
@@ -1978,8 +1986,8 @@ textarea.text-input {
 
 .toast {
     position: fixed;
-    right: 20px;
-    bottom: 20px;
+    right: calc(20px + env(safe-area-inset-right));
+    bottom: calc(20px + env(safe-area-inset-bottom));
     background: var(--text-heading);
     color: var(--text-on-dark);
     padding: 10px 14px;
@@ -2150,47 +2158,95 @@ textarea.text-input {
 }
 
 @media (max-width: 640px) {
+    /* Two-step phone flow: the list screen (with a bottom tab bar) and the
+       reading screen stack in the same grid cell, and the list slides over the
+       reading pane while it is open. The reading screen hides the tab bar and
+       shows a back button instead. */
+    .app-layout {
+        position: relative;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: minmax(0, 1fr) auto;
+    }
+
+    .icon-rail {
+        grid-row: 2;
+        grid-column: 1;
+        width: 100%;
+        flex-direction: row;
+        align-items: stretch;
+        border-right: none;
+        border-top: 1px solid var(--border-light);
+        padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+    }
+
+    .icon-rail-top {
+        flex-direction: row;
+        justify-content: space-evenly;
+        gap: 0;
+    }
+
+    .icon-rail-bottom {
+        flex-direction: row;
+        padding-top: 0;
+        padding-left: 6px;
+        margin-left: 6px;
+        border-top: none;
+        border-left: 1px solid var(--border-light);
+    }
+
+    .icon-rail-btn {
+        flex: 0 1 44px;
+        min-width: 0;
+    }
+
+    .app-layout.is-mobile-reading .icon-rail {
+        display: none;
+    }
+
+    .article-list-panel,
+    .reading-pane {
+        grid-row: 1;
+        grid-column: 1;
+        min-height: 0;
+    }
+
     .article-list-panel {
-        position: absolute;
-        top: 0;
-        bottom: 0;
-        left: 48px;
+        position: relative;
         z-index: 30;
-        width: min(320px, calc(100vw - 48px));
-        box-shadow: 0 18px 40px var(--shadow-overlay);
-        transform: translateX(calc(-100% - 48px));
-        transition: transform var(--motion-overlay) var(--ease-out);
+        width: 100%;
+        min-width: 0;
+        border-right: none;
+        transform: translateX(-100%);
+        visibility: hidden;
+        transition:
+            transform var(--motion-overlay) var(--ease-out),
+            visibility 0s linear var(--motion-overlay);
     }
 
     .article-list-panel.is-open {
-        width: min(320px, calc(100vw - 48px));
+        width: 100%;
         transform: translateX(0);
+        visibility: visible;
+        transition: transform var(--motion-overlay) var(--ease-out);
     }
 
-    .list-close-btn {
+    .pane-back-btn {
         display: inline-flex;
     }
 
-    .panel-scrim {
-        display: block;
-        position: fixed;
-        inset: 0 0 0 48px;
-        z-index: 25;
-        border: none;
-        background: var(--backdrop-overlay);
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity var(--motion-standard) ease;
+    .pane-back-btn[hidden] {
+        display: none;
     }
 
-    .app-layout.is-list-open .panel-scrim {
-        opacity: 1;
-        pointer-events: auto;
+    .toast {
+        left: 16px;
+        right: 16px;
+        bottom: calc(76px + env(safe-area-inset-bottom));
     }
 
-    .panel-scrim:focus-visible {
-        outline: 2px solid var(--accent-blue);
-        outline-offset: -4px;
+    .app-layout.is-mobile-reading ~ .toast {
+        bottom: calc(20px + env(safe-area-inset-bottom));
     }
 
     .pane-header {
@@ -2261,11 +2317,12 @@ textarea.text-input {
 
     .inspector-panel:not([hidden]) {
         position: fixed;
-        left: 48px;
-        right: 0;
+        left: env(safe-area-inset-left);
+        right: env(safe-area-inset-right);
         bottom: 0;
         width: auto;
         max-height: min(60vh, 520px);
+        padding-bottom: env(safe-area-inset-bottom);
         z-index: 35;
         box-shadow: 0 -16px 36px var(--shadow-overlay);
         animation: inspector-sheet-in var(--motion-overlay) var(--ease-out) both;
@@ -2296,6 +2353,16 @@ textarea.text-input {
 
     .book-panel-title {
         font-size: 1.2rem;
+    }
+}
+
+@media (display-mode: standalone) {
+    .icon-rail,
+    .list-header,
+    .pane-header {
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
     }
 }
 

@@ -22,7 +22,9 @@ Manual article import can optionally fall back to a rendered Browser Use session
 
 When a feed exposes article imagery, the sync job stores `thumbnail_url` on the article and the reader uses it as a hero image at the top of the opened document when appropriate.
 
-On narrow screens, article lists use a dismissible drawer, article actions collapse into a compact overflow menu, and selecting or deep-linking to an article moves directly into the reading surface. Motion uses compositor-friendly drawer and article transitions and respects `prefers-reduced-motion`.
+Reader is installable as a home-screen app. It ships a web app manifest, Apple home-screen metadata, PNG app icons under `icons/`, and a network-first service worker (`sw.js`) that only falls back to cached files when offline, so an installed copy never shows a stale interface while online. On iPhone, open the site in Safari, tap Share, then "Add to Home Screen"; the app launches full-screen with the status bar and home indicator handled through safe-area insets.
+
+On narrow screens, Reader becomes a two-step flow: the navigation rail turns into a bottom tab bar, the article list fills the screen, and selecting or deep-linking to an article or book opens a full-screen reading surface with a back button in place of the tab bar. The `Today` tab opens the digest directly, and the back button steps from a digest article to the digest and then to the calendar list. Article actions collapse into a compact overflow menu. Desktop keeps the side-by-side rail, list, and reading pane. Motion uses compositor-friendly list and article transitions and respects `prefers-reduced-motion`.
 
 Reader can also ingest email newsletters through AgentMail. Newsletters sent to the configured inbox are polled into the app once an hour, grouped under sender-based feed groups, and stored as normal Reader articles so they show up in `Today`, `All Articles`, and the digest pipeline.
 
