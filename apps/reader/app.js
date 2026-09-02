@@ -146,6 +146,8 @@ const elements = {
   navToday: document.querySelector("#nav-today"),
   navYoutube: document.querySelector("#nav-youtube"),
   panelScrim: document.querySelector("#panel-scrim"),
+  paneBackButton: document.querySelector("#pane-back-button"),
+  readingPane: document.querySelector(".reading-pane"),
   newsletterCopyButton: document.querySelector("#newsletter-copy-button"),
   newsletterStatusCopy: document.querySelector("#newsletter-status-copy"),
   newsletterSyncButton: document.querySelector("#newsletter-sync-button"),
@@ -202,6 +204,7 @@ const applyStaticIcons = () => {
   setTrustedHtml(elements.addManualArticleButton, addIconHtml);
   setTrustedHtml(elements.listBackButton, previousIconHtml.replace('width="20"', 'width="18"').replace('height="20"', 'height="18"'));
   setTrustedHtml(elements.listCloseButton, previousIconHtml.replace('width="20"', 'width="18"').replace('height="20"', 'height="18"'));
+  setTrustedHtml(elements.paneBackButton, previousIconHtml);
   setTrustedHtml(elements.listMenuButton, menuIconHtml);
   setTrustedHtml(elements.readerActionsMenuButton, menuIconHtml);
   setTrustedHtml(elements.previousArticleButton, previousIconHtml);
@@ -1118,12 +1121,27 @@ const closeReaderActionsMenu = ({ restoreFocus = true } = {}) => {
   }
 };
 
+// On narrow screens Reader is a two-step flow: the list (with the bottom tab
+// bar) is one screen and the selected article or book is another. Desktop keeps
+// the side-by-side layout, where `overlayOpen` only controls the list column.
+const hasMobileReadingSelection = () => {
+  if (isBooksMode()) {
+    return Boolean(state.selectedBookId && state.explicitArticleSelection);
+  }
+  return Boolean(state.selectedArticleId);
+};
+
 const syncPanelState = () => {
+  const narrow = isNarrowViewport();
+  const isMobileReading = narrow && !state.overlayOpen && hasMobileReadingSelection();
   elements.articleListPanel.classList.toggle("is-open", state.overlayOpen);
   elements.articleListPanel.inert = !state.overlayOpen;
   elements.articleListPanel.setAttribute("aria-hidden", state.overlayOpen ? "false" : "true");
   elements.appLayout.classList.toggle("is-list-open", state.overlayOpen);
-  elements.panelScrim.tabIndex = state.overlayOpen && isNarrowViewport() ? 0 : -1;
+  elements.appLayout.classList.toggle("is-mobile-reading", isMobileReading);
+  elements.readingPane.inert = narrow && state.overlayOpen;
+  elements.paneBackButton.hidden = !narrow || state.overlayOpen;
+  elements.panelScrim.tabIndex = state.overlayOpen && narrow ? 0 : -1;
 };
 
 const openPanel = () => {
@@ -2261,6 +2279,7 @@ const render = () => {
   renderArticle();
   syncListMenuState();
   syncReaderActionsMenuState();
+  syncPanelState();
 };
 
 const renderArticleTransition = () => {
@@ -2402,7 +2421,11 @@ const loadDigestForDate = async (localDate = "", options = {}) => {
   state.selectedArticle = null;
   state.selectedArticleId = "";
   state.digestDate = localDate;
-  openPanel();
+  if (isNarrowViewport()) {
+    closePanel({ restoreFocus: false });
+  } else {
+    openPanel();
+  }
   render();
 
   const payload = localDate
@@ -3036,7 +3059,7 @@ elements.navToday.addEventListener("click", async () => {
 });
 
 elements.navAll.addEventListener("click", async () => {
-  if (state.scope === "all" && !state.feedGroup && !state.browseFeedGroups && state.overlayOpen) {
+  if (state.scope === "all" && !state.feedGroup && !state.browseFeedGroups && state.overlayOpen && !isNarrowViewport()) {
     closePanel();
     return;
   }
@@ -3051,7 +3074,7 @@ elements.navAll.addEventListener("click", async () => {
 });
 
 elements.navSaved.addEventListener("click", async () => {
-  if (state.scope === "saved" && !state.feedGroup && !state.browseFeedGroups && state.overlayOpen) {
+  if (state.scope === "saved" && !state.feedGroup && !state.browseFeedGroups && state.overlayOpen && !isNarrowViewport()) {
     closePanel();
     return;
   }
@@ -3066,7 +3089,7 @@ elements.navSaved.addEventListener("click", async () => {
 });
 
 elements.navManualArticles.addEventListener("click", async () => {
-  if (state.scope === "manual" && !state.feedGroup && !state.browseFeedGroups && state.overlayOpen) {
+  if (state.scope === "manual" && !state.feedGroup && !state.browseFeedGroups && state.overlayOpen && !isNarrowViewport()) {
     closePanel();
     return;
   }
@@ -3081,7 +3104,7 @@ elements.navManualArticles.addEventListener("click", async () => {
 });
 
 elements.navYoutube.addEventListener("click", async () => {
-  if (state.scope === "youtube" && !state.feedGroup && !state.browseFeedGroups && state.overlayOpen) {
+  if (state.scope === "youtube" && !state.feedGroup && !state.browseFeedGroups && state.overlayOpen && !isNarrowViewport()) {
     closePanel();
     return;
   }
@@ -3096,7 +3119,7 @@ elements.navYoutube.addEventListener("click", async () => {
 });
 
 elements.navBooks.addEventListener("click", async () => {
-  if (state.scope === "books" && state.overlayOpen) {
+  if (state.scope === "books" && state.overlayOpen && !isNarrowViewport()) {
     closePanel();
     return;
   }
@@ -3110,14 +3133,11 @@ elements.navBooks.addEventListener("click", async () => {
   openPanel();
   syncRoute({ replace: false });
   await loadBooks({ preserveSelection: true });
-  if (isNarrowViewport() && state.selectedBookId) {
-    closePanel();
-  }
   render();
 });
 
 elements.navFeeds.addEventListener("click", () => {
-  if (state.browseFeedGroups && state.overlayOpen) {
+  if (state.browseFeedGroups && state.overlayOpen && !isNarrowViewport()) {
     closePanel();
     return;
   }
@@ -3465,6 +3485,23 @@ elements.listMenuButton.addEventListener("click", (event) => {
 
 elements.listCloseButton.addEventListener("click", () => {
   closePanel();
+});
+
+elements.paneBackButton.addEventListener("click", () => {
+  closeReaderActionsMenu({ restoreFocus: false });
+  if (isTodayDigestMode() && state.selectedArticleId) {
+    // From a digest article, step back to the digest before the calendar list.
+    clearSelection();
+    syncRoute({ replace: false });
+    render();
+    return;
+  }
+  openPanel();
+  render();
+});
+
+window.matchMedia("(max-width: 640px)").addEventListener("change", () => {
+  syncPanelState();
 });
 
 elements.panelScrim.addEventListener("click", () => {
@@ -3862,9 +3899,19 @@ const resolveTheme = (theme) => {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 };
 
+const THEME_COLORS = { dark: "#111827", light: "#FFFFFF" };
+
+const applyThemeColorMeta = (resolved) => {
+  const color = THEME_COLORS[resolved] || THEME_COLORS.light;
+  document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => {
+    meta.setAttribute("content", color);
+  });
+};
+
 const applyTheme = () => {
   const resolved = resolveTheme(state.theme);
   document.documentElement.setAttribute("data-theme", resolved);
+  applyThemeColorMeta(resolved);
   elements.themeAutoButton.classList.toggle("is-active", state.theme === "auto");
   elements.themeLightButton.classList.toggle("is-active", state.theme === "light");
   elements.themeDarkButton.classList.toggle("is-active", state.theme === "dark");
@@ -3966,8 +4013,8 @@ const start = async () => {
       state.explicitArticleSelection = Boolean(route.articleSlug);
       state.selectedBookId = findBookBySlug(route.articleSlug)?.id || state.books[0]?.id || "";
       setBookSaveFeedback("Synced", "idle");
-      if (isNarrowViewport() && state.selectedBookId) {
-        closePanel();
+      if (isNarrowViewport() && route.articleSlug && state.selectedBookId) {
+        closePanel({ restoreFocus: false });
       } else {
         openPanel();
       }
@@ -4000,9 +4047,22 @@ window.addEventListener("popstate", () => {
   });
 });
 
+const registerServiceWorker = () => {
+  if (!("serviceWorker" in navigator) || !window.isSecureContext) {
+    return;
+  }
+
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {
+      // Offline shell is optional; the app works without it.
+    });
+  });
+};
+
 state.theme = readStoredTheme();
 applyStaticIcons();
 applyTheme();
+registerServiceWorker();
 
 start().catch((error) => {
   render();
