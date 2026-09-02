@@ -1,5 +1,5 @@
 import { createInMemoryPrismStore } from "@/lib/stores/in-memory";
-import { createSupabasePrismStore } from "@/lib/stores/supabase";
+import { createConvexPrismStore } from "@/lib/stores/convex";
 import type {
   InsertTranscriptInput,
   MarketReportSnapshotInput,
@@ -16,7 +16,7 @@ function getStore(): PrismStoreAdapter {
   }
 
   if (!runtimeStore) {
-    runtimeStore = createSupabasePrismStore();
+    runtimeStore = createConvexPrismStore();
   }
 
   return runtimeStore;

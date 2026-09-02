@@ -251,26 +251,7 @@ export default function HomePage() {
       return;
     }
 
-    const response = await fetch(`/api/sessions/${workspace.session.id}/export`);
-    if (!response.ok) {
-      const error = await response.json().catch(() => null);
-      setErrorMessage(error?.error || `Failed to export markdown (${response.status})`);
-      return;
-    }
-
-    const blob = await response.blob();
-    const url = window.URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${workspace.session.title
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "prism-spec"}.md`;
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    window.URL.revokeObjectURL(url);
+    triggerRouteDownload(`/api/sessions/${workspace.session.id}/export`);
   }
 
   async function runMarketResearch() {
@@ -302,23 +283,13 @@ export default function HomePage() {
   }
 
   function downloadMarketResearch() {
-    if (!workspace?.marketReport?.markdown_content) {
+    if (!workspace?.marketReport?.markdown_content || !workspace) {
       return;
     }
 
-    const blob = new Blob([workspace.marketReport.markdown_content], { type: "text/markdown;charset=utf-8" });
-    const url = window.URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${workspace.session.title
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "prism-spec"}-market-research.md`;
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    window.URL.revokeObjectURL(url);
+    triggerRouteDownload(
+      `/api/sessions/${workspace.session.id}/research/export`
+    );
   }
 
   return (
@@ -326,6 +297,7 @@ export default function HomePage() {
       <SessionList
         sessions={sessions}
         activeSessionId={workspace?.session.id ?? null}
+        isLoading={isLoadingSessions}
         isCreating={isCreating}
         isInteractionLocked={isInteractionLocked}
         deletingSessionId={deletingSessionId}
@@ -348,9 +320,18 @@ export default function HomePage() {
         isLocked={isQuestionLocked}
         isThinking={isSubmittingAnswer}
         optimisticAnswer={optimisticAnswer}
-        errorMessage={errorMessage || (isLoadingSessions ? "Loading sessions…" : "")}
+        errorMessage={errorMessage}
         onSubmitAnswer={submitAnswer}
       />
     </main>
   );
+}
+
+function triggerRouteDownload(href: string) {
+  const anchor = document.createElement("a");
+  anchor.href = href;
+  anchor.download = "";
+  document.body.append(anchor);
+  anchor.click();
+  window.setTimeout(() => anchor.remove(), 1000);
 }

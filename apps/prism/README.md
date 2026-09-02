@@ -1,13 +1,13 @@
 # Prism
 
-Prism is a standalone Next.js clarification workspace for turning rough ideas into execution-ready specs. It deploys as a Next.js app on Vercel and stores durable state in Supabase.
+Prism is a standalone Next.js clarification workspace for turning rough ideas into execution-ready specs. It deploys on Vercel and stores durable state in Convex.
 
 ## Owns
 
 - Clarification UI
 - Session and draft editing surfaces
 - Prism-specific prompt and research logic
-- Prism-owned Supabase schema and migrations
+- Prism-owned Convex schema and functions
 - Prism test fixtures and supporting data
 
 ## Does not own
@@ -38,13 +38,13 @@ npm run test
 - Next.js loads app-local env files, not the repo root `.env`
 - Put Prism runtime values in `apps/prism/.env.local`
 - Configure these values for local dev and Vercel:
-  - `SUPABASE_URL`
-  - `SUPABASE_SERVICE_ROLE_KEY` or `SUPABASE_SECRET_KEY`
+  - `CONVEX_DEPLOYMENT` for local Convex development
+  - `NEXT_PUBLIC_CONVEX_URL`
   - `NEXT_PUBLIC_APP_URL`
   - `OPENAI_API_KEY`
   - `ANTHROPIC_API_KEY`
   - `EXA_API_KEY`
-- Prism uses Supabase for local and hosted persistence. There is no local SQLite fallback.
+- Prism uses separate Convex development and production deployments.
 - Commit only [apps/prism/.env.example](/Users/mjkang/Develop/AgentCompany/apps/prism/.env.example)
 
 ## Vercel Deployment
@@ -54,19 +54,18 @@ Prism deploys from the `apps/prism` directory on Vercel using the standard Next.
 - `Framework Preset`: `Next.js`
 - `Root Directory`: `apps/prism`
 - `Install Command`: `npm install`
-- `Build Command`: leave the default Next.js build
+- `Build Command`: `npx convex deploy --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL --cmd "npm run build"`
 
 Set these Vercel environment variables:
 
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY` or `SUPABASE_SECRET_KEY`
+- `CONVEX_DEPLOY_KEY`
 - `NEXT_PUBLIC_APP_URL`
 - `OPENAI_API_KEY`
 - `ANTHROPIC_API_KEY`
 - `EXA_API_KEY`
 
-## Supabase Setup
+## Convex setup
 
-- Apply the SQL migration in [apps/prism/supabase/migrations](/Users/mjkang/Develop/AgentCompany/apps/prism/supabase/migrations).
-- Prism uses server-side route handlers with a privileged Supabase key. Do not expose a publishable key in the browser for v1.
-- The Prism tables run with RLS enabled and no `anon` or `authenticated` policies.
+- Run `npx convex dev` from `apps/prism` to configure or update the development deployment.
+- Convex functions live in `apps/prism/convex` and preserve Prism's external UUID session IDs.
+- Next.js route handlers keep the LLM workflow server-side and use the Convex HTTP client for persistence.

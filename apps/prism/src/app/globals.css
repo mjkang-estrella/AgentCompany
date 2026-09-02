@@ -667,11 +667,47 @@ a {
     min-height: 45vh;
   }
 
+  .metrics-bar {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    overflow: visible;
+    padding: 12px var(--spacing-md);
+  }
+
+  .metric-readout {
+    min-width: 0;
+  }
+
+  .editor-toolbar {
+    align-items: flex-start;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 10px 12px;
+    padding: 12px var(--spacing-md);
+  }
+
+  .editor-actions {
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+
+  .editor-actions:last-child {
+    width: 100%;
+  }
+
   .panel-right {
     min-height: 40vh;
   }
 
   .spec-textarea {
     min-height: 48vh;
+    font-size: 16px;
+  }
+
+  .session-input,
+  .session-textarea,
+  .choice-input {
+    font-size: 16px;
   }
 }

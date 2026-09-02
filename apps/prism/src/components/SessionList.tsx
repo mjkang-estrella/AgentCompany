@@ -6,6 +6,7 @@ import type { CreateSessionPayload, SessionSummary } from "@/types/workspace";
 interface SessionListProps {
   sessions: SessionSummary[];
   activeSessionId: string | null;
+  isLoading: boolean;
   isCreating: boolean;
   isInteractionLocked: boolean;
   deletingSessionId: string | null;
@@ -17,6 +18,7 @@ interface SessionListProps {
 export default function SessionList({
   sessions,
   activeSessionId,
+  isLoading,
   isCreating,
   isInteractionLocked,
   deletingSessionId,
@@ -93,7 +95,9 @@ export default function SessionList({
       ) : null}
 
       <div className="session-list">
-        {sessions.length === 0 ? (
+        {isLoading ? (
+          <div className="empty-state" role="status">Loading sessions…</div>
+        ) : sessions.length === 0 ? (
           <div className="empty-state">No sessions yet. Create one to start clarifying a project idea.</div>
         ) : null}
 

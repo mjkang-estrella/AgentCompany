@@ -38,6 +38,7 @@ describe("SessionList", () => {
       <SessionList
         sessions={sessions}
         activeSessionId="session-1"
+        isLoading={false}
         isCreating={false}
         isInteractionLocked={false}
         deletingSessionId={null}
@@ -56,5 +57,24 @@ describe("SessionList", () => {
 
     expect(selected).toEqual(["session-2"]);
     expect(deleted).toEqual(["session-2"]);
+  });
+
+  it("shows loading before an empty state", () => {
+    render(
+      <SessionList
+        sessions={[]}
+        activeSessionId={null}
+        isLoading={true}
+        isCreating={false}
+        isInteractionLocked={false}
+        deletingSessionId={null}
+        onCreateSession={async () => {}}
+        onSelectSession={async () => {}}
+        onDeleteSession={async () => {}}
+      />
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("Loading sessions…");
+    expect(screen.queryByText(/No sessions yet/i)).not.toBeInTheDocument();
   });
 });

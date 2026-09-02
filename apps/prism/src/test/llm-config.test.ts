@@ -9,7 +9,7 @@ describe("llm provider plan", () => {
     process.env.OPENAI_API_KEY = originalOpenAiKey;
   });
 
-  it("prefers Claude Opus with GPT-5.4 fallback when both keys exist", () => {
+  it("prefers Claude Sonnet with GPT-5.4 fallback when both keys exist", () => {
     process.env.ANTHROPIC_API_KEY = "anthropic-test-key";
     process.env.OPENAI_API_KEY = "openai-test-key";
 
@@ -18,7 +18,7 @@ describe("llm provider plan", () => {
     expect(plan).toEqual([
       {
         provider: "anthropic",
-        model: "claude-opus-4-6",
+        model: "claude-sonnet-4-6",
         temperature: 0.7,
         maxTokens: 2048,
       },

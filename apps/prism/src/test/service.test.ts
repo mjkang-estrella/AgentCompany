@@ -7,6 +7,7 @@ import {
   updateSessionDraft,
 } from "@/lib/clarification";
 import { GET as exportRoute } from "@/app/api/sessions/[id]/export/route";
+import { GET as researchExportRoute } from "@/app/api/sessions/[id]/research/export/route";
 import { POST as researchRoute } from "@/app/api/sessions/[id]/research-market/route";
 import { runSessionMarketResearch, startSessionMarketResearch } from "@/lib/research";
 import { createTestStore, saveMarketReport, saveSessionSnapshot, setStoreAdapterForTests } from "@/lib/store";
@@ -54,6 +55,24 @@ describe("clarification service", () => {
     expect(updated.session.clarification_round).toBe(1);
     expect(updated.session.reconciliation_status).toBe("idle");
     expect(updated.pendingQuestion?.round_number).toBe(2);
+  });
+
+  it("does not repeat fallback questions across a long clarification", async () => {
+    let workspace = await createSessionWorkspace({
+      title: "Long clarification",
+      initialIdea: "A vague tool for improving team decisions.",
+    });
+    const questions: string[] = [];
+
+    for (let round = 0; round < 8 && workspace.pendingQuestion; round += 1) {
+      questions.push(workspace.pendingQuestion.question);
+      workspace = await submitSessionAnswer(workspace.session.id, {
+        answer: `Confirmed detail for round ${round + 1}`,
+      });
+    }
+
+    expect(questions.length).toBeGreaterThanOrEqual(6);
+    expect(new Set(questions).size).toBe(questions.length);
   });
 
   it("supports manual draft updates with last-write-wins persistence", async () => {
@@ -282,5 +301,30 @@ Engineering managers and ICs.
     expect(updated?.marketReport?.markdown_content).toContain("# Market Research");
     expect(updated?.marketReport?.markdown_content).toContain("## Sources");
     expect(updated?.session.spec_content).toBe(workspace.session.spec_content);
+  });
+
+  it("downloads completed market research with an attachment filename", async () => {
+    const workspace = await createSessionWorkspace({
+      title: "Market signals",
+      initialIdea: "A research assistant.",
+    });
+    await saveMarketReport(workspace.session.id, {
+      status: "completed",
+      markdownContent: "# Market Research\n\nA sourced report.",
+      citations: [],
+      queryPlan: [],
+      specSnapshot: workspace.session.spec_content,
+      generatedAt: new Date().toISOString(),
+    });
+
+    const response = await researchExportRoute(new Request("http://localhost"), {
+      params: { id: workspace.session.id },
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-disposition")).toContain(
+      'filename="market-signals-market-research.md"'
+    );
+    expect(await response.text()).toContain("A sourced report.");
   });
 });

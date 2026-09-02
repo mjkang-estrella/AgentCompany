@@ -4,15 +4,12 @@ import { hasStructuredJsonProvider, requestStructuredJson } from "@/lib/openai";
 import { buildSupportingSpecContext, isQuestionTooSimilar } from "@/lib/questioning";
 import {
   buildInterviewContext,
-  buildChoiceSystemPrompt,
-  buildChoiceUserPrompt,
   buildQuestionSystemPrompt,
   buildQuestionUserPrompt,
   buildScoringSystemPrompt,
   buildScoringUserPrompt,
   buildSpecUpdateSystemPrompt,
   buildSpecUpdateUserPrompt,
-  choiceSchema,
   questionSchema,
   scoringSchema,
   specUpdateSchema,
@@ -36,7 +33,7 @@ import type {
   WorkspacePayload,
 } from "@/types/workspace";
 
-const MAX_CLARIFICATION_ROUNDS = 20;
+const MAX_CLARIFICATION_ROUNDS = 12;
 const MAX_QUESTION_GENERATION_ATTEMPTS = 3;
 
 interface ScoreResponse {
@@ -60,10 +57,6 @@ interface QuestionResponse {
   target_dimension: PendingQuestionDimension;
 }
 
-interface ChoiceResponse {
-  suggested_choices: Array<{ key: string; label: string }>;
-}
-
 export async function createSessionWorkspace(payload: CreateSessionPayload): Promise<WorkspacePayload> {
   const title = payload.title.trim();
   const initialIdea = payload.initialIdea?.trim() ?? "";
@@ -75,12 +68,15 @@ export async function createSessionWorkspace(payload: CreateSessionPayload): Pro
   const specContent = buildInitialSpec(title, initialIdea);
   const session = await createSessionSeed({ title, initialIdea, specContent });
   const transcript: TranscriptEntry[] = [];
-  const preMetrics = await scoreWorkspace({
-    session,
-    transcript,
-    specContent,
-  });
-  const pendingQuestion = await generateNextQuestion(session, transcript, preMetrics);
+  const baselineMetrics = fallbackScore(session, specContent, transcript);
+  const [preMetrics, pendingQuestion] = await Promise.all([
+    scoreWorkspace({
+      session,
+      transcript,
+      specContent,
+    }),
+    generateNextQuestion(session, transcript, baselineMetrics),
+  ]);
   const metrics = buildClarificationMetrics({
     specContent,
     ambiguityScore: preMetrics.ambiguity_score,
@@ -202,24 +198,32 @@ export async function submitSessionAnswer(sessionId: string, payload: AnswerPayl
     pendingQuestion,
     answer,
   });
-  const preMetrics = await scoreWorkspace({
-    session: workspace.session,
-    transcript: transcriptWithAnswer,
-    specContent: specUpdate.spec_markdown,
-  });
+  const nextSession = {
+    ...workspace.session,
+    spec_content: specUpdate.spec_markdown,
+  };
   const canAskNext = roundNumber < MAX_CLARIFICATION_ROUNDS;
-  const nextQuestion = canAskNext
-    ? await generateNextQuestion(
-        {
-          ...workspace.session,
-          spec_content: specUpdate.spec_markdown,
-        },
-        transcriptWithAnswer,
-        preMetrics,
-        roundNumber + 1
-      )
-    : null;
-  const finalMetrics = buildClarificationMetrics({
+  const questionMetrics = fallbackScore(
+    nextSession,
+    specUpdate.spec_markdown,
+    transcriptWithAnswer
+  );
+  const [preMetrics, candidateNextQuestion] = await Promise.all([
+    scoreWorkspace({
+      session: nextSession,
+      transcript: transcriptWithAnswer,
+      specContent: specUpdate.spec_markdown,
+    }),
+    canAskNext
+      ? generateNextQuestion(
+          nextSession,
+          transcriptWithAnswer,
+          questionMetrics,
+          roundNumber + 1
+        )
+      : Promise.resolve(null),
+  ]);
+  const completedMetrics = buildClarificationMetrics({
     specContent: specUpdate.spec_markdown,
     ambiguityScore: preMetrics.ambiguity_score,
     goalClarity: preMetrics.goal_clarity,
@@ -230,8 +234,26 @@ export async function submitSessionAnswer(sessionId: string, payload: AnswerPayl
     successCriteriaJustification: preMetrics.success_criteria_justification,
     modelWarnings: specUpdate.warnings,
     modelOpenQuestions: specUpdate.open_questions,
-    hasPendingQuestion: Boolean(nextQuestion),
+    hasPendingQuestion: false,
   });
+  const isReady =
+    completedMetrics.overall_score >= 80 && completedMetrics.ambiguity === "Low";
+  const nextQuestion = canAskNext && !isReady ? candidateNextQuestion : null;
+  const finalMetrics = nextQuestion
+    ? buildClarificationMetrics({
+        specContent: specUpdate.spec_markdown,
+        ambiguityScore: preMetrics.ambiguity_score,
+        goalClarity: preMetrics.goal_clarity,
+        constraintClarity: preMetrics.constraint_clarity,
+        successCriteriaClarity: preMetrics.success_criteria_clarity,
+        goalJustification: preMetrics.goal_justification,
+        constraintJustification: preMetrics.constraint_justification,
+        successCriteriaJustification: preMetrics.success_criteria_justification,
+        modelWarnings: specUpdate.warnings,
+        modelOpenQuestions: specUpdate.open_questions,
+        hasPendingQuestion: true,
+      })
+    : completedMetrics;
 
   await saveSessionSnapshot(sessionId, {
     specContent: specUpdate.spec_markdown,
@@ -330,10 +352,10 @@ async function generateNextQuestion(
   metrics: ClarificationMetrics,
   roundNumber = 1
 ): Promise<PendingQuestion> {
-  const recentAssistantQuestions = transcript
+  const previousAssistantQuestions = transcript
     .filter((entry) => entry.role === "assistant" && entry.entry_type === "question")
-    .map((entry) => entry.content)
-    .slice(-3);
+    .map((entry) => entry.content);
+  const recentAssistantQuestions = previousAssistantQuestions.slice(-12);
   const supportingSpecContext = buildSupportingSpecContext(session.spec_content);
   const rejectedQuestions: string[] = [];
 
@@ -361,70 +383,29 @@ async function generateNextQuestion(
         });
 
         const candidate = normalizeQuestion(response, metrics, roundNumber);
-        candidate.suggested_choices = await generateSuggestedChoices(
-          candidate,
-          transcript,
-          supportingSpecContext,
-          metrics,
-          session.spec_content
-        );
-        if (!isQuestionTooSimilar(candidate.question, recentAssistantQuestions)) {
+        if (candidate.suggested_choices.length < 2) {
+          candidate.suggested_choices = fallbackQuestion(
+            metrics,
+            session.spec_content,
+            roundNumber,
+            previousAssistantQuestions
+          ).suggested_choices;
+        }
+        if (!isQuestionTooSimilar(candidate.question, previousAssistantQuestions)) {
           return candidate;
         }
 
         rejectedQuestions.push(candidate.question);
       }
 
-      return fallbackQuestion(metrics, session.spec_content, roundNumber, recentAssistantQuestions);
+      return fallbackQuestion(metrics, session.spec_content, roundNumber, previousAssistantQuestions);
     } catch (error) {
       console.error("[Prism] question generation failed, using fallback question.", error);
-      return fallbackQuestion(metrics, session.spec_content, roundNumber, recentAssistantQuestions);
+      return fallbackQuestion(metrics, session.spec_content, roundNumber, previousAssistantQuestions);
     }
   }
 
-  return fallbackQuestion(metrics, session.spec_content, roundNumber, recentAssistantQuestions);
-}
-
-async function generateSuggestedChoices(
-  question: PendingQuestion,
-  transcript: TranscriptEntry[],
-  supportingSpecContext: string,
-  metrics: ClarificationMetrics,
-  specContent: string
-): Promise<PendingQuestion["suggested_choices"]> {
-  const fallbackChoices = question.suggested_choices.length >= 2
-    ? question.suggested_choices
-    : fallbackQuestion(metrics, specContent, question.round_number).suggested_choices;
-
-  if (!hasStructuredJsonProvider()) {
-    return fallbackChoices;
-  }
-
-  try {
-    const response = await requestStructuredJson<ChoiceResponse>({
-      task: "question_generation",
-      schemaName: "clarification_choices",
-      schema: choiceSchema as Record<string, unknown>,
-      systemPrompt: buildChoiceSystemPrompt(),
-      messages: [
-        {
-          role: "user",
-          content: buildChoiceUserPrompt({
-            question: question.question,
-            targetDimension: question.target_dimension,
-            transcript,
-            supportingSpecContext,
-          }),
-        },
-      ],
-    });
-
-    const choices = normalizeChoices(response.suggested_choices);
-    return choices.length >= 2 ? choices : fallbackChoices;
-  } catch (error) {
-    console.error("[Prism] choice generation failed, using fallback choices.", error);
-    return fallbackChoices;
-  }
+  return fallbackQuestion(metrics, session.spec_content, roundNumber, previousAssistantQuestions);
 }
 
 async function rewriteSpecification(input: {
@@ -582,23 +563,118 @@ function fallbackQuestion(
     candidate = prompts.success_criteria;
   }
 
-  if (!isQuestionTooSimilar(candidate.question, recentQuestions)) {
-    return candidate;
-  }
+  const additionalCandidates: PendingQuestion[] = [
+    {
+      question: "Which user should benefit first, and what are they unable to do today?",
+      target_dimension: "goal",
+      round_number: roundNumber,
+      suggested_choices: [
+        { key: "individual", label: "One individual user with a recurring problem" },
+        { key: "small-team", label: "A small team coordinating the same workflow" },
+        { key: "operator", label: "An operator making a repeated decision" },
+      ],
+    },
+    {
+      question: "What decision or next action should this product make easier?",
+      target_dimension: "goal",
+      round_number: roundNumber,
+      suggested_choices: [
+        { key: "prioritize", label: "Prioritize what deserves attention" },
+        { key: "approve", label: "Make a clear go or no-go decision" },
+        { key: "handoff", label: "Hand work to the next person with less ambiguity" },
+      ],
+    },
+    {
+      question: "What is the hardest limit the first version cannot change?",
+      target_dimension: "constraints",
+      round_number: roundNumber,
+      suggested_choices: [
+        { key: "time-limit", label: "It must ship within a short timeline" },
+        { key: "data-limit", label: "It must work with limited or imperfect data" },
+        { key: "integration-limit", label: "It must fit the tools users already have" },
+      ],
+    },
+    {
+      question: "Which data, privacy, or integration requirement could block launch?",
+      target_dimension: "constraints",
+      round_number: roundNumber,
+      suggested_choices: [
+        { key: "sensitive-data", label: "The workflow includes sensitive data" },
+        { key: "source-access", label: "Reliable access to source data is uncertain" },
+        { key: "existing-tools", label: "The product must connect to existing tools" },
+      ],
+    },
+    {
+      question: "What observable result would prove the first version is useful?",
+      target_dimension: "success_criteria",
+      round_number: roundNumber,
+      suggested_choices: [
+        { key: "time-saved", label: "Users complete the workflow in less time" },
+        { key: "better-output", label: "Users produce a more accurate result" },
+        { key: "repeat-use", label: "Users return and use it repeatedly" },
+      ],
+    },
+    {
+      question: "What must a new user accomplish in their first session?",
+      target_dimension: "success_criteria",
+      round_number: roundNumber,
+      suggested_choices: [
+        { key: "first-output", label: "Produce one useful output" },
+        { key: "first-decision", label: "Make one informed decision" },
+        { key: "first-setup", label: "Connect their data and finish setup" },
+      ],
+    },
+    {
+      question: "Where should this fit in the user's current workflow?",
+      target_dimension: "context",
+      round_number: roundNumber,
+      suggested_choices: [
+        { key: "before-work", label: "Before the current workflow begins" },
+        { key: "inside-work", label: "Inside an existing tool or process" },
+        { key: "after-work", label: "Afterward, to review or organize the result" },
+      ],
+    },
+    {
+      question: "What existing behavior or tool would this replace first?",
+      target_dimension: "context",
+      round_number: roundNumber,
+      suggested_choices: [
+        { key: "spreadsheet", label: "A spreadsheet or manually maintained list" },
+        { key: "documents", label: "Scattered documents and notes" },
+        { key: "meetings", label: "Repeated coordination and status meetings" },
+      ],
+    },
+  ];
 
-  const alternatives: PendingQuestionDimension[] = ["goal", "constraints", "success_criteria", "context"];
-  for (const alternative of alternatives) {
-    if (alternative === candidate.target_dimension) {
-      continue;
-    }
+  const orderedCandidates = [
+    candidate,
+    ...additionalCandidates.filter(
+      (item) => item.target_dimension === candidate.target_dimension
+    ),
+    ...Object.values(prompts).filter(
+      (item) => item.target_dimension !== candidate.target_dimension
+    ),
+    ...additionalCandidates.filter(
+      (item) => item.target_dimension !== candidate.target_dimension
+    ),
+  ];
 
-    const nextCandidate = prompts[alternative];
+  for (const nextCandidate of orderedCandidates) {
     if (!isQuestionTooSimilar(nextCandidate.question, recentQuestions)) {
       return nextCandidate;
     }
   }
 
-  return candidate;
+  return {
+    question: "What important assumption have we not tested yet?",
+    target_dimension: "context",
+    round_number: roundNumber,
+    suggested_choices: [
+      { key: "user-assumption", label: "We may be solving for the wrong user" },
+      { key: "problem-assumption", label: "The problem may not be frequent enough" },
+      { key: "solution-assumption", label: "The proposed workflow may be too complex" },
+    ],
+  };
 }
 
 function fallbackSpecUpdate(

@@ -22,9 +22,24 @@ export default function ClarificationPanel({
   onSubmitAnswer,
 }: ClarificationPanelProps) {
   const [value, setValue] = useState("");
+  const [thinkingSeconds, setThinkingSeconds] = useState(0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const pendingQuestion = workspace?.pendingQuestion ?? null;
+  const answeredRounds = new Set(
+    workspace?.transcript
+      .filter((entry) => entry.role === "user" && entry.entry_type === "answer")
+      .map((entry) => entry.round_number) ?? []
+  );
   const historyEntries = workspace?.transcript.filter((entry) => {
+    if (
+      workspace.session.is_ready &&
+      entry.role === "assistant" &&
+      entry.entry_type === "question" &&
+      !answeredRounds.has(entry.round_number)
+    ) {
+      return false;
+    }
+
     if (!pendingQuestion) {
       return true;
     }
@@ -39,6 +54,20 @@ export default function ClarificationPanel({
   useEffect(() => {
     setValue("");
   }, [workspace?.pendingQuestion?.round_number]);
+
+  useEffect(() => {
+    if (!isThinking) {
+      setThinkingSeconds(0);
+      return;
+    }
+
+    const startedAt = Date.now();
+    const interval = window.setInterval(() => {
+      setThinkingSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, [isThinking]);
 
   useEffect(() => {
     const node = scrollRef.current;
@@ -114,7 +143,13 @@ export default function ClarificationPanel({
               </article>
               <article className="message thinking-message">
                 <div className="message-sender ai">AI interviewer</div>
-                <div className="message-content">{isThinking ? "Thinking..." : "Queued..."}</div>
+                <div className="message-content">
+                  {isThinking
+                    ? thinkingSeconds < 8
+                      ? "Updating the spec and preparing the next question…"
+                      : `Still working… ${thinkingSeconds}s`
+                    : "Queued…"}
+                </div>
               </article>
             </div>
           ) : (
