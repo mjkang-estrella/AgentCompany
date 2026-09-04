@@ -97,6 +97,20 @@ body {
     padding-right: env(safe-area-inset-right);
 }
 
+/* Bottom inset only applies when Reader owns the bottom edge (home-screen
+   app). In a browser tab the browser toolbar already covers the home
+   indicator, yet iOS Safari still reports a non-zero inset there, which left a
+   blank strip under the phone tab bar. */
+:root {
+    --safe-area-bottom: 0px;
+}
+
+@media (display-mode: standalone), (display-mode: fullscreen) {
+    :root {
+        --safe-area-bottom: env(safe-area-inset-bottom);
+    }
+}
+
 .app-layout {
     display: flex;
     width: 100%;
@@ -129,7 +143,7 @@ body {
     flex-direction: column;
     align-items: center;
     flex-shrink: 0;
-    padding: 12px 0 calc(12px + env(safe-area-inset-bottom));
+    padding: 12px 0 calc(12px + var(--safe-area-bottom));
 }
 
 .icon-rail-top {
@@ -1987,7 +2001,7 @@ textarea.text-input {
 .toast {
     position: fixed;
     right: calc(20px + env(safe-area-inset-right));
-    bottom: calc(20px + env(safe-area-inset-bottom));
+    bottom: calc(20px + var(--safe-area-bottom));
     background: var(--text-heading);
     color: var(--text-on-dark);
     padding: 10px 14px;
@@ -2177,7 +2191,10 @@ textarea.text-input {
         align-items: stretch;
         border-right: none;
         border-top: 1px solid var(--border-light);
-        padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+        background-color: var(--bg-panel);
+        /* The home-indicator inset replaces the base padding instead of stacking
+           on it, so the icons sit close to the bottom edge. */
+        padding: 6px 8px max(6px, var(--safe-area-bottom));
     }
 
     .icon-rail-top {
@@ -2242,11 +2259,11 @@ textarea.text-input {
     .toast {
         left: 16px;
         right: 16px;
-        bottom: calc(76px + env(safe-area-inset-bottom));
+        bottom: calc(76px + var(--safe-area-bottom));
     }
 
     .app-layout.is-mobile-reading ~ .toast {
-        bottom: calc(20px + env(safe-area-inset-bottom));
+        bottom: calc(20px + var(--safe-area-bottom));
     }
 
     .pane-header {
@@ -2293,7 +2310,7 @@ textarea.text-input {
     }
 
     .pane-content-scroll {
-        padding: 24px 20px max(28px, env(safe-area-inset-bottom));
+        padding: 24px 20px max(28px, var(--safe-area-bottom));
     }
 
     .article-header {
@@ -2322,7 +2339,7 @@ textarea.text-input {
         bottom: 0;
         width: auto;
         max-height: min(60vh, 520px);
-        padding-bottom: env(safe-area-inset-bottom);
+        padding-bottom: var(--safe-area-bottom);
         z-index: 35;
         box-shadow: 0 -16px 36px var(--shadow-overlay);
         animation: inspector-sheet-in var(--motion-overlay) var(--ease-out) both;

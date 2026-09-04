@@ -55,3 +55,26 @@ test("service worker never caches API responses", () => {
   const source = read("sw.js");
   assert.match(source, /startsWith\("\/api\/"\)/u);
 });
+
+test("phone reading screen uses a list icon, not a third chevron, to reopen the list", () => {
+  const icons = read("icons.js");
+  const app = read("app.js");
+
+  assert.match(icons, /export const listIconHtml = renderHugeIcon\(Menu01Icon/u);
+  assert.match(app, /setTrustedHtml\(elements\.paneBackButton, listIconHtml\)/u);
+  assert.doesNotMatch(app, /setTrustedHtml\(elements\.paneBackButton, previousIconHtml\)/u);
+});
+
+test("bottom safe-area inset only applies when Reader runs as a home-screen app", () => {
+  const css = read("styles.css");
+
+  // Browser tabs already cover the home indicator with their own toolbar, so
+  // the inset must be zero there and only come from env() in standalone mode.
+  assert.match(css, /:root\s*\{\s*--safe-area-bottom: 0px;\s*\}/u);
+  assert.match(
+    css,
+    /@media \(display-mode: standalone\), \(display-mode: fullscreen\)\s*\{\s*:root\s*\{\s*--safe-area-bottom: env\(safe-area-inset-bottom\);/u
+  );
+  assert.doesNotMatch(css.replace(/--safe-area-bottom: env\(safe-area-inset-bottom\);/u, ""), /env\(safe-area-inset-bottom\)/u);
+  assert.match(css, /padding: 6px 8px max\(6px, var\(--safe-area-bottom\)\);/u);
+});

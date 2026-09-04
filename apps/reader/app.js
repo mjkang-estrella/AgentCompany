@@ -10,6 +10,7 @@ import {
   feedsIconHtml,
   highlightsIconHtml,
   libraryIconHtml,
+  listIconHtml,
   menuIconHtml,
   nextIconHtml,
   previousIconHtml,
@@ -204,7 +205,9 @@ const applyStaticIcons = () => {
   setTrustedHtml(elements.addManualArticleButton, addIconHtml);
   setTrustedHtml(elements.listBackButton, previousIconHtml.replace('width="20"', 'width="18"').replace('height="20"', 'height="18"'));
   setTrustedHtml(elements.listCloseButton, previousIconHtml.replace('width="20"', 'width="18"').replace('height="20"', 'height="18"'));
-  setTrustedHtml(elements.paneBackButton, previousIconHtml);
+  // The phone reading screen opens the list, so it gets a list (hamburger)
+  // icon rather than a third chevron next to previous/next.
+  setTrustedHtml(elements.paneBackButton, listIconHtml);
   setTrustedHtml(elements.listMenuButton, menuIconHtml);
   setTrustedHtml(elements.readerActionsMenuButton, menuIconHtml);
   setTrustedHtml(elements.previousArticleButton, previousIconHtml);
