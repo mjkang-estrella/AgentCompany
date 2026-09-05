@@ -1,3 +1,5 @@
+import { extractSections } from "@/lib/spec";
+import { READY_SPEC } from "./readiness-fixture";
 import { vi } from "vitest";
 import {
   createSessionWorkspace,
@@ -57,17 +59,19 @@ describe("clarification service", () => {
     expect(updated.pendingQuestion?.round_number).toBe(2);
   });
 
-  it("does not repeat fallback questions across a long clarification", async () => {
+  it("does not repeat questions whose required information was answered", async () => {
     let workspace = await createSessionWorkspace({
       title: "Long clarification",
       initialIdea: "A vague tool for improving team decisions.",
     });
     const questions: string[] = [];
 
-    for (let round = 0; round < 8 && workspace.pendingQuestion; round += 1) {
+    const sections = extractSections(READY_SPEC);
+    const answers = [sections.Users, sections.Problem, sections.Goals, sections["Non-Goals"], sections.Constraints, sections["Success Criteria"]];
+    for (let round = 0; round < answers.length && workspace.pendingQuestion; round += 1) {
       questions.push(workspace.pendingQuestion.question);
       workspace = await submitSessionAnswer(workspace.session.id, {
-        answer: `Confirmed detail for round ${round + 1}`,
+        answer: answers[round],
       });
     }
 
@@ -112,7 +116,7 @@ describe("clarification service", () => {
     expect(await getSessionSummaries()).toHaveLength(0);
   });
 
-  it("keeps export disabled until score and ambiguity meet the readiness threshold", async () => {
+  it("exports an unresolved spec as a clearly labeled draft with blockers", async () => {
     const workspace = await createSessionWorkspace({
       title: "Export gate",
       initialIdea: "A planning assistant.",
@@ -122,7 +126,8 @@ describe("clarification service", () => {
       params: { id: workspace.session.id },
     });
 
-    expect(response.status).toBe(409);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("DRAFT: NOT READY FOR IMPLEMENTATION");
   });
 
   it("rejects market research below the clarity threshold", async () => {
@@ -145,7 +150,7 @@ describe("clarification service", () => {
     });
 
     await saveSessionSnapshot(workspace.session.id, {
-      specContent: workspace.session.spec_content,
+      specContent: READY_SPEC,
       clarificationRound: workspace.session.clarification_round,
       metrics: {
         ...workspace.metrics,
@@ -202,8 +207,8 @@ Engineering managers and ICs.
 
 ## Success Criteria
 
-- A team can export a task brief that is implementation-ready
-- The output is clear enough for engineering handoff
+- When a team exports a task brief, the downloaded markdown contains the current goals and acceptance criteria.
+- The export includes a separate execution prompt.
 
 ## Open Questions
 
@@ -280,7 +285,7 @@ Engineering managers and ICs.
     });
 
     await saveSessionSnapshot(workspace.session.id, {
-      specContent: workspace.session.spec_content,
+      specContent: READY_SPEC,
       clarificationRound: workspace.session.clarification_round,
       metrics: {
         ...workspace.metrics,
@@ -300,7 +305,7 @@ Engineering managers and ICs.
     expect(updated?.marketReport?.status).toBe("completed");
     expect(updated?.marketReport?.markdown_content).toContain("# Market Research");
     expect(updated?.marketReport?.markdown_content).toContain("## Sources");
-    expect(updated?.session.spec_content).toBe(workspace.session.spec_content);
+    expect(updated?.session.spec_content).toBe(READY_SPEC);
   });
 
   it("downloads completed market research with an attachment filename", async () => {

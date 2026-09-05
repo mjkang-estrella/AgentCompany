@@ -45,8 +45,8 @@ describe("metrics", () => {
       hasPendingQuestion: false,
     });
 
-    expect(metrics.ambiguity).toBe("Low");
-    expect(metrics.readiness).toBe(84);
-    expect(metrics.open_questions).toBe(0);
+    expect(metrics.ambiguity).toBe("High");
+    expect(metrics.readiness).toBeLessThan(80);
+    expect(metrics.open_questions).toBeGreaterThan(0);
   });
 });

@@ -112,6 +112,7 @@ export interface WorkspacePayload {
 export interface CreateSessionPayload {
   title: string;
   initialIdea?: string;
+  example?: boolean;
 }
 
 export interface AnswerPayload {

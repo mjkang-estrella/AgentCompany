@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
+import { assessReadiness } from "@/lib/readiness";
 import type { WorkspacePayload } from "@/types/workspace";
 
 interface SpecEditorProps {
@@ -38,6 +39,7 @@ export default function SpecEditor({
   const lastPushedRef = useRef("");
   const metricFlashTimeouts = useRef<number[]>([]);
   const previousMetricValues = useRef<Record<string, string> | null>(null);
+  const assessment = workspace ? assessReadiness(workspace.session.spec_content) : null;
   const activeSessionId = workspace?.session.id ?? null;
   const activeSpecContent = workspace?.session.spec_content ?? "";
   const readinessValue = workspace ? `${workspace.metrics.readiness}%` : "—";
@@ -255,12 +257,23 @@ export default function SpecEditor({
 
       <div className="metrics-bar">
         <Metric label="Readiness" value={readinessValue} highlighted={Boolean(highlightedMetrics.readiness)} />
-        <Metric label="Structure" value={structureValue} highlighted={Boolean(highlightedMetrics.structure)} />
+        <Metric label="Document completeness" value={structureValue} highlighted={Boolean(highlightedMetrics.structure)} />
         <Metric label="Ambiguity" value={ambiguityValue} warn={workspace?.metrics.ambiguity === "High"} highlighted={Boolean(highlightedMetrics.ambiguity)} />
         <Metric label="Warnings" value={warningsValue} warn={(workspace?.metrics.warnings ?? 0) > 0} highlighted={Boolean(highlightedMetrics.warnings)} />
         <Metric label="Open Questions" value={openQuestionsValue} warn={(workspace?.metrics.open_questions ?? 0) > 0} highlighted={Boolean(highlightedMetrics.open_questions)} />
-        <Metric label="Clarification Score" value={overallScoreValue} highlighted={Boolean(highlightedMetrics.overall_score)} />
+        <Metric label="Implementation coverage" value={overallScoreValue} highlighted={Boolean(highlightedMetrics.overall_score)} />
       </div>
+
+      {assessment ? <div className="readiness-review" aria-live="polite">
+        <strong>{assessment.ready ? "Ready for implementation review" : "Not ready for implementation"}</strong>
+        <p>{assessment.reason}</p>
+        {assessment.blockers.length ? <details open>
+          <summary>Blockers ({assessment.blockers.length})</summary>
+          <ul>{assessment.blockers.map(issue => <li key={issue.id}><strong>{issue.section}:</strong> {issue.reason}</li>)}</ul>
+        </details> : null}
+        {assessment.nonBlockers.length ? <details><summary>Non-blocking follow-ups ({assessment.nonBlockers.length})</summary><ul>{assessment.nonBlockers.map(item => <li key={item}>{item}</li>)}</ul></details> : null}
+        <details><summary>Readiness evidence ({assessment.evidence.length}/6 checks)</summary><ul>{assessment.evidence.map(item => <li key={item.section}><strong>{item.section}:</strong> {item.text}</li>)}</ul></details>
+      </div> : null}
 
       <div className="editor-toolbar">
         <div className="editor-actions">
@@ -358,9 +371,9 @@ export default function SpecEditor({
             className={`export-button${workspace?.session.is_ready ? " ready" : ""}`}
             type="button"
             onClick={() => void onExport()}
-            disabled={!workspace?.session.is_ready || isLocked}
+            disabled={!workspace || isLocked}
           >
-            Export Bundle
+            {workspace?.session.is_ready ? "Export Bundle" : "Export Draft"}
           </button>
         </div>
       </div>
@@ -391,6 +404,7 @@ export default function SpecEditor({
             )
           ) : mode === "edit" ? (
             <textarea
+              aria-label="Specification markdown"
               className="spec-textarea"
               value={draft}
               onChange={(event) => handleChange(event.target.value)}

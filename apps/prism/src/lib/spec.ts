@@ -8,6 +8,8 @@ const SPEC_SECTIONS = [
   "Success Criteria",
   "Open Questions",
   "Decisions",
+  "Decision History",
+  "Assumptions",
 ] as const;
 
 const PLACEHOLDER_PATTERNS = [
@@ -15,9 +17,9 @@ const PLACEHOLDER_PATTERNS = [
   /^_?no description provided yet\._?$/i,
   /^_?to be defined through clarification\._?$/i,
   /^_?clarification in progress\._?$/i,
-  /^_?tbd\._?$/i,
-  /^_?todo\._?$/i,
-  /^_?pending\._?$/i,
+  /^_?tbd\.?_?$/i,
+  /^_?todo\.?_?$/i,
+  /^_?pending\.?_?$/i,
 ];
 
 export type SpecSection = (typeof SPEC_SECTIONS)[number];
@@ -36,6 +38,8 @@ export function buildInitialSpec(title: string, initialIdea = ""): string {
     "Success Criteria": "_To be defined through clarification._",
     "Open Questions": "_Clarification in progress._",
     Decisions: "_To be defined through clarification._",
+    "Decision History": "None.",
+    Assumptions: "None.",
   };
 
   return serializeSpec(title, sections);
@@ -94,13 +98,13 @@ export function isPlaceholderContent(value: string): boolean {
 
 export function isMeaningfulContent(value: string): boolean {
   const normalized = value.trim();
-  return !isPlaceholderContent(normalized) && /[A-Za-z0-9]/.test(normalized);
+  return !isPlaceholderContent(normalized) && /[\p{L}\p{N}]/u.test(normalized);
 }
 
 export function computeStructureScore(specContent: string): number {
   const sections = extractSections(specContent);
-  const filled = CANONICAL_SECTIONS.filter((section) => isMeaningfulContent(sections[section])).length;
-  return Math.round((filled / CANONICAL_SECTIONS.length) * 100);
+  const filled = CANONICAL_SECTIONS.filter((section) => !["Decision History", "Assumptions"].includes(section) && isMeaningfulContent(sections[section])).length;
+  return Math.round((filled / (CANONICAL_SECTIONS.length - 2)) * 100);
 }
 
 export function collectPlaceholderWarnings(specContent: string): string[] {
@@ -131,7 +135,7 @@ export function extractOpenQuestionItems(specContent: string): string[] {
         !/no open questions remain/i.test(line)
     );
 
-  return items.length > 0 ? items : [openQuestions.trim()];
+  return items.filter(item => !/^(none|no (?:critical )?open questions remain)[.!]?$/i.test(item));
 }
 
 export function updateSection(specContent: string, section: SpecSection, nextBody: string): string {

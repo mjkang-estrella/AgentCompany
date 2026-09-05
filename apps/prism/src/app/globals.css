@@ -711,3 +711,26 @@ a {
     font-size: 16px;
   }
 }
+
+.session-intro { padding: 16px; border-bottom: 1px solid var(--border-color, #ddd); font-size: 13px; line-height: 1.5; }
+.session-intro p { margin: 0 0 10px; }
+.readiness-review { padding: 12px 20px; border-bottom: 1px solid var(--border-color, #ddd); font-size: 13px; line-height: 1.5; max-height: 240px; overflow: auto; flex-shrink: 0; }
+.readiness-review p { margin: 6px 0; max-width: 75ch; }
+.readiness-review summary { cursor: pointer; padding: 4px 0; }
+.readiness-review ul { padding-left: 20px; margin: 4px 0 8px; }
+.readiness-review li { margin: 4px 0; white-space: pre-line; }
+/* The middle panel can be narrow even on desktop; controls must wrap there too. */
+.metrics-bar { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.editor-toolbar, .editor-actions { flex-wrap: wrap; min-width: 0; }
+.editor-actions { gap: 8px; }
+.editor-toolbar { gap: 12px; }
+.metrics-bar, .editor-toolbar, .session-intro { flex-shrink: 0; }
+@media (max-width: 920px) {
+  body { overflow: auto; }
+  .workspace-root { height: auto; min-height: 100vh; overflow: visible; }
+  .panel { height: auto; flex: none; }
+  .panel-left { max-height: none; }
+  .panel-left .session-list { max-height: 220px; }
+  .panel-mid .spec-shell { flex: none; height: 60vh; min-height: 360px; }
+  .panel-right .chat-history { flex: none; max-height: 45vh; min-height: 160px; }
+}

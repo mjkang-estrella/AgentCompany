@@ -1,3 +1,4 @@
+import { assessReadiness } from "@/lib/readiness";
 import { extractOpenQuestionItems, extractSections, isMeaningfulContent } from "@/lib/spec";
 import type { WorkspacePayload } from "@/types/workspace";
 
@@ -78,24 +79,34 @@ function buildAgentHandoff(workspace: WorkspacePayload): string {
     "## Acceptance Criteria",
     buildAcceptanceCriteria(workspace),
     "",
-    "## Decisions Already Made",
+    "## Active Decisions",
     ensureBulletedList(sections.Decisions),
+    "",
+    "## Decision History (not active requirements)",
+    formatSection(sections["Decision History"]),
+    "",
+    "## Assumptions (unverified)",
+    formatSection(sections.Assumptions),
     "",
     "## Open Questions",
     buildOpenQuestions(workspace),
     "",
     "## Handoff Guidance",
     "- Treat the source spec above as the source of truth.",
-    "- If a detail conflicts with an assumption, follow the source spec and decisions section.",
+    "- Decision History records superseded choices, not active requirements. Do not resolve contradictory active requirements by guessing.",
     "- Resolve remaining open questions before implementation if they block core behavior.",
   ].join("\n");
 }
 
 function buildImplementationPrompt(workspace: WorkspacePayload): string {
+  const assessment = assessReadiness(workspace.session.spec_content);
   const sections = extractSections(workspace.session.spec_content);
 
   return [
-    "Implement the project described below.",
+    assessment.ready ? "Implement the project described below." : "Review this draft. Resolve the implementation blockers before writing product code.",
+    `Readiness: ${assessment.ready ? "Ready for implementation review" : "Blocked"}`,
+    "Implementation blockers:",
+    ...(assessment.blockers.length ? assessment.blockers.map(issue => `- ${issue.section}: ${issue.reason}`) : ["- None detected."]),
     "",
     "Use the specification and handoff notes as the source of truth.",
     "",
@@ -122,8 +133,11 @@ function buildImplementationPrompt(workspace: WorkspacePayload): string {
     "Acceptance criteria:",
     buildAcceptanceCriteria(workspace),
     "",
-    "Decisions already made:",
+    "Active decisions:",
     ensureBulletedList(sections.Decisions),
+    "",
+    "Assumptions (unverified):",
+    formatSection(sections.Assumptions),
     "",
     "Open questions:",
     buildOpenQuestions(workspace),
@@ -138,7 +152,17 @@ function buildImplementationPrompt(workspace: WorkspacePayload): string {
 }
 
 export function buildExportBundle(workspace: WorkspacePayload): string {
+  const assessment = assessReadiness(workspace.session.spec_content);
   return [
+    `> ${assessment.ready ? "READY FOR IMPLEMENTATION REVIEW" : "DRAFT: NOT READY FOR IMPLEMENTATION"}`,
+    `> ${assessment.reason}`,
+    "",
+    "## Implementation blockers",
+    ...(assessment.blockers.length ? assessment.blockers.map(issue => `- [blocker] ${issue.section}: ${issue.reason}`) : ["- None detected."]),
+    "",
+    "## Non-blocking follow-ups",
+    ...assessment.nonBlockers.map(item => `- ${item}`),
+    "",
     workspace.session.spec_content.trim(),
     "",
     "---",

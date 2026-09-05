@@ -71,6 +71,16 @@ export default function SessionList({
         </button>
       </div>
 
+      <div className="session-intro">
+        <p>Turn an idea into a buildable spec. Answer the highest-risk question, review blockers, then export a handoff.</p>
+        <p>Ready requires concrete users, a problem, scope, constraints, and observable acceptance criteria.</p>
+        <button className="toggle-button" disabled={isCreating || isInteractionLocked} onClick={() => {
+          setError("");
+          void onCreateSession({ title: "Example: Reading queue", example: true }).catch(error => setError(error instanceof Error ? error.message : "Unable to create example."));
+        }}>Try an example copy</button>
+        <p className="micro-text">Creates a separate editable session. Your existing sessions stay intact.</p>
+        {error && !isComposerOpen ? <p role="alert">{error}</p> : null}
+      </div>
       {isComposerOpen ? (
         <form className="session-form" onSubmit={handleSubmit}>
           <input

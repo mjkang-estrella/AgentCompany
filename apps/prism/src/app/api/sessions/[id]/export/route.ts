@@ -15,10 +15,6 @@ export async function GET(_: Request, { params }: Params) {
     return NextResponse.json({ error: "Session not found." }, { status: 404 });
   }
 
-  if (!workspace.session.is_ready) {
-    return NextResponse.json({ error: "Session is not ready for export yet." }, { status: 409 });
-  }
-
   return new NextResponse(buildExportBundle(workspace), {
     status: 200,
     headers: {

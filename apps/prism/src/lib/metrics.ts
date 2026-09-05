@@ -1,3 +1,4 @@
+import { applyReadiness } from "@/lib/readiness";
 import type { AmbiguityLabel, ClarificationMetrics } from "@/types/workspace";
 import {
   collectPlaceholderWarnings,
@@ -81,7 +82,7 @@ export function buildClarificationMetrics(input: MetricsInput): ClarificationMet
   );
   const overallScore = computeOverallScore(input.ambiguityScore, ambiguity, openQuestions);
 
-  return {
+  return applyReadiness({
     readiness: overallScore,
     structure,
     ambiguity,
@@ -95,5 +96,5 @@ export function buildClarificationMetrics(input: MetricsInput): ClarificationMet
     goal_justification: input.goalJustification,
     constraint_justification: input.constraintJustification,
     success_criteria_justification: input.successCriteriaJustification,
-  };
+  }, input.specContent);
 }

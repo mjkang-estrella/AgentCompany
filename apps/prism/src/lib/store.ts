@@ -1,3 +1,4 @@
+import { applyReadiness, assessReadiness, readinessQuestion } from "@/lib/readiness";
 import { createInMemoryPrismStore } from "@/lib/stores/in-memory";
 import { createConvexPrismStore } from "@/lib/stores/convex";
 import type {
@@ -31,11 +32,26 @@ export function createTestStore(): PrismStoreAdapter {
 }
 
 export async function listSessionSummaries() {
-  return getStore().listSessionSummaries();
+  const summaries = await getStore().listSessionSummaries();
+  const result = [];
+  // Bound fan-out while revalidating legacy summaries without mutating their rows.
+  for (let offset = 0; offset < summaries.length; offset += 8) {
+    result.push(...await Promise.all(summaries.slice(offset, offset + 8).map(async summary => {
+      const workspace = await getWorkspace(summary.id);
+      return workspace ? { ...summary, is_ready: workspace.session.is_ready, overall_score: workspace.metrics.overall_score, ambiguity: workspace.metrics.ambiguity } : summary;
+    })));
+  }
+  return result;
 }
 
 export async function getWorkspace(sessionId: string) {
-  return getStore().getWorkspace(sessionId);
+  const workspace = await getStore().getWorkspace(sessionId);
+  if (!workspace) return null;
+  const spec = workspace.session.spec_content;
+  const assessment = assessReadiness(spec);
+  const metrics = applyReadiness(workspace.metrics, spec);
+  const pendingQuestion = assessment.ready ? null : readinessQuestion(spec, workspace.session.clarification_round + 1, workspace.transcript.filter(entry => entry.role === "assistant").map(entry => entry.content));
+  return { ...workspace, metrics, pendingQuestion, session: { ...workspace.session, metrics, is_ready: assessment.ready, pending_question: pendingQuestion } };
 }
 
 export async function createSessionSeed(input: {

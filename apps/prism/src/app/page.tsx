@@ -23,7 +23,7 @@ export default function HomePage() {
   const isMarketResearchRunning = marketReportStatus === "pending" || marketReportStatus === "running";
   const isAiBusy = isCreating || isSavingDraft || isSubmittingAnswer;
   const isInteractionLocked = isAiBusy || isSelectingSession || deletingSessionId !== null;
-  const isQuestionLocked = isCreating || isSubmittingAnswer || isSelectingSession || deletingSessionId !== null;
+  const isQuestionLocked = isCreating || isSavingDraft || isSubmittingAnswer || isSelectingSession || deletingSessionId !== null;
   const isSpecLocked = isAiBusy || isSelectingSession || deletingSessionId !== null;
 
   async function loadSessions(selectFirst = true) {
@@ -247,7 +247,7 @@ export default function HomePage() {
   }
 
   async function exportMarkdown() {
-    if (!workspace?.session.is_ready) {
+    if (!workspace) {
       return;
     }
 

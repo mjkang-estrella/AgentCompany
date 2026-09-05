@@ -31,8 +31,10 @@ export default function ClarificationPanel({
       .map((entry) => entry.round_number) ?? []
   );
   const historyEntries = workspace?.transcript.filter((entry) => {
+    // Only the latest question in a round corresponds to the submitted answer.
+    if (entry.role === "assistant" && workspace.transcript.some(other => other.role === "assistant" && other.round_number === entry.round_number && workspace.transcript.indexOf(other) > workspace.transcript.indexOf(entry))) return false;
+
     if (
-      workspace.session.is_ready &&
       entry.role === "assistant" &&
       entry.entry_type === "question" &&
       !answeredRounds.has(entry.round_number)
@@ -156,7 +158,7 @@ export default function ClarificationPanel({
             <div className="choice-stack">
               {pendingQuestion.suggested_choices.map((choice, index) => (
                 <button
-                  className={`choice-option${index === 0 ? " recommended" : ""}`}
+                  className="choice-option"
                   key={choice.key}
                   type="button"
                   onClick={() => void submitChoice(choice)}
@@ -165,7 +167,7 @@ export default function ClarificationPanel({
                   <span className="choice-index">{index + 1}.</span>
                   <span>
                     {choice.label}
-                    {index === 0 ? <span className="choice-recommendation"> (Recommendation)</span> : null}
+
                   </span>
                 </button>
               ))}
@@ -173,6 +175,7 @@ export default function ClarificationPanel({
               <form className="choice-option choice-option-input" onSubmit={submitFreeText}>
                 <span className="choice-index">{pendingQuestion.suggested_choices.length + 1}.</span>
                 <textarea
+                  aria-label="Your answer"
                   className="choice-input"
                   value={value}
                   onChange={(event) => setValue(event.target.value)}

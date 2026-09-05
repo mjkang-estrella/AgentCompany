@@ -1,3 +1,4 @@
+import { READY_SPEC } from "./readiness-fixture";
 import { vi } from "vitest";
 import { createSessionWorkspace, getSessionWorkspace } from "@/lib/clarification";
 import { createTestStore, saveSessionSnapshot, setStoreAdapterForTests } from "@/lib/store";
@@ -58,7 +59,7 @@ describe("research-market route", () => {
     });
 
     await saveSessionSnapshot(workspace.session.id, {
-      specContent: workspace.session.spec_content,
+      specContent: READY_SPEC,
       clarificationRound: workspace.session.clarification_round,
       metrics: {
         ...workspace.metrics,

@@ -125,7 +125,7 @@ Current score breakdown:
 
 Target the single biggest remaining ambiguity. Do not restate or lightly rephrase any recent assistant question unless the latest answer is still clearly insufficient and you can ask a narrower follow-up. Return strict JSON with:
 - question: string
-- suggested_choices: 2-4 concise options that directly answer the exact question
+- suggested_choices: 0-4 optional choices that directly answer the question; use an empty array when choices would invent preferences
 - target_dimension: one of "goal", "constraints", "success_criteria", "context"`;
 }
 
@@ -181,7 +181,7 @@ export function buildScoringSystemPrompt(isBrownfield = false): string {
 Evaluate four components:
 1. Goal Clarity (35%): Is the goal specific and well-defined?
 2. Constraint Clarity (25%): Are constraints and limitations specified?
-3. Success Criteria Clarity (25%): Are success criteria measurable?
+3. Success Criteria Clarity (25%): Do acceptance criteria describe observable pass/fail behavior? Require numeric targets only for quantitative goals.
 4. Context Clarity (15%): Is the existing codebase context clear? Are referenced codebases, patterns, and conventions well understood?
 
 Score each from 0.0 (unclear) to 1.0 (perfectly clear). Scores above 0.8 require very specific requirements.
@@ -197,7 +197,7 @@ Required JSON format:
 Evaluate three components:
 1. Goal Clarity (40%): Is the goal specific and well-defined?
 2. Constraint Clarity (30%): Are constraints and limitations specified?
-3. Success Criteria Clarity (30%): Are success criteria measurable?
+3. Success Criteria Clarity (30%): Do acceptance criteria describe observable pass/fail behavior? Require numeric targets only for quantitative goals.
 
 Score each from 0.0 (unclear) to 1.0 (perfectly clear). Scores above 0.8 require very specific requirements.
 
@@ -227,6 +227,11 @@ Rules:
 - Do NOT invent implementation details, technologies, deadlines, or user personas that were not confirmed.
 - If uncertainty remains, keep it in "Open Questions" instead of guessing.
 - Keep the document concise, implementation-ready, and readable.
+- Decisions contains ONLY currently applicable decisions. Preserve replaced or rejected decisions in Decision History, with the reason and latest round. Never silently choose between conflicting decisions.
+- Put unconfirmed assumptions in Assumptions. Treat user answers as evidence, not proof of completeness.
+- Detect semantic contradictions across ALL sections. Put each unresolved conflict or implementation-blocking dependency in Open Questions with a [blocker] prefix. Optional follow-ups must use [non-blocker]. Remove a blocker only when the answer explicitly resolves it.
+- Problem, Users, Goals, Non-Goals and Constraints need project-specific facts. Do not infer missing people or problems from the title.
+- Success Criteria must specify an action and observable pass/fail result. Functional behavior is valid without business metrics. For quantitative goals require a target, unit and measurement context; a request to define metrics is not a criterion.
 
 Return strict JSON with:
 - spec_markdown: the full markdown document
@@ -376,7 +381,7 @@ export const questionSchema = {
     },
     suggested_choices: {
       type: "array",
-      minItems: 2,
+      minItems: 0,
       maxItems: 4,
       items: {
         type: "object",
@@ -419,7 +424,7 @@ export const choiceSchema = {
   properties: {
     suggested_choices: {
       type: "array",
-      minItems: 2,
+      minItems: 0,
       maxItems: 4,
       items: {
         type: "object",
