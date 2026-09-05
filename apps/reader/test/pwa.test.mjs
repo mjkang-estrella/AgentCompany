@@ -76,11 +76,17 @@ test("bottom safe-area inset only applies when Reader runs as a home-screen app"
     /@media \(display-mode: standalone\), \(display-mode: fullscreen\)\s*\{\s*:root\s*\{\s*--safe-area-bottom: env\(safe-area-inset-bottom\);/u
   );
   assert.doesNotMatch(css.replace(/--safe-area-bottom: env\(safe-area-inset-bottom\);/u, ""), /env\(safe-area-inset-bottom\)/u);
-  // The phone tab bar sits flush with the bottom edge with no inset at all.
+  // The phone tab bar floats above content and rests above the safe area,
+  // as Apple's Human Interface Guidelines describe for iOS 26 tab bars.
+  const phoneLayout = css.match(/@media \(max-width: 640px\)[\s\S]*?\.app-layout \{([\s\S]*?)\}/u);
+  assert.ok(phoneLayout, "phone .app-layout rule missing");
+  assert.match(phoneLayout[1], /--tab-bar-offset: max\(16px, var\(--safe-area-bottom\)\);/u);
   const phoneRail = css.match(/@media \(max-width: 640px\)[\s\S]*?\.icon-rail \{([\s\S]*?)\}/u);
   assert.ok(phoneRail, "phone .icon-rail rule missing");
-  assert.match(phoneRail[1], /padding: 6px 8px;/u);
-  assert.doesNotMatch(phoneRail[1], /safe-area/u);
+  assert.match(phoneRail[1], /position: absolute;/u);
+  assert.match(phoneRail[1], /bottom: var\(--tab-bar-offset\);/u);
+  assert.match(phoneRail[1], /backdrop-filter/u);
+  assert.match(css, /\.list-content \{\s*padding-bottom: var\(--tab-bar-clearance\);/u);
   // Standalone sizes the body to the large viewport so no canvas shows under the bar.
   assert.match(css, /display-mode: standalone[\s\S]*?body \{\s*height: 100vh;\s*height: 100lvh;/u);
 });
