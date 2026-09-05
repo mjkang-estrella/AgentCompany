@@ -4,7 +4,7 @@
 // interface while online. The cache only backs same-origin GET requests and is
 // used as an offline fallback for the app shell and previously loaded assets.
 
-const CACHE_NAME = "reader-shell-v1";
+const CACHE_NAME = "reader-shell-v2";
 const SHELL_URLS = ["/", "/index.html", "/styles.css", "/app.js", "/icons.js", "/favicon.svg", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
