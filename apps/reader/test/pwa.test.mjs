@@ -76,7 +76,13 @@ test("bottom safe-area inset only applies when Reader runs as a home-screen app"
     /@media \(display-mode: standalone\), \(display-mode: fullscreen\)\s*\{\s*:root\s*\{\s*--safe-area-bottom: env\(safe-area-inset-bottom\);/u
   );
   assert.doesNotMatch(css.replace(/--safe-area-bottom: env\(safe-area-inset-bottom\);/u, ""), /env\(safe-area-inset-bottom\)/u);
-  assert.match(css, /padding: 6px 8px max\(6px, var\(--safe-area-bottom\)\);/u);
+  // The phone tab bar sits flush with the bottom edge with no inset at all.
+  const phoneRail = css.match(/@media \(max-width: 640px\)[\s\S]*?\.icon-rail \{([\s\S]*?)\}/u);
+  assert.ok(phoneRail, "phone .icon-rail rule missing");
+  assert.match(phoneRail[1], /padding: 6px 8px;/u);
+  assert.doesNotMatch(phoneRail[1], /safe-area/u);
+  // Standalone sizes the body to the large viewport so no canvas shows under the bar.
+  assert.match(css, /display-mode: standalone[\s\S]*?body \{\s*height: 100vh;\s*height: 100lvh;/u);
 });
 
 test("every browser module reachable from app.js is cache-busted through the import map", () => {
