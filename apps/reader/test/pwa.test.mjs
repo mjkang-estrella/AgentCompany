@@ -76,5 +76,49 @@ test("bottom safe-area inset only applies when Reader runs as a home-screen app"
     /@media \(display-mode: standalone\), \(display-mode: fullscreen\)\s*\{\s*:root\s*\{\s*--safe-area-bottom: env\(safe-area-inset-bottom\);/u
   );
   assert.doesNotMatch(css.replace(/--safe-area-bottom: env\(safe-area-inset-bottom\);/u, ""), /env\(safe-area-inset-bottom\)/u);
-  assert.match(css, /padding: 6px 8px max\(6px, var\(--safe-area-bottom\)\);/u);
+  // The phone tab bar sits flush with the bottom edge with no inset at all.
+  const phoneRail = css.match(/@media \(max-width: 640px\)[\s\S]*?\.icon-rail \{([\s\S]*?)\}/u);
+  assert.ok(phoneRail, "phone .icon-rail rule missing");
+  assert.match(phoneRail[1], /padding: 6px 8px;/u);
+  assert.doesNotMatch(phoneRail[1], /safe-area/u);
+  // Standalone sizes the body to the large viewport so no canvas shows under the bar.
+  assert.match(css, /display-mode: standalone[\s\S]*?body \{\s*height: 100vh;\s*height: 100lvh;/u);
+});
+
+test("every browser module reachable from app.js is cache-busted through the import map", () => {
+  const html = read("index.html");
+
+  const versions = new Set([...html.matchAll(/\?v=([0-9a-z-]+)/gu)].map((match) => match[1]));
+  assert.equal(versions.size, 1, `expected one shared ?v= in index.html, found: ${[...versions].join(", ")}`);
+  const [version] = versions;
+
+  const importMapSource = html.match(/<script type="importmap">\s*([\s\S]*?)\s*<\/script>/u);
+  assert.ok(importMapSource, "import map missing from index.html");
+  const importMap = JSON.parse(importMapSource[1]).imports;
+  assert.ok(html.indexOf('<script type="importmap">') < html.indexOf('<script type="module"'), "import map must precede the module script");
+
+  // Walk relative imports from app.js so a new module cannot slip in unversioned.
+  const seen = new Set();
+  const queue = ["/app.js"];
+  while (queue.length > 0) {
+    const modulePath = queue.shift();
+    if (seen.has(modulePath)) {
+      continue;
+    }
+    seen.add(modulePath);
+    const source = read(modulePath.slice(1));
+    for (const match of source.matchAll(/(?:from|import)\s*"(\.{1,2}\/[^"]+)"/gu)) {
+      const resolved = new URL(match[1], `https://reader.local${modulePath}`).pathname;
+      queue.push(resolved);
+    }
+  }
+  seen.delete("/app.js");
+
+  assert.ok(seen.size > 0, "expected app.js to import local modules");
+  for (const modulePath of seen) {
+    assert.equal(importMap[modulePath], `${modulePath}?v=${version}`, `import map entry for ${modulePath}`);
+  }
+  for (const key of Object.keys(importMap)) {
+    assert.ok(seen.has(key), `import map entry ${key} is not imported by app.js`);
+  }
 });

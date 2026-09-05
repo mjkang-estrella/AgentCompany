@@ -109,6 +109,14 @@ body {
     :root {
         --safe-area-bottom: env(safe-area-inset-bottom);
     }
+
+    /* As a home-screen app there are no browser toolbars, yet iOS can report
+       100dvh shorter than the web view, which left a strip of bare canvas
+       under the tab bar. The large viewport unit spans the full view. */
+    body {
+        height: 100vh;
+        height: 100lvh;
+    }
 }
 
 .app-layout {
@@ -2192,9 +2200,9 @@ textarea.text-input {
         border-right: none;
         border-top: 1px solid var(--border-light);
         background-color: var(--bg-panel);
-        /* The home-indicator inset replaces the base padding instead of stacking
-           on it, so the icons sit close to the bottom edge. */
-        padding: 6px 8px max(6px, var(--safe-area-bottom));
+        /* Deliberately no home-indicator inset: the bar sits flush with the
+           bottom edge and the indicator overlays its lower padding. */
+        padding: 6px 8px;
     }
 
     .icon-rail-top {
