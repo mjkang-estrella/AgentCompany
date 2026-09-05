@@ -16,7 +16,7 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/icons/icon-180.png">
     <title>Reader | MJ Kang</title>
-    <link rel="stylesheet" href="/styles.css?v=20260903-mobile-nav-polish">
+    <link rel="stylesheet" href="/styles.css?v=20260905-module-cache-bust">
 </head>
 <body>
 <a class="skip-link" href="#article-view">Skip to content</a>
@@ -264,6 +264,22 @@
 </dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"></script>
-<script type="module" src="/app.js?v=20260903-mobile-nav-polish"></script>
+<!-- Every browser module app.js pulls in gets the same cache-busting query as
+     app.js itself. The Cloudflare proxy in front of reader.mj-kang.com extends
+     the browser cache for scripts to four hours, so a bare "./icons.js" import
+     could pair a fresh app.js with a stale icons.js and fail at startup. Keep
+     these entries in sync with the ?v= above; test/pwa.test.mjs enforces it. -->
+<script type="importmap">
+{
+  "imports": {
+    "/icons.js": "/icons.js?v=20260905-module-cache-bust",
+    "/lib/client-api.js": "/lib/client-api.js?v=20260905-module-cache-bust",
+    "/lib/dom-render.js": "/lib/dom-render.js?v=20260905-module-cache-bust",
+    "/lib/feed-group-name.mjs": "/lib/feed-group-name.mjs?v=20260905-module-cache-bust",
+    "/lib/reader-routes.mjs": "/lib/reader-routes.mjs?v=20260905-module-cache-bust"
+  }
+}
+</script>
+<script type="module" src="/app.js?v=20260905-module-cache-bust"></script>
 </body>
 </html>
