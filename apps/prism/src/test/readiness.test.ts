@@ -1,3 +1,5 @@
+import { vi } from "vitest";
+import * as provider from "@/lib/openai";
 import { assessReadiness, readinessQuestion } from "@/lib/readiness";
 import { buildInitialSpec, updateSection, extractSections } from "@/lib/spec";
 import {
@@ -108,7 +110,7 @@ describe("readiness lifecycle", () => {
     delete process.env.ANTHROPIC_API_KEY;
     setStoreAdapterForTests(createTestStore());
   });
-  afterEach(() => setStoreAdapterForTests(null));
+  afterEach(() => { setStoreAdapterForTests(null); vi.restoreAllMocks(); });
   it("resolves the example through answers, exports evidence, and reopens after a destructive draft edit", async () => {
     const original = await createSessionWorkspace({ title: "Original idea" });
     const example = await createSessionWorkspace({ title: "Example copy" });
@@ -148,6 +150,17 @@ describe("readiness lifecycle", () => {
       (await getSessionWorkspace(original.session.id))?.session.spec_content,
     ).toBe(original.session.spec_content);
   });
+  it("retains model-reported blockers even when the returned markdown looks complete", async () => {
+    const session = await createSessionWorkspace({ title: "Model review" });
+    await updateSessionDraft(session.session.id, EXAMPLE_SPEC);
+    vi.spyOn(provider, "hasStructuredJsonProvider").mockReturnValue(true);
+    vi.spyOn(provider, "requestStructuredJson").mockResolvedValue({ spec_markdown: READY_SPEC, warnings: [], open_questions: ["Confirm permission to use the required data source."] });
+    const result = await submitSessionAnswer(session.session.id, { answer: EXAMPLE_ACCEPTANCE });
+    expect(result.session.is_ready).toBe(false);
+    expect(result.session.spec_content).toContain("[blocker] Confirm permission");
+    expect(result.pendingQuestion?.question).toContain("permission");
+  });
+
   it("preserves replaced decisions and transcript while resolving a conflict", async () => {
     const session = await createSessionWorkspace({
       title: "Conflicting choices",

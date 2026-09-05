@@ -286,11 +286,12 @@ async function rewriteSpecification(input: {
         input.session.spec_content
       );
 
-      const warnings = Array.isArray(result.warnings) ? result.warnings.filter(item => typeof item === "string" && item.trim()) : [];
-      if (warnings.length) {
+      const findings = [...(Array.isArray(result.warnings) ? result.warnings : []), ...(Array.isArray(result.open_questions) ? result.open_questions : [])]
+        .filter((item): item is string => typeof item === "string" && Boolean(item.trim()) && !/^(none|no (?:critical )?open questions remain)[.!]?$/i.test(item.trim()));
+      if (findings.length) {
         const sections = extractSections(canonical);
-        for (const warning of warnings) {
-          if (!sections["Open Questions"].includes(warning)) sections["Open Questions"] = appendBullet(sections["Open Questions"], `[blocker] ${warning}`);
+        for (const finding of findings) {
+          if (!sections["Open Questions"].includes(finding)) sections["Open Questions"] = appendBullet(sections["Open Questions"], /^\[(?:non-)?blocker\]/i.test(finding) ? finding : `[blocker] ${finding}`);
         }
         canonical = serializeSpec(input.session.title, sections);
       }
