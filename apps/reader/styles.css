@@ -2180,29 +2180,42 @@ textarea.text-input {
 }
 
 @media (max-width: 640px) {
-    /* Two-step phone flow: the list screen (with a bottom tab bar) and the
-       reading screen stack in the same grid cell, and the list slides over the
-       reading pane while it is open. The reading screen hides the tab bar and
-       shows a back button instead. */
+    /* Two-step phone flow: the list screen and the reading screen stack in
+       the same grid cell, and the list slides over the reading pane while it
+       is open. The reading screen hides the tab bar and shows a list button
+       instead.
+
+       Per Apple's Human Interface Guidelines for iOS 26, the tab bar floats
+       above content at the bottom of the screen on a translucent background,
+       inset from the edges and resting above the safe area (home indicator).
+       Content scrolls beneath it, so the scroll containers reserve clearance. */
     .app-layout {
+        --tab-bar-height: 56px;
+        --tab-bar-offset: max(16px, var(--safe-area-bottom));
+        --tab-bar-clearance: calc(var(--tab-bar-height) + var(--tab-bar-offset) + 12px);
         position: relative;
         display: grid;
         grid-template-columns: minmax(0, 1fr);
-        grid-template-rows: minmax(0, 1fr) auto;
+        grid-template-rows: minmax(0, 1fr);
     }
 
     .icon-rail {
-        grid-row: 2;
-        grid-column: 1;
-        width: 100%;
+        position: absolute;
+        left: calc(12px + env(safe-area-inset-left));
+        right: calc(12px + env(safe-area-inset-right));
+        bottom: var(--tab-bar-offset);
+        z-index: 34;
+        width: auto;
+        height: var(--tab-bar-height);
         flex-direction: row;
         align-items: stretch;
-        border-right: none;
-        border-top: 1px solid var(--border-light);
-        background-color: var(--bg-panel);
-        /* Deliberately no home-indicator inset: the bar sits flush with the
-           bottom edge and the indicator overlays its lower padding. */
         padding: 6px 8px;
+        border: 1px solid color-mix(in srgb, var(--border-light) 70%, transparent);
+        border-radius: calc(var(--tab-bar-height) / 2);
+        background-color: color-mix(in srgb, var(--bg-panel) 80%, transparent);
+        -webkit-backdrop-filter: blur(20px) saturate(1.5);
+        backdrop-filter: blur(20px) saturate(1.5);
+        box-shadow: 0 8px 24px var(--shadow-overlay);
     }
 
     .icon-rail-top {
@@ -2236,6 +2249,12 @@ textarea.text-input {
         min-height: 0;
     }
 
+    /* Leave room for the floating tab bar so the last item can scroll clear
+       of it. The reading screen hides the bar and only needs the safe area. */
+    .list-content {
+        padding-bottom: var(--tab-bar-clearance);
+    }
+
     .article-list-panel {
         position: relative;
         z-index: 30;
@@ -2267,7 +2286,7 @@ textarea.text-input {
     .toast {
         left: 16px;
         right: 16px;
-        bottom: calc(76px + var(--safe-area-bottom));
+        bottom: calc(var(--tab-bar-clearance) + 4px);
     }
 
     .app-layout.is-mobile-reading ~ .toast {
@@ -2318,7 +2337,11 @@ textarea.text-input {
     }
 
     .pane-content-scroll {
-        padding: 24px 20px max(28px, var(--safe-area-bottom));
+        padding: 24px 20px var(--tab-bar-clearance);
+    }
+
+    .app-layout.is-mobile-reading .pane-content-scroll {
+        padding-bottom: max(28px, var(--safe-area-bottom));
     }
 
     .article-header {
