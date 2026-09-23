@@ -6,6 +6,7 @@ import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
 
 import { hashArticleContent } from "../lib/content-hash.mjs";
+import { getOpenAiApiKey } from "../lib/daily-digest.mjs";
 import {
   NEWSLETTER_LABEL_INGESTED,
   NEWSLETTER_LABEL_PARSED_V2,
@@ -234,7 +235,13 @@ export const syncInbox = internalAction({
 
       const result = articles.length > 0
         ? await ctx.runMutation(internal.sync.upsertArticles, { articles })
-        : { inserted: 0, skipped: 0, updated: 0 };
+        : { changedArticleIds: [], inserted: 0, skipped: 0, updated: 0 };
+
+      if (result.changedArticleIds.length > 0 && getOpenAiApiKey()) {
+        await ctx.scheduler.runAfter(0, internal.articleSummaryNode.generateForArticles, {
+          articleIds: result.changedArticleIds
+        });
+      }
 
       for (const messageId of ingestedMessageIds) {
         try {

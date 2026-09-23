@@ -84,6 +84,7 @@ export default defineSchema({
     articleId: v.id("articles"),
     bodyHtml: v.string(),
     bodySource: v.union(v.literal("feed"), v.literal("fetched")),
+    originalFeedBodyHtml: v.optional(v.string()),
     summaryHtml: v.string()
   }).index("by_article_id", ["articleId"]),
 
@@ -99,6 +100,18 @@ export default defineSchema({
   })
     .index("by_article_id", ["articleId"])
     .index("by_article_id_and_start_offset", ["articleId", "startOffset"]),
+
+  articleSummaries: defineTable({
+    articleId: v.id("articles"),
+    error: v.optional(v.string()),
+    generatedAt: v.optional(v.number()),
+    gist: v.string(),
+    keyPoints: v.array(v.string()),
+    model: v.string(),
+    sourceHash: v.string(),
+    status: digestStatus,
+    takeaway: v.string()
+  }).index("by_article_id", ["articleId"]),
 
   books: defineTable({
     accent: v.string(),

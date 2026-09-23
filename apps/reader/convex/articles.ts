@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import { action, internalMutation, internalQuery } from "./_generated/server";
 
 import { hashArticleContent } from "../lib/content-hash.mjs";
+import { getOpenAiApiKey } from "../lib/daily-digest.mjs";
 import {
   extractArticleWithBrowserUse,
   shouldUseBrowserFallbackForStatus
@@ -663,12 +664,7 @@ export const upsertManualArticle = internalMutation({
   }
 });
 
-export const addFromUrl = action({
-  args: {
-    url: v.string()
-  },
-  returns: manualArticleUpsertResultValidator,
-  handler: async (ctx, args) => {
+const addFromUrlHandler = async (ctx: any, args: { url: string }) => {
     const requestedUrl = args.url.trim();
     if (!requestedUrl) {
       throw new Error("URL is required");
@@ -778,6 +774,23 @@ export const addFromUrl = action({
       pageUrl: page.url,
       prepared
     });
+};
+
+export const addFromUrl = action({
+  args: {
+    url: v.string()
+  },
+  returns: manualArticleUpsertResultValidator,
+  handler: async (ctx, args) => {
+    const result = await addFromUrlHandler(ctx, args);
+
+    if (getOpenAiApiKey()) {
+      await ctx.scheduler.runAfter(0, internal.articleSummaryNode.generateForArticles, {
+        articleIds: [result.articleId]
+      });
+    }
+
+    return result;
   }
 });
 

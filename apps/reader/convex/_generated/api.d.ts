@@ -9,6 +9,8 @@
  */
 
 import type * as articleContent from "../articleContent.js";
+import type * as articleSummary from "../articleSummary.js";
+import type * as articleSummaryNode from "../articleSummaryNode.js";
 import type * as articles from "../articles.js";
 import type * as books from "../books.js";
 import type * as crons from "../crons.js";
@@ -30,6 +32,8 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   articleContent: typeof articleContent;
+  articleSummary: typeof articleSummary;
+  articleSummaryNode: typeof articleSummaryNode;
   articles: typeof articles;
   books: typeof books;
   crons: typeof crons;

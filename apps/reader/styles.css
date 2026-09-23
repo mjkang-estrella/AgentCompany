@@ -1225,6 +1225,102 @@ body {
     gap: 6px;
 }
 
+.inspector-summary {
+    gap: 10px;
+    padding-bottom: 18px;
+    margin-bottom: 18px;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.inspector-summary-gist {
+    font-family: var(--font-family);
+    font-size: var(--font-size-base);
+    line-height: 1.6;
+    color: var(--text-primary);
+}
+
+.inspector-summary-points {
+    list-style: none;
+    counter-reset: summary-point;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+}
+
+.inspector-summary-points li {
+    position: relative;
+    padding-left: 24px;
+    font-size: var(--font-size-sm);
+    line-height: 1.55;
+    color: var(--text-primary);
+    counter-increment: summary-point;
+}
+
+.inspector-summary-points li::before {
+    content: counter(summary-point);
+    position: absolute;
+    left: 0;
+    top: 0.15em;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+    font-family: var(--font-family-ui);
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1;
+}
+
+.inspector-summary-takeaway {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 12px;
+    border-radius: var(--radius-md);
+    background: var(--accent-orange-light);
+    color: var(--text-primary);
+    font-size: var(--font-size-sm);
+    line-height: 1.55;
+}
+
+.inspector-summary-takeaway-label {
+    font-family: var(--font-family-ui);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--accent-orange-text);
+}
+
+.inspector-summary-loading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+}
+
+.inspector-summary-failed {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.inspector-summary-refresh {
+    min-width: 24px;
+    min-height: 24px;
+    padding: 2px;
+    color: var(--text-secondary);
+    font-size: var(--font-size-base);
+}
+
 .highlight-item {
     width: 100%;
     border: 1px solid color-mix(in srgb, var(--highlight-bg) 58%, var(--border-light));

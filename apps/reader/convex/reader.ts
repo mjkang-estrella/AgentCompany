@@ -29,6 +29,7 @@ import {
   getArticleBodyDocument,
   upsertArticleBodyDocument
 } from "./articleContent";
+import { deleteArticleSummaryDocument } from "./articleSummary";
 
 const scopeValidator = v.union(
   v.literal("all"),
@@ -515,6 +516,7 @@ export const deleteArticle = mutation({
 
     await deleteArticleBodyDocument(ctx, args.articleId);
     await deleteArticleHighlightDocuments(ctx, args.articleId);
+    await deleteArticleSummaryDocument(ctx, args.articleId);
 
     const sourceType = article.sourceType || "feed";
     if (sourceType === "manual") {
