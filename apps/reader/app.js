@@ -56,6 +56,7 @@ const emptyCounts = {
 const state = {
   articles: [],
   articleRepairError: "",
+  articleSummary: null,
   counts: { ...emptyCounts },
   convexUrl: "",
   canReturnToFeedGroups: false,
@@ -186,6 +187,9 @@ const elements = {
 let toastTimer = null;
 let feedGroupEditedManually = false;
 let articleRequestToken = 0;
+let articleSummaryRequestToken = 0;
+const SUMMARY_POLL_ATTEMPTS = 12;
+const SUMMARY_POLL_INTERVAL_MS = 1500;
 let isListMenuOpen = false;
 let isReaderActionsMenuOpen = false;
 let isApplyingRoute = false;
@@ -913,6 +917,59 @@ const buildSelectionPayload = (root, range) => {
   };
 };
 
+const renderSummarySection = () => {
+  const article = state.selectedArticle;
+  if (!article) {
+    return "";
+  }
+
+  const summary = state.articleSummary?.articleId === article.id ? state.articleSummary : null;
+  const status = summary?.status || "loading";
+  let body = "";
+
+  if (status === "loading" || status === "pending" || status === "running") {
+    body = `
+      <div class="inspector-summary-loading" role="status">
+        <span class="loading-pulse" aria-hidden="true"></span>
+        Summarizing…
+      </div>`;
+  } else if (status === "unavailable") {
+    body = `<div class="inspector-empty">${summary?.error
+      ? escapeHtml(summary.error)
+      : "No summary yet — the full article text isn’t available for this one."}</div>`;
+  } else if (status === "ready") {
+    const keyPoints = Array.isArray(summary.keyPoints) ? summary.keyPoints : [];
+    body = `
+      <p class="inspector-summary-gist">${escapeHtml(summary.gist)}</p>
+      ${keyPoints.length > 0
+        ? `<ol class="inspector-summary-points">${keyPoints.map((point) => `<li>${escapeHtml(point)}</li>`).join("")}</ol>`
+        : ""}
+      ${summary.takeaway
+        ? `<p class="inspector-summary-takeaway">
+            <span class="inspector-summary-takeaway-label">Takeaway</span>
+            ${escapeHtml(summary.takeaway)}
+          </p>`
+        : ""}`;
+  } else {
+    body = `
+      <div class="inspector-summary-failed">
+        <div class="inspector-empty">Couldn’t summarize this article${summary?.error ? `: ${escapeHtml(summary.error)}` : "."}</div>
+        <button class="btn-secondary inspector-summary-retry" data-summary-retry="true" type="button">Retry</button>
+      </div>`;
+  }
+
+  return `
+    <section class="inspector-section inspector-summary" aria-label="AI summary">
+      <div class="inspector-section-header">
+        <span>Summary</span>
+        ${status === "ready"
+          ? '<button class="icon-btn inspector-summary-refresh" data-summary-retry="true" type="button" title="Regenerate summary" aria-label="Regenerate summary">↻</button>'
+          : ""}
+      </div>
+      ${body}
+    </section>`;
+};
+
 const renderHighlightsRail = () => {
   if (!elements.inspectorPanelBody) {
     return;
@@ -925,14 +982,16 @@ const renderHighlightsRail = () => {
   }
 
   const highlights = state.selectedArticle?.highlights || [];
-  const inspectorTitle = `${highlights.length} Highlight${highlights.length === 1 ? "" : "s"}`;
+  const highlightsTitle = `${highlights.length} Highlight${highlights.length === 1 ? "" : "s"}`;
   const titleElement = elements.inspectorPanel.querySelector(".inspector-panel-title");
   if (titleElement) {
-    titleElement.textContent = inspectorTitle;
+    titleElement.textContent = "Inspector";
   }
 
   setTrustedHtml(elements.inspectorPanelBody, `
+    ${renderSummarySection()}
     <div class="inspector-section">
+      <div class="inspector-section-header"><span>${highlightsTitle}</span></div>
       ${highlights.length === 0
         ? '<div class="inspector-empty">Select text in the article to highlight it.</div>'
         : `<div class="inspector-list">
@@ -2310,6 +2369,7 @@ const repairArticleBody = async (articleId) => {
       throw new Error("the source still returned only a summary");
     }
 
+    loadArticleSummary(articleId).catch(() => {});
     return repaired;
   } catch (error) {
     if (state.selectedArticleId === articleId) {
@@ -2324,6 +2384,127 @@ const repairArticleBody = async (articleId) => {
   }
 };
 
+const emptySummary = (articleId, status, extra = {}) => ({
+  articleId,
+  bodyUsable: true,
+  error: "",
+  gist: "",
+  keyPoints: [],
+  status,
+  takeaway: "",
+  ...extra
+});
+
+const setArticleSummary = (articleId, summary) => {
+  if (state.selectedArticleId !== articleId) {
+    return;
+  }
+
+  state.articleSummary = { ...emptySummary(articleId, "loading"), ...summary, articleId };
+  renderHighlightsRail();
+};
+
+const isSummaryInFlight = (status) => status === "pending" || status === "running";
+
+const loadArticleSummary = async (articleId, options = {}) => {
+  const { force = false } = options;
+  if (!articleId || !state.isHighlightsPanelOpen) {
+    return;
+  }
+
+  const requestToken = ++articleSummaryRequestToken;
+  const isCurrent = () =>
+    requestToken === articleSummaryRequestToken && state.selectedArticleId === articleId;
+
+  if (force || state.articleSummary?.articleId !== articleId) {
+    setArticleSummary(articleId, emptySummary(articleId, "loading"));
+  }
+
+  try {
+    let payload = force ? null : await convexRequest("query", "articleSummary:get", { articleId });
+    if (!isCurrent()) {
+      return;
+    }
+
+    const needsGeneration =
+      force ||
+      !payload ||
+      payload.status === "missing" ||
+      payload.status === "failed" ||
+      (payload.status === "ready" && payload.isStale);
+
+    if (needsGeneration) {
+      if (payload && !payload.bodyUsable) {
+        setArticleSummary(articleId, { ...payload, status: "unavailable" });
+        return;
+      }
+
+      const ensured = await convexRequest("action", "articleSummary:ensure", { articleId, force });
+      if (!isCurrent()) {
+        return;
+      }
+
+      if (ensured.status === "unavailable") {
+        setArticleSummary(articleId, emptySummary(articleId, "unavailable", {
+          bodyUsable: false,
+          error: ensured.reason === "missing-openai-api-key"
+            ? "Summaries need OPENAI_API_KEY on the Convex deployment."
+            : ""
+        }));
+        return;
+      }
+
+      payload = await convexRequest("query", "articleSummary:get", { articleId });
+      if (!isCurrent()) {
+        return;
+      }
+    }
+
+    setArticleSummary(articleId, payload);
+
+    let attempts = 0;
+    while (isSummaryInFlight(payload.status) && attempts < SUMMARY_POLL_ATTEMPTS) {
+      attempts += 1;
+      await new Promise((resolve) => window.setTimeout(resolve, SUMMARY_POLL_INTERVAL_MS));
+      if (!isCurrent()) {
+        return;
+      }
+
+      payload = await convexRequest("query", "articleSummary:get", { articleId });
+      if (!isCurrent()) {
+        return;
+      }
+
+      setArticleSummary(articleId, payload);
+    }
+
+    if (isSummaryInFlight(payload.status)) {
+      setArticleSummary(articleId, {
+        ...payload,
+        error: "The summary is taking longer than expected.",
+        status: "failed"
+      });
+    }
+  } catch (error) {
+    if (isCurrent()) {
+      setArticleSummary(articleId, emptySummary(articleId, "failed", {
+        error: error instanceof Error ? error.message : String(error)
+      }));
+    }
+  }
+};
+
+const ensureArticleSummaryLoaded = () => {
+  const articleId = state.selectedArticleId;
+  if (!articleId || !state.selectedArticle || !state.isHighlightsPanelOpen) {
+    return;
+  }
+
+  if (state.articleSummary?.articleId !== articleId) {
+    loadArticleSummary(articleId).catch(() => {});
+  }
+};
+
 const loadArticle = async (articleId, options = {}) => {
   const {
     focusArticle = false,
@@ -2334,6 +2515,7 @@ const loadArticle = async (articleId, options = {}) => {
   state.articleRepairError = "";
   state.isRepairingArticle = false;
   state.selectedArticle = null;
+  state.articleSummary = null;
   render();
 
   try {
@@ -2345,6 +2527,7 @@ const loadArticle = async (articleId, options = {}) => {
     state.selectedArticle = article;
     state.isLoadingArticle = false;
     renderArticleTransition();
+    loadArticleSummary(articleId).catch(() => {});
 
     if (!hasUsableArticleBody(article) && !attemptedArticleRepairs.has(articleId)) {
       attemptedArticleRepairs.add(articleId);
@@ -3288,6 +3471,7 @@ elements.articleView.addEventListener("click", async (event) => {
     if (!state.isHighlightsPanelOpen) {
       state.isHighlightsPanelOpen = true;
       renderHighlightsRail();
+      ensureArticleSummaryLoaded();
     }
     const jump = elements.inspectorPanelBody?.querySelector?.(`[data-highlight-jump-id="${CSS.escape(highlightMark.dataset.highlightId)}"]`);
     if (jump) {
@@ -3448,6 +3632,15 @@ elements.articleView.addEventListener("focusout", (event) => {
 });
 
 elements.inspectorPanelBody.addEventListener("click", async (event) => {
+  const summaryRetry = event.target.closest("[data-summary-retry]");
+  if (summaryRetry) {
+    event.preventDefault();
+    if (state.selectedArticleId) {
+      loadArticleSummary(state.selectedArticleId, { force: true }).catch(() => {});
+    }
+    return;
+  }
+
   const highlightJump = event.target.closest("[data-highlight-jump-id]");
   if (highlightJump) {
     event.preventDefault();
@@ -3820,6 +4013,7 @@ elements.toggleHighlightsButton.addEventListener("click", () => {
 
   state.isHighlightsPanelOpen = !state.isHighlightsPanelOpen;
   renderHighlightsRail();
+  ensureArticleSummaryLoaded();
 });
 
 elements.inspectorCloseButton.addEventListener("click", () => {

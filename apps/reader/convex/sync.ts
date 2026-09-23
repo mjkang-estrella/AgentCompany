@@ -2,9 +2,11 @@ import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
 import { action, internalAction, internalMutation, internalQuery } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 
 import { parseFeed } from "../lib/feed-utils.mjs";
 import { hashArticleContent } from "../lib/content-hash.mjs";
+import { getOpenAiApiKey } from "../lib/daily-digest.mjs";
 import { normalizeFeedGroupName } from "../lib/feed-group-name.mjs";
 import { extractPageWithDefuddle } from "../lib/page-extractor.mjs";
 import { normalizeArticleContent } from "../lib/article-body-normalizer.mjs";
@@ -367,6 +369,7 @@ export const upsertArticles = internalMutation({
     let inserted = 0;
     let updated = 0;
     let skipped = 0;
+    const changedArticleIds: Id<"articles">[] = [];
 
     for (const article of args.articles) {
       const existing = await ctx.db
@@ -460,6 +463,7 @@ export const upsertArticles = internalMutation({
             bodySource: article.bodySource,
             summaryHtml: article.summaryHtml
           });
+          changedArticleIds.push(existing._id);
         }
 
         if (
@@ -515,10 +519,12 @@ export const upsertArticles = internalMutation({
         })
       );
 
+      changedArticleIds.push(articleId);
       inserted += 1;
     }
 
     return {
+      changedArticleIds,
       inserted,
       skipped,
       updated
@@ -548,6 +554,17 @@ const shouldStopSync = ({
     index >= RECENT_FEED_RECHECK_LIMIT &&
     publishedAt < feedLastSyncedAt
   );
+
+const scheduleArticleSummaries = async (ctx: any, articleIds: Id<"articles">[]) => {
+  if (!articleIds || articleIds.length === 0 || !getOpenAiApiKey()) {
+    return false;
+  }
+
+  await ctx.scheduler.runAfter(0, internal.articleSummaryNode.generateForArticles, {
+    articleIds
+  });
+  return true;
+};
 
 const runFeedHandler = async (ctx: any, args: { feedId: any }) => {
     const feed = await ctx.runQuery(internal.sync.getFeed, { feedId: args.feedId });
@@ -683,7 +700,9 @@ const runFeedHandler = async (ctx: any, args: { feedId: any }) => {
 
       const upsertResult = articles.length > 0
         ? await ctx.runMutation(internal.sync.upsertArticles, { articles })
-        : { inserted: 0, skipped: 0, updated: 0 };
+        : { changedArticleIds: [], inserted: 0, skipped: 0, updated: 0 };
+
+      await scheduleArticleSummaries(ctx, upsertResult.changedArticleIds);
 
       const iconUrl = parsed.siteUrl
         ? new URL("/favicon.ico", parsed.siteUrl).toString()

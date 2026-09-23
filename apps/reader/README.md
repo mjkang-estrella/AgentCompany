@@ -6,6 +6,8 @@ The reader is page-based by default: it loads exact sidebar counts plus the newe
 
 The `Today` view is a cached Daily Digest. Each morning, Convex generates one AI-written digest grouped by feed for the current digest timezone. Opening `Today` loads that digest directly instead of auto-opening the first article body, and the digest header can navigate across previously generated digest dates.
 
+Every article also gets an AI summary in the Inspector panel on the right of the reading pane, above the highlights. It is built for scanning before reading: a one-to-two sentence gist, three to six key points that follow the article's own order, and a one-line takeaway. Summaries are generated at sync time: feed sync, newsletter polling, and Library imports queue every new or content-changed article for summarization right after it is stored, so the summary is normally ready before the article is opened. Opening an article that still has no fresh summary (older archive items, re-extracted bodies, or a failed run) generates one on the spot; a summary is regenerated only when the stored body changes or you press the regenerate button in the panel. Summary rows live in the `articleSummaries` Convex table and are removed with the article.
+
 Adding a feed is asynchronous: the app creates the feed immediately, makes it visible in the feed list, and queues the first sync in Convex.
 
 Feeds can be removed from the article-list overflow menu while a feed is selected. Removing a feed permanently deletes all RSS feeds in that feed group and all synced articles attached to them.
@@ -80,6 +82,12 @@ If you want Daily Digest generation:
 - `OPENAI_API_KEY`
 - `READER_DIGEST_MODEL` (optional, defaults to `gpt-4.1-mini`)
 - `READER_DIGEST_TIMEZONE` (optional, defaults to `America/Los_Angeles`)
+
+The Inspector AI summary uses the same `OPENAI_API_KEY`. It reuses `READER_DIGEST_MODEL` unless you set:
+
+- `READER_SUMMARY_MODEL` (optional, defaults to the digest model)
+
+Without `OPENAI_API_KEY` on the Convex deployment, sync skips summary generation and the Inspector shows a short note instead of a summary.
 
 If you want email newsletters inside Reader:
 
