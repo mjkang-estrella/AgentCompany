@@ -120,3 +120,95 @@ Do not set `PORT` on Vercel. The deployed app uses static files plus the public 
 - Deploy the backend with `npm run convex:deploy`.
 - Cron syncing and Daily Digest scheduling are defined in [apps/reader/convex/crons.ts](/Users/mjkang/Develop/AgentCompany/apps/reader/convex/crons.ts).
 - Newsletter polling is also scheduled in [apps/reader/convex/crons.ts](/Users/mjkang/Develop/AgentCompany/apps/reader/convex/crons.ts).
+
+## Remote MCP for AI Newsletter
+
+Endpoint shape: `https://<deployment>.convex.site/mcp`. After production deployment,
+Reader's endpoint is **https://quixotic-condor-161.convex.site/mcp** (confirmed from
+Reader's public `/api/config`). Convex HTTP actions serve stateless Streamable HTTP
+with JSON responses, no sessions or SSE streams. Supported protocol versions:
+`2025-11-25`, `2025-06-18`, `2025-03-26`. GET/DELETE return 405.
+
+All requests require `Authorization: Bearer <READER_MCP_TOKEN>`; an absent,
+incorrect, or unconfigured token returns 401. Native Web Crypto HMAC verification
+provides constant-time MAC comparison. Origin, when present, must match the
+endpoint's origin or `https://reader.mj-kang.com`. Server-to-server clients
+normally omit Origin. Configure the bot with the endpoint and a custom bearer
+header; OAuth discovery/registration is not implemented.
+
+From `apps/reader`, set a development token with `npx convex env set READER_MCP_TOKEN`
+(the CLI prompts for its value), then run `npx convex dev --once`. Use a random,
+high-entropy token stored in 1Password, not in source or the frontend.
+
+**Production steps for MJ to approve, not performed by this PR:** select Reader's
+production deployment, run `npx convex env set --prod READER_MCP_TOKEN`, then
+`npx convex deploy` from `apps/reader`. Deployment also builds the title search
+index. Verify the endpoint before connecting the bot. Rotating the env var
+immediately invalidates the old token.
+
+```bash
+# Populate READER_MCP_TOKEN securely in your shell.
+MCP_URL=https://quixotic-condor-161.convex.site/mcp
+curl "$MCP_URL" \
+  -H "Authorization: Bearer $READER_MCP_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"AI Newsletter","version":"1"}}}'
+curl "$MCP_URL" \
+  -H "Authorization: Bearer $READER_MCP_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'MCP-Protocol-Version: 2025-11-25' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+# Tool call body example:
+# {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_digest","arguments":{}}}
+```
+
+Schemas (`?` means optional; unknown fields rejected; complete JSON Schemas are
+returned by `tools/list`):
+
+| Tool | Arguments |
+| --- | --- |
+| `get_digest` | `date?: YYYY-MM-DD` (default today in digest timezone) |
+| `list_articles` | `feed?: string ID`, `feedGroup?: string`, `source?: "newsletter" or "feed" or "manual"`, `since?: UTC ISO timestamp`, `until?: UTC ISO timestamp`, `saved?: boolean`, `limit?: integer 1–50`, `cursor?: string` |
+| `get_article` | `id: string`, `includeBody?: boolean`, `bodyOffset?: integer 0–10000000`, `bodyLimit?: integer 1–12000` |
+| `search_articles` | `query: string 1–200 chars`, `limit?: integer 1–50` |
+| `list_feeds` | `limit?: integer 1–50`, `cursor?: string` |
+
+Lists default to 20. `since` is inclusive, `until` exclusive, both UTC instants
+such as `2026-11-15T00:00:00Z`. Article lists read one bounded page and apply
+residual filters, so an empty page can still have `nextCursor`. Continue with
+unchanged filters until the cursor is null. Newsletter feeds use the existing
+`agentmail://newsletters/` URLs. Manual Library entries remain a separate source.
+Search is native full-text **title** search, not body/summary substring search.
+
+Article details include cached summary status, `isStale` (compared against the
+current article body and title), gist, up to eight key points, and
+takeaway (null if no summary). Optional plain-text bodies default to 6,000
+characters; follow `body.nextOffset`. Metadata and summary strings are capped.
+Digests use `READER_DIGEST_TIMEZONE` (default `America/Los_Angeles`), cap at 30
+sections/100 article references, and report `truncated`. Deleted references are
+omitted; cached prose may still mention deleted articles. Source URLs and Reader
+slug links are included; duplicate titles can make existing Reader slug routing
+ambiguous. Tools never generate summaries, fetch pages, or mutate data.
+
+### Existing public-function auth finding
+
+Existing public Reader Convex queries, mutations, and actions have no identity
+checks or authorization guards. Anyone with the deployment URL can call them:
+examples include `reader:listArticles`, `reader:getArticle`, `digest:getForDate`,
+`reader:updateArticle`, `reader:deleteArticle`, and `feeds:removeFeedGroup`.
+Public actions also expose imports, syncs, and AI generation. Reader publishes
+the deployment URL via `/api/config`. **The MCP token protects only `/mcp`, not
+these existing functions.** Their behavior is unchanged here; securing them needs
+a separate client/auth migration. The new MCP data query is internal-only.
+
+Validation for this implementation: `npm test --workspace apps/reader` passes
+106 tests, including MCP transport/auth and data-adapter tests. An anonymous local
+Convex deployment also passed initialize, tools/list, all five tools/call, and
+401 smoke checks. Reader has no existing lint/typecheck scripts. Targeted ESLint
+(no-unused-vars/no-unreachable) passes for the added JavaScript. A strict Convex
+TypeScript check using the CLI-generated configuration reports 73 pre-existing
+diagnostics, identical to the unchanged baseline; this PR adds none. Those
+existing errors are outside this feature's scope, so a fully green strict
+backend typecheck remains outstanding.
