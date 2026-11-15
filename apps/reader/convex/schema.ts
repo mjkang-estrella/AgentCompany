@@ -78,7 +78,8 @@ export default defineSchema({
     .index("by_source_title_deleted_published_at", ["sourceType", "feedTitle", "deletedAt", "publishedAt"])
     .index("by_digest_date_source_deleted_published_at", ["publishedDigestDate", "sourceType", "deletedAt", "publishedAt"])
     .index("by_feed_id_and_published_at", ["feedId", "publishedAt"])
-    .index("by_canonical_url", ["canonicalUrl"]),
+    .index("by_canonical_url", ["canonicalUrl"])
+    .searchIndex("search_title", { searchField: "title", filterFields: ["deletedAt"] }),
 
   articleBodies: defineTable({
     articleId: v.id("articles"),

@@ -17,6 +17,8 @@ import type * as crons from "../crons.js";
 import type * as digest from "../digest.js";
 import type * as digestNode from "../digestNode.js";
 import type * as feeds from "../feeds.js";
+import type * as http from "../http.js";
+import type * as mcp from "../mcp.js";
 import type * as migration from "../migration.js";
 import type * as newsletters from "../newsletters.js";
 import type * as newslettersNode from "../newslettersNode.js";
@@ -40,6 +42,8 @@ declare const fullApi: ApiFromModules<{
   digest: typeof digest;
   digestNode: typeof digestNode;
   feeds: typeof feeds;
+  http: typeof http;
+  mcp: typeof mcp;
   migration: typeof migration;
   newsletters: typeof newsletters;
   newslettersNode: typeof newslettersNode;
