@@ -1,3 +1,4 @@
+import { buildSummarySourceHash } from "./article-summary.mjs";
 import { stripHtml } from "./html.mjs";
 import { slugifySegment } from "./reader-routes.mjs";
 import { getDigestTimezone, getTimeZoneDateKey } from "./daily-digest.mjs";
@@ -25,10 +26,11 @@ export async function readTool(db, name, input, now = new Date()) {
     const article = id ? await db.get(id) : null;
     if (!article || article.deletedAt !== undefined) throw new Error("Article not found");
     const summary = await byArticle(db, "articleSummaries", id);
+    const body = summary || args.includeBody ? await byArticle(db, "articleBodies", id) : null;
+    const sourceHash = buildSummarySourceHash({ bodyHtml: body?.bodyHtml || article.bodyHtml || "", title: article.title });
     const result = { ...metadata(article), canonicalUrl: article.canonicalUrl || article.url,
-      summary: summary ? { status: summary.status, gist: clip(summary.gist, 2000), keyPoints: summary.keyPoints.slice(0, 8).map(point => clip(point)), takeaway: clip(summary.takeaway) } : null };
+      summary: summary ? { status: summary.status, isStale: summary.sourceHash !== sourceHash, gist: clip(summary.gist, 2000), keyPoints: summary.keyPoints.slice(0, 8).map(point => clip(point)), takeaway: clip(summary.takeaway) } : null };
     if (args.includeBody) {
-      const body = await byArticle(db, "articleBodies", id);
       const text = stripHtml(body?.bodyHtml || article.bodyHtml || body?.summaryHtml || article.summaryHtml || "");
       const offset = args.bodyOffset ?? 0;
       const end = offset + (args.bodyLimit ?? 6000);

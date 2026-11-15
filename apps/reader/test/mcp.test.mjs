@@ -1,10 +1,11 @@
+import { buildSummarySourceHash } from "../lib/article-summary.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { handleMcp, tools, tokenMatches, validateArguments } from "../lib/mcp.mjs";
 import { readTool } from "../lib/mcp-data.mjs";
 
 // A bounded in-memory query adapter exercises the same data handlers as Convex.
-function database() {
+function database({ changedBody = false, changedTitle = false, legacyBody = false } = {}) {
   const tables = {
     feeds: [{ _id: "f1", title: "RSS", feedUrl: "https://rss.test", isActive: true }, { _id: "f2", title: "Mail", feedUrl: "agentmail://newsletters/mail", isActive: true }],
     articles: [
@@ -17,6 +18,10 @@ function database() {
     articleSummaries: [{ articleId: "a1", status: "ready", gist: "Gist", keyPoints: ["Point"], takeaway: "Takeaway" }],
     dailyDigests: [{ localDate: "2026-11-14", timezone: "America/Los_Angeles", status: "ready", intro: "Today", articleCount: 2, sections: [{ feedTitle: "Mail", summary: "Summary", articles: [{ id: "a1" }, { id: "a3" }] }] }]
   };
+  tables.articleSummaries[0].sourceHash = buildSummarySourceHash({ bodyHtml: legacyBody ? tables.articles[0].bodyHtml : tables.articleBodies[0].bodyHtml, title: tables.articles[0].title });
+  if (changedBody) tables.articleBodies[0].bodyHtml = "<p>Updated content</p>";
+  if (changedTitle) tables.articles[0].title = "Updated title";
+  if (legacyBody) tables.articleBodies = [];
   return {
     normalizeId: (table, id) => id.startsWith(table === "articles" ? "a" : "f") ? id : null,
     get: async id => Object.values(tables).flat().find(row => row._id === id) || null,
@@ -122,4 +127,19 @@ test("feeds paginate with newsletter classification and search excludes deleted"
   assert.equal(second.nextCursor, null);
   assert.equal((await invoke("search_articles", { query: "AI", limit: 1 })).articles.length, 1);
   assert.equal((await invoke("search_articles", { query: "Deleted" })).articles.length, 0);
+});
+
+
+test("cached summary freshness follows current body and title without requesting body output", async () => {
+  for (const options of [{}, { legacyBody: true }]) {
+    const result = await readTool(database(options), "get_article", { id: "a1" });
+    assert.equal(result.summary.isStale, false);
+    assert.equal(result.body, undefined);
+  }
+  for (const options of [{ changedBody: true }, { changedTitle: true }]) {
+    const result = await readTool(database(options), "get_article", { id: "a1" });
+    assert.equal(result.summary.isStale, true);
+    assert.equal(result.summary.status, "ready");
+    assert.equal(result.body, undefined);
+  }
 });

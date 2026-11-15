@@ -182,7 +182,8 @@ unchanged filters until the cursor is null. Newsletter feeds use the existing
 `agentmail://newsletters/` URLs. Manual Library entries remain a separate source.
 Search is native full-text **title** search, not body/summary substring search.
 
-Article details include cached summary status, gist, up to eight key points, and
+Article details include cached summary status, `isStale` (compared against the
+current article body and title), gist, up to eight key points, and
 takeaway (null if no summary). Optional plain-text bodies default to 6,000
 characters; follow `body.nextOffset`. Metadata and summary strings are capped.
 Digests use `READER_DIGEST_TIMEZONE` (default `America/Los_Angeles`), cap at 30
@@ -203,7 +204,7 @@ these existing functions.** Their behavior is unchanged here; securing them need
 a separate client/auth migration. The new MCP data query is internal-only.
 
 Validation for this implementation: `npm test --workspace apps/reader` passes
-105 tests, including MCP transport/auth and data-adapter tests. An anonymous local
+106 tests, including MCP transport/auth and data-adapter tests. An anonymous local
 Convex deployment also passed initialize, tools/list, all five tools/call, and
 401 smoke checks. Reader has no existing lint/typecheck scripts. Targeted ESLint
 (no-unused-vars/no-unreachable) passes for the added JavaScript. A strict Convex
