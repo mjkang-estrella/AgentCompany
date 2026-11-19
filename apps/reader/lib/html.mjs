@@ -243,6 +243,10 @@ const collectRejectedImageKeys = (root, pageUrl) => {
   return rejected;
 };
 
+/**
+ * @param {{ thumbnailUrl?: string, candidates?: string[], bodyHtml?: string,
+ *   summaryHtml?: string, pageUrl: string, feedIconUrl?: string }} article
+ */
 export const selectArticleThumbnail = ({
   thumbnailUrl = "",
   candidates = [],
