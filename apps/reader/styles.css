@@ -509,6 +509,24 @@ body {
     text-align: left;
 }
 
+.item-content {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.item-copy {
+    flex: 1;
+    min-width: 0;
+}
+
+.item-thumbnail {
+    width: 72px;
+    height: 54px;
+    border-radius: 6px;
+    object-fit: cover;
+}
+
 .article-item:hover {
     background-color: var(--bg-body);
 }

@@ -29,6 +29,7 @@ import {
   createConvexRequester,
   fetchPublicConfig
 } from "./lib/client-api.js";
+import { articleImageSourceUrl, articleImageUrl } from "./lib/article-thumbnail.mjs";
 import { normalizeFeedGroupName } from "./lib/feed-group-name.mjs";
 import {
   clearHtml,
@@ -1396,48 +1397,9 @@ const isIgnorableLeadNode = (node) => {
     return true;
   }
 
-  const hasMedia = Boolean(node.querySelector("img, picture, video, iframe, canvas, svg"));
+  const mediaSelector = "img, picture, video, iframe, canvas, svg";
+  const hasMedia = node.matches(mediaSelector) || Boolean(node.querySelector(mediaSelector));
   return !hasMedia && normalizeComparableText(node.textContent) === "";
-};
-
-const isImageOnlyContainer = (node) => {
-  if (!node) {
-    return false;
-  }
-
-  if (node.tagName === "FIGURE") {
-    return Boolean(node.querySelector("img, picture, video"));
-  }
-
-  if (node.tagName === "IMG" || node.tagName === "PICTURE" || node.tagName === "VIDEO") {
-    return true;
-  }
-
-  if (!["P", "DIV"].includes(node.tagName)) {
-    return false;
-  }
-
-  const hasSingleMediaChild = node.children.length === 1 &&
-    ["IMG", "PICTURE", "VIDEO"].includes(node.firstElementChild?.tagName || "");
-
-  return hasSingleMediaChild && normalizeComparableText(node.textContent) === "";
-};
-
-const isSubstantialTextBlock = (node) => {
-  if (!node) {
-    return false;
-  }
-
-  const text = normalizeComparableText(node.textContent);
-  if (text.length === 0) {
-    return false;
-  }
-
-  if (/^H[1-6]$/u.test(node.tagName)) {
-    return true;
-  }
-
-  return text.length >= 48;
 };
 
 const stripLeadingDuplicateTitle = (root, title) => {
@@ -1505,26 +1467,18 @@ const stripLeadingMetadataBlocks = (root, comparableThumbnailUrl) => {
   return removedImageUrls;
 };
 
-const consumeLeadMediaNode = (root) => {
-  trimLeadingIgnorableNodes(root);
-  const leadNodes = Array.from(root?.children || []).filter((node) => !isIgnorableLeadNode(node)).slice(0, 3);
-
-  for (const node of leadNodes) {
-    if (isImageOnlyContainer(node)) {
-      const heroHtml = node.outerHTML;
-      node.remove();
-      return heroHtml;
-    }
-
-    if (isSubstantialTextBlock(node)) {
-      return "";
-    }
-  }
-
-  return "";
+const displayThumbnailUrl = (thumbnailUrl, url, feedIconUrl) => {
+  const imageUrl = articleImageUrl(thumbnailUrl, url);
+  return normalizeComparableUrl(imageUrl) !== normalizeComparableUrl(feedIconUrl) ? imageUrl : "";
 };
 
-const buildArticleHero = (bodyHtml, thumbnailUrl, title, url = "") => {
+const articleListThumbnail = (article) => {
+  const src = displayThumbnailUrl(article.thumbnailUrl, article.url, article.feedIconUrl);
+  return src ? `<img class="item-thumbnail" src="${escapeHtml(src)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : "";
+};
+
+const buildArticleHero = (bodyHtml, thumbnailUrl, title, url = "", feedIconUrl) => {
+  thumbnailUrl = displayThumbnailUrl(thumbnailUrl, url, feedIconUrl);
   if (!bodyHtml && !thumbnailUrl) {
     return { bodyHtml: bodyHtml || "", heroHtml: "" };
   }
@@ -1549,45 +1503,23 @@ const buildArticleHero = (bodyHtml, thumbnailUrl, title, url = "") => {
   }
 
   const metadataImageUrls = root ? stripLeadingMetadataBlocks(root, comparableThumbnailUrl) : new Set();
-  const thumbnailWasMetadata = Boolean(
-    comparableThumbnailUrl && metadataImageUrls.has(comparableThumbnailUrl)
+  const matchingImages = Array.from(root?.querySelectorAll("img[src]") || []).filter((image) =>
+    comparableThumbnailUrl &&
+    normalizeComparableUrl(image.getAttribute("src")) === comparableThumbnailUrl
+  );
+  const matchingImage = matchingImages.find((image) =>
+    articleImageSourceUrl(image, image.getAttribute("src"), url)
   );
 
-  if (root && comparableThumbnailUrl) {
-    const matchingImage = Array.from(root.querySelectorAll("img")).find((image) =>
-      normalizeComparableUrl(image.getAttribute("src")) === comparableThumbnailUrl
-    );
-
-    if (matchingImage) {
-      const paragraphWrapper =
-        matchingImage.parentElement?.tagName === "P" &&
-        matchingImage.parentElement.children.length === 1
-          ? matchingImage.parentElement
-          : null;
-      const heroNode = matchingImage.closest("figure") || paragraphWrapper || matchingImage;
-      heroHtml = heroNode.outerHTML;
-      heroNode.remove();
-    }
-  }
-
-  const leadMediaHtml = !heroHtml && root ? consumeLeadMediaNode(root) : "";
-
-  if (!heroHtml && thumbnailUrl && !thumbnailWasMetadata) {
-    heroHtml = `
-      <img
-        src="${escapeHtml(thumbnailUrl)}"
-        alt="${escapeHtml(title)}"
-        loading="eager"
-        referrerpolicy="no-referrer"
-      >
-    `;
-  }
-
-  if (!heroHtml && leadMediaHtml) {
-    heroHtml = leadMediaHtml;
-  }
-
-  if (!heroHtml && thumbnailUrl) {
+  if (matchingImage) {
+    const wrapper = matchingImage.closest("figure, p");
+    const heroNode = wrapper?.querySelectorAll("img").length === 1 &&
+      (wrapper.tagName === "FIGURE" || !wrapper.textContent.trim())
+      ? wrapper
+      : matchingImage;
+    heroHtml = heroNode.outerHTML;
+    heroNode.remove();
+  } else if (thumbnailUrl && !matchingImages.length && !metadataImageUrls.has(comparableThumbnailUrl)) {
     heroHtml = `
       <img
         src="${escapeHtml(thumbnailUrl)}"
@@ -2104,8 +2036,13 @@ const renderArticleList = () => {
             </div>
             <span class="item-time">${escapeHtml(formatListTime(article.publishedAt))}</span>
           </div>
-          <div class="item-title">${escapeHtml(articleDisplayTitle(article))}</div>
-          <div class="item-preview">${escapeHtml(article.previewText || "No preview available.")}</div>
+          <div class="item-content">
+            <div class="item-copy">
+              <div class="item-title">${escapeHtml(articleDisplayTitle(article))}</div>
+              <div class="item-preview">${escapeHtml(article.previewText || "No preview available.")}</div>
+            </div>
+            ${articleListThumbnail(article)}
+          </div>
         </button>
       `)
       .join("")}
@@ -2267,7 +2204,8 @@ const renderArticle = () => {
     article.bodyHtml,
     article.thumbnailUrl,
     articleDisplayTitle(article),
-    article.url || article.canonicalUrl || ""
+    article.url || article.canonicalUrl || "",
+    article.feedIconUrl
   );
   const articleBodyMarkup = hasUsableArticleBody(article)
     ? sanitizeHtml(articleHero.bodyHtml)

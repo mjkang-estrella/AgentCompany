@@ -11,7 +11,7 @@ import {
 } from "../lib/browser-use-extractor.mjs";
 import { extractPageWithDefuddle } from "../lib/page-extractor.mjs";
 import { normalizeArticleContent } from "../lib/article-body-normalizer.mjs";
-import { canonicalizeUrl, stripHtml } from "../lib/html.mjs";
+import { canonicalizeUrl, selectArticleThumbnail, stripHtml } from "../lib/html.mjs";
 import {
   extractXPostFromUrl,
   isLikelyLongFormXArticle,
@@ -122,13 +122,14 @@ const prepareExtractedPageArticle = (pageUrl: string, extracted: any) => {
         canonicalUrl
       })
     : (extracted.author || "");
+  const thumbnailUrl = selectArticleThumbnail({ ...extracted, pageUrl: canonicalUrl });
   const normalizedArticle = normalizeArticleContent({
     author,
     bodyHtml: extracted.bodyHtml,
     feedTitle,
     publishedAt: extracted.publishedAt,
     summaryHtml: extracted.summaryHtml || extracted.bodyHtml,
-    thumbnailUrl: extracted.thumbnailUrl || "",
+    thumbnailUrl,
     title
   });
   const bodyHtml = normalizedArticle.bodyHtml;
@@ -150,6 +151,7 @@ const prepareExtractedPageArticle = (pageUrl: string, extracted: any) => {
     readTimeMinutes: Math.max(extracted.readTimeMinutes || 0, normalizedArticle.readTimeMinutes),
     subtitle,
     summaryHtml,
+    thumbnailUrl,
     title
   };
 };
@@ -275,7 +277,7 @@ const upsertPreparedManualArticle = async (
 ) => {
   const author = prepared.author || extracted.author || "";
   const publishedAt = normalizePublishedAt(extracted.publishedAt);
-  const thumbnailUrl = extracted.thumbnailUrl || "";
+  const thumbnailUrl = prepared.thumbnailUrl;
   const storedUrl = isXStatusUrl(prepared.canonicalUrl)
     ? prepared.canonicalUrl
     : pageUrl;
@@ -445,7 +447,12 @@ export const applyReextractedArticle = internalMutation({
       readTimeMinutes: args.extraction.readTimeMinutes,
       summaryHtml: args.extraction.summaryHtml,
       subtitle: args.extraction.subtitle || current.subtitle,
-      thumbnailUrl: args.extraction.thumbnailUrl || current.thumbnailUrl,
+      thumbnailUrl: selectArticleThumbnail({
+        ...args.extraction,
+        thumbnailUrl: args.extraction.thumbnailUrl || current.thumbnailUrl,
+        pageUrl: current.url,
+        feedIconUrl: current.feedIconUrl
+      }) || undefined,
       title: current.title || args.extraction.title || current.title
     };
 
@@ -629,7 +636,11 @@ export const upsertManualArticle = internalMutation({
         readTimeMinutes: args.article.readTimeMinutes,
         savedAt: shouldRestore ? undefined : existing.savedAt,
         subtitle: args.article.subtitle !== undefined ? args.article.subtitle : existing.subtitle,
-        thumbnailUrl: args.article.thumbnailUrl || existing.thumbnailUrl,
+        thumbnailUrl: selectArticleThumbnail({
+          ...args.article,
+          thumbnailUrl: args.article.thumbnailUrl || existing.thumbnailUrl,
+          pageUrl: args.article.url
+        }) || undefined,
         title: args.article.title || existing.title,
         url: args.article.url
       });

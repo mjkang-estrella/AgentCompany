@@ -75,7 +75,7 @@ test("extractPageWithDefuddle keeps real article media and metadata", async () =
   assert.equal(extracted.title, "Introducing Proof");
   assert.equal(extracted.author, "Dan Shipper");
   assert.equal(extracted.siteName, "Every");
-  assert.equal(extracted.thumbnailUrl, "https://cdn.every.to/logo.png");
+  assert.equal(extracted.thumbnailUrl, "https://cdn.every.to/proof-hero.jpg");
   assert.match(extracted.bodyHtml, /Midjourney\/Every illustration/);
   assert.match(extracted.bodyHtml, /Most of us at Every are using AI/);
 });
@@ -266,4 +266,50 @@ test("extractPageWithDefuddle restores anchored headings and deduplicates lead m
   assert.match(extracted.bodyHtml, /<h3>What a delta sync query actually does<\/h3>/i);
   assert.doesNotMatch(extracted.bodyHtml, /Skip to content/i);
   assert.equal((extracted.bodyHtml.match(/Read path diagram/giu) || []).length, 1);
+});
+
+test("Every publication metadata yields to article figures and post covers", async () => {
+  const publication = "https://d24ovhgu8s7341.cloudfront.net/uploads/publication/logo/120/small_every.png";
+  const cover = "https://d24ovhgu8s7341.cloudfront.net/uploads/post/cover/123/thesis_live.jpg";
+  const hero = "https://cdn.every.to/proof-hero.jpg";
+  const html = `<meta property="og:image" content="${publication}">
+    <meta name="twitter:image" content="${publication}">
+    <article><div class="byline"><img src="${publication}">By Dan Shipper</div>
+    <figure><img src="${hero}" width="1100" height="600"></figure>
+    <p>The article text starts here and explains the product in enough detail for extraction.</p></article>`;
+  assert.equal((await extractPageWithDefuddle(html, "https://every.to/chain-of-thought/proof")).thumbnailUrl, hero);
+  assert.equal((await extractPageWithDefuddle(html.replace(publication, cover), "https://every.to/thesis")).thumbnailUrl, cover);
+});
+
+test("Kagi default OG card, byline photos and tiny images leave the thumbnail empty", async () => {
+  const html = `<meta property="og:image" content="/og-image.png">
+    <meta name="twitter:image" content="/photo.jpg">
+    <article><div class="byline"><img src="/author.jpg">By Kagi</div>
+    <img src="/photo.jpg" width="55" height="23">
+    <img src="/beacon.gif" width="1" height="1">
+    <p>Education shouldn't be held for ransom. This paragraph contains the beginning of the article.</p></article>`;
+  const extracted = await extractPageWithDefuddle(html, "https://blog.kagi.com/education");
+  assert.equal(extracted.thumbnailUrl, "");
+});
+
+test("article-specific social media and full-size screenshots remain eligible", async () => {
+  for (const [page, photo] of [
+    ["https://stratechery.com/2026/falling-leaves-and-stocks/", "https://stratechery.com/wp-content/uploads/GettyImages-2302583549.jpg"],
+    ["https://linear.app/changelog/mobile-diffs", "https://webassets.linear.app/images/mobile-diffs.png"],
+    ["https://x.com/BlueMinutes/status/123", "https://pbs.twimg.com/media/example?format=jpg&name=large"]
+  ]) {
+    const html = `<meta property="og:image" content="${photo}">
+      <meta property="og:image:width" content="1200">
+      <meta property="og:image:height" content="675"><article><p>Article content.</p></article>`;
+    assert.equal((await extractPageWithDefuddle(html, page)).thumbnailUrl, photo);
+  }
+});
+
+test("a social card generated from a site icon is ineligible", async () => {
+  const payload = Buffer.from(JSON.stringify({
+    img: "https://i0.wp.com/stratechery.com/images/cropped-android-chrome-512x512-1.png"
+  })).toString("base64url");
+  const html = `<meta property="og:image" content="https://s0.wp.com/_si/?t=${payload}.signature">
+    <article><p>An interview about agentic commerce.</p></article>`;
+  assert.equal((await extractPageWithDefuddle(html, "https://stratechery.com/2026/interview/")).thumbnailUrl, "");
 });
