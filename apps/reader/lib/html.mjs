@@ -2,6 +2,13 @@ import { marked } from "marked";
 import he from "he";
 import sanitizeHtml from "sanitize-html";
 import { parse } from "node-html-parser";
+import {
+  articleImageKey,
+  articleImageSources,
+  articleImageSourceUrl,
+  articleImageUrl,
+  firstArticleImage
+} from "./article-thumbnail.mjs";
 
 const SANITIZE_OPTIONS = {
   allowedTags: [
@@ -216,7 +223,84 @@ const resolveMaybeUrl = (value, pageUrl) => {
   }
 };
 
-export const extractPageMetadata = (html, pageUrl) => {
+export const extractArticleImage = (html, pageUrl) =>
+  firstArticleImage(parse(html || ""), pageUrl);
+
+const collectRejectedImageKeys = (root, pageUrl) => {
+  const rejected = new Set();
+  for (const link of root.querySelectorAll("link[rel]")) {
+    if (/\bicon\b/iu.test(link.getAttribute("rel") || "")) {
+      rejected.add(articleImageKey(link.getAttribute("href"), pageUrl));
+    }
+  }
+  for (const image of root.querySelectorAll("img")) {
+    for (const source of articleImageSources(image)) {
+      if (!articleImageSourceUrl(image, source, pageUrl)) {
+        rejected.add(articleImageKey(source, pageUrl));
+      }
+    }
+  }
+  return rejected;
+};
+
+export const selectArticleThumbnail = ({
+  thumbnailUrl = "",
+  candidates = [],
+  bodyHtml = "",
+  summaryHtml = "",
+  pageUrl,
+  feedIconUrl = ""
+}) => {
+  const body = parse(bodyHtml);
+  const summary = parse(summaryHtml);
+  const rejected = collectRejectedImageKeys(body, pageUrl);
+  for (const key of collectRejectedImageKeys(summary, pageUrl)) rejected.add(key);
+  if (feedIconUrl) rejected.add(articleImageKey(feedIconUrl, pageUrl));
+
+  for (const candidate of [thumbnailUrl, ...candidates]) {
+    const url = articleImageUrl(candidate, pageUrl);
+    if (url && !rejected.has(articleImageKey(url))) return url;
+  }
+  return firstArticleImage(body, pageUrl, rejected) || firstArticleImage(summary, pageUrl, rejected);
+};
+
+const socialImages = (root, namespace) => {
+  const images = [];
+  for (const meta of root.querySelectorAll("meta")) {
+    const key = meta.getAttribute("property") || meta.getAttribute("name") || "";
+    const content = meta.getAttribute("content") || "";
+    if (key === namespace || key === `${namespace}:url` || key === `${namespace}:src`) {
+      images.push({ url: content });
+    } else if (key.startsWith(`${namespace}:`) && images.length) {
+      const image = images.at(-1);
+      const attribute = key.slice(namespace.length + 1);
+      if (["alt", "width", "height"].includes(attribute)) image[attribute] = content;
+    }
+  }
+  return images;
+};
+
+const pageThumbnail = (root, pageUrl, bodyHtml = "") => {
+  const rejected = collectRejectedImageKeys(root, pageUrl);
+  const candidates = [...socialImages(root, "og:image"), ...socialImages(root, "twitter:image")];
+  for (const candidate of candidates) {
+    if (!articleImageUrl(candidate.url, pageUrl, candidate)) {
+      rejected.add(articleImageKey(candidate.url, pageUrl));
+    }
+  }
+  for (const candidate of candidates) {
+    const url = articleImageUrl(candidate.url, pageUrl, candidate);
+    if (url && !rejected.has(articleImageKey(url))) return url;
+  }
+
+  return firstArticleImage(root, pageUrl, rejected, "article img, main img, [role='main'] img") ||
+    firstArticleImage(parse(bodyHtml), pageUrl, rejected);
+};
+
+export const extractPageThumbnail = (html, pageUrl, bodyHtml) =>
+  pageThumbnail(parse(html), pageUrl, bodyHtml);
+
+export const extractPageMetadata = (html, pageUrl, { includeThumbnail = true } = {}) => {
   const root = parse(html);
   const title = firstNonEmpty(
     metaContent(root, "meta[property='og:title']"),
@@ -244,14 +328,6 @@ export const extractPageMetadata = (html, pageUrl) => {
     root.querySelector("time[datetime]")?.getAttribute("datetime")?.trim() || ""
   );
 
-  const thumbnailUrl = firstNonEmpty(
-    resolveMaybeUrl(metaContent(root, "meta[property='og:image']"), pageUrl),
-    resolveMaybeUrl(metaContent(root, "meta[name='twitter:image']"), pageUrl),
-    resolveMaybeUrl(root.querySelector("article img")?.getAttribute("src") || "", pageUrl),
-    resolveMaybeUrl(root.querySelector("main img")?.getAttribute("src") || "", pageUrl),
-    resolveMaybeUrl(root.querySelector("img")?.getAttribute("src") || "", pageUrl)
-  );
-
   return {
     author,
     canonicalUrl: firstNonEmpty(
@@ -266,7 +342,7 @@ export const extractPageMetadata = (html, pageUrl) => {
     ),
     publishedAt,
     siteName,
-    thumbnailUrl,
+    thumbnailUrl: includeThumbnail ? pageThumbnail(root, pageUrl) : "",
     title
   };
 };

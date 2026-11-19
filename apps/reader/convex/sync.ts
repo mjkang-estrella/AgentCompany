@@ -17,8 +17,10 @@ import {
 import {
   canonicalizeUrl,
   estimateReadTime,
+  extractArticleImage,
   renderMarkdownFragment,
   sanitizeFragment,
+  selectArticleThumbnail,
   stripHtml
 } from "../lib/html.mjs";
 import {
@@ -39,27 +41,6 @@ const DEFAULT_HEADERS = {
   "user-agent": "AgentCompany Reader/1.0 (+https://agent.company)"
 };
 const MAX_SYNC_ENTRIES = 50;
-
-const resolveUrl = (value: string, baseUrl: string) => {
-  if (!value) {
-    return "";
-  }
-
-  try {
-    return new URL(value, baseUrl).toString();
-  } catch {
-    return "";
-  }
-};
-
-const findFirstImageUrl = (html: string, baseUrl: string) => {
-  if (!html) {
-    return "";
-  }
-
-  const match = String(html).match(/<img\b[^>]*\bsrc=["']([^"']+)["']/iu);
-  return resolveUrl(match?.[1] || "", baseUrl);
-};
 
 const fetchText = async (url: string) => {
   const response = await fetch(url, {
@@ -161,7 +142,7 @@ const maybeFetchArticleBody = async (
           readTimeMinutes: estimateReadTime(rendered),
           rejectionReason: "",
           siteName: "",
-          thumbnailUrl: "",
+          thumbnailUrl: extractArticleImage(rendered, url),
           title: ""
         };
       }
@@ -170,27 +151,28 @@ const maybeFetchArticleBody = async (
     }
   }
 
+  let pageThumbnailUrl = "";
   if (url) {
     try {
       const page = await fetchText(url);
       const extracted = await extractPageWithDefuddle(page.text, page.url);
-      if (
-        extracted.quality === "usable" &&
-        stripHtml(extracted.bodyHtml).length > stripHtml(existingHtml).length
-      ) {
-        return {
-          author: extracted.author,
-          bodyHtml: extracted.bodyHtml,
-          bodySource: "fetched" as const,
-          canonicalUrl: extracted.canonicalUrl,
-          publishedAt: extracted.publishedAt,
-          quality: extracted.quality,
-          readTimeMinutes: extracted.readTimeMinutes,
-          rejectionReason: extracted.rejectionReason,
-          siteName: extracted.siteName,
-          thumbnailUrl: extracted.thumbnailUrl,
-          title: extracted.title
-        };
+      if (extracted.quality === "usable") {
+        pageThumbnailUrl = extracted.thumbnailUrl;
+        if (stripHtml(extracted.bodyHtml).length > stripHtml(existingHtml).length) {
+          return {
+            author: extracted.author,
+            bodyHtml: extracted.bodyHtml,
+            bodySource: "fetched" as const,
+            canonicalUrl: extracted.canonicalUrl,
+            publishedAt: extracted.publishedAt,
+            quality: extracted.quality,
+            readTimeMinutes: extracted.readTimeMinutes,
+            rejectionReason: extracted.rejectionReason,
+            siteName: extracted.siteName,
+            thumbnailUrl: pageThumbnailUrl,
+            title: extracted.title
+          };
+        }
       }
     } catch {
       // Fall through to feed body.
@@ -207,7 +189,7 @@ const maybeFetchArticleBody = async (
     readTimeMinutes: estimateReadTime(existingHtml),
     rejectionReason: "feed-body-retained",
     siteName: "",
-    thumbnailUrl: "",
+    thumbnailUrl: pageThumbnailUrl,
     title: ""
   };
 };
@@ -622,23 +604,25 @@ const runFeedHandler = async (ctx: any, args: { feedId: any }) => {
           entry.bodyHtml || entry.summaryHtml,
           entry.markdownUrl
         );
+        const thumbnailUrl = selectArticleThumbnail({
+          candidates: [fetchedBody.thumbnailUrl, entry.thumbnailUrl],
+          bodyHtml: fetchedBody.bodySource === "fetched" ? fetchedBody.bodyHtml : entry.bodyHtml,
+          summaryHtml: entry.summaryHtml,
+          pageUrl: entry.url || parsed.siteUrl || response.url,
+          feedIconUrl: feed.iconUrl
+        }) || undefined;
         const normalizedArticle = normalizeArticleContent({
           author: fetchedBody.author || entry.author || "",
           bodyHtml: fetchedBody.bodyHtml || sanitizeFragment(entry.summaryHtml || ""),
           feedTitle: parsed.title || feed.title,
           publishedAt: fetchedBody.publishedAt || entry.publishedAt,
           summaryHtml: sanitizeFragment(entry.summaryHtml || fetchedBody.bodyHtml || ""),
-          thumbnailUrl: fetchedBody.thumbnailUrl || entry.thumbnailUrl || "",
+          thumbnailUrl: thumbnailUrl || "",
           title: fetchedBody.title || entry.title
         });
         const bodyHtml = normalizedArticle.bodyHtml;
         const summaryHtml = normalizedArticle.summaryHtml;
         const previewText = normalizedArticle.previewText;
-        const thumbnailUrl =
-          fetchedBody.thumbnailUrl ||
-          entry.thumbnailUrl ||
-          findFirstImageUrl(bodyHtml || summaryHtml, entry.url || parsed.siteUrl || response.url) ||
-          undefined;
         const canonicalUrl = fetchedBody.canonicalUrl || canonicalizeUrl(entry.url);
         const title = fetchedBody.title || entry.title;
         const subtitle = normalizedArticle.subtitle || undefined;

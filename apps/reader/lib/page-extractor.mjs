@@ -4,6 +4,7 @@ import {
   canonicalizeUrl,
   estimateReadTime,
   extractPageMetadata,
+  extractPageThumbnail,
   extractReadableContent,
   sanitizeFragment,
   stripHtml
@@ -143,18 +144,6 @@ const setDocumentUrl = (document, url) => {
 const firstNonEmpty = (...values) => values.find((value) => String(value || "").trim()) || "";
 const normalizeText = (value) => String(value || "").replace(/\s+/gu, " ").trim().toLowerCase();
 
-const resolveUrl = (value, baseUrl) => {
-  if (!value) {
-    return "";
-  }
-
-  try {
-    return new URL(value, baseUrl).toString();
-  } catch {
-    return "";
-  }
-};
-
 const chooseArticleTitle = ({
   defuddledTitle = "",
   metadataTitle = "",
@@ -201,23 +190,6 @@ const normalizeSummaryHtml = (bodyHtml, description) => {
   }
 
   return sanitizeFragment(bodyHtml || "");
-};
-
-const findFirstImageUrl = (html, baseUrl) => {
-  if (!html) {
-    return "";
-  }
-
-  const match = String(html).match(/<img\b[^>]*\bsrc=["']([^"']+)["']/iu);
-  if (!match?.[1]) {
-    return "";
-  }
-
-  try {
-    return new URL(match[1], baseUrl).toString();
-  } catch {
-    return "";
-  }
 };
 
 const resolveArticleAssetUrls = (html, baseUrl) => {
@@ -522,7 +494,7 @@ const chooseBodyHtml = (defuddledHtml, fallbackHtml) => {
 };
 
 export const extractPageWithDefuddle = async (html, url) => {
-  const metadata = extractPageMetadata(html, url);
+  const metadata = extractPageMetadata(html, url, { includeThumbnail: false });
   const fallbackHtml = extractReadableContent(html);
   const document = parseHTML(html || "").document;
   setDocumentUrl(document, url);
@@ -550,11 +522,7 @@ export const extractPageWithDefuddle = async (html, url) => {
     bodyHtml,
     firstNonEmpty(defuddled?.description, metadata.description)
   );
-  const thumbnailUrl = firstNonEmpty(
-    resolveUrl(defuddled?.image, url),
-    resolveUrl(metadata.thumbnailUrl, url),
-    findFirstImageUrl(bodyHtml || summaryHtml, url)
-  );
+  const thumbnailUrl = extractPageThumbnail(html, url, bodyHtml);
   const canonicalUrl = canonicalizeUrl(
     firstNonEmpty(metadata.canonicalUrl, defuddled?.url, url)
   );

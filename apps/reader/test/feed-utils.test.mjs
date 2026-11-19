@@ -278,3 +278,22 @@ test("today bounds and today matching use client timezone offset", () => {
   assert.equal(isToday("2026-03-11T08:00:00.000Z", 420, now), true);
   assert.equal(isToday("2026-03-10T20:00:00.000Z", 420, now), false);
 });
+
+test("feed thumbnails skip Stratechery sponsor images and choose the next article photo", () => {
+  const photo = "https://stratechery.com/wp-content/uploads/GettyImages-2266460767-blog.jpg";
+  const sponsor = "https://i0.wp.com/stratechery.com/wp-content/uploads/Stripe-wordmark-Blurple-Small.png?resize=55%2C23";
+  const xml = `<rss><channel><item>
+    <title>The End of Jensen</title><link>https://stratechery.com/2026/the-end-of-jensen/</link>
+    <media:content url="${sponsor}" medium="image" />
+    <media:thumbnail url="https://example.com/image.png" width="55" height="23" />
+    <description><![CDATA[
+      <img src="${sponsor}" alt="Stripe">
+      <a rel="sponsored" href="https://example.com"><img src="https://example.com/brand.jpg"></a>
+      <figure><img src="${photo}" width="1200" height="800"></figure>
+    ]]></description>
+  </item></channel></rss>`;
+  const [entry] = parseFeed(xml, "https://stratechery.com/feed/").feed.entries;
+  assert.equal(entry.thumbnailUrl, photo);
+  assert.equal(parseFeed(xml.replace(photo, "https://example.com/photo.jpg?resize=55x23"),
+    "https://stratechery.com/feed/").feed.entries[0].thumbnailUrl, "");
+});

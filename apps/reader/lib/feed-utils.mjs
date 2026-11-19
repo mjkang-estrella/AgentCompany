@@ -1,5 +1,7 @@
 import { XMLParser } from "fast-xml-parser";
-import { decodeHtmlEntities, decodeHtmlFragment } from "./html.mjs";
+import { decodeHtmlEntities, decodeHtmlFragment, selectArticleThumbnail } from "./html.mjs";
+
+import { articleImageUrl } from "./article-thumbnail.mjs";
 
 const parser = new XMLParser({
   attributeNamePrefix: "",
@@ -79,15 +81,6 @@ const getHtml = (value) => {
   return "";
 };
 
-const findFirstImageUrl = (html, baseUrl) => {
-  if (!html) {
-    return "";
-  }
-
-  const match = decodeHtmlFragment(String(html)).match(/<img\b[^>]*\bsrc=["']([^"']+)["']/iu);
-  return resolveUrl(match?.[1] || "", baseUrl);
-};
-
 const resolveUrl = (value, baseUrl) => {
   if (!value) {
     return "";
@@ -107,7 +100,7 @@ const getImageUrl = (value, baseUrl) => {
     }
 
     if (typeof item === "string") {
-      const resolved = resolveUrl(item, baseUrl);
+      const resolved = articleImageUrl(item, baseUrl);
       if (resolved) {
         return resolved;
       }
@@ -117,7 +110,11 @@ const getImageUrl = (value, baseUrl) => {
     if (typeof item === "object") {
       const medium = String(item.medium || "").toLowerCase();
       const type = String(item.type || "").toLowerCase();
-      const url = resolveUrl(String(item.url || item.href || item.src || ""), baseUrl);
+      const url = articleImageUrl(String(item.url || item.href || item.src || ""), baseUrl, {
+        alt: getText(item["media:title"] || item.title || item.alt),
+        width: item.width,
+        height: item.height
+      });
 
       if (url && (medium === "image" || type.startsWith("image/") || (!medium && !type))) {
         return url;
@@ -185,11 +182,16 @@ const normalizeEntry = (entry, format, baseUrl) => {
       getText(entry.pubDate || entry.published || entry.updated) ||
       new Date().toISOString(),
     summaryHtml,
-    thumbnailUrl:
-      getImageUrl(entry["media:content"], baseUrl) ||
-      getImageUrl(entry["media:thumbnail"], baseUrl) ||
-      getImageUrl(entry.enclosure, baseUrl) ||
-      findFirstImageUrl(feedBody || summaryHtml, baseUrl),
+    thumbnailUrl: selectArticleThumbnail({
+      candidates: [
+        getImageUrl(entry["media:content"], baseUrl),
+        getImageUrl(entry["media:thumbnail"], baseUrl),
+        getImageUrl(entry.enclosure, baseUrl)
+      ],
+      bodyHtml: feedBody,
+      summaryHtml,
+      pageUrl: url || baseUrl
+    }),
     title: getText(entry.title) || url || "Untitled article",
     url
   };
